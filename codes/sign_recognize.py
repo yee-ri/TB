@@ -12,10 +12,10 @@ class TemplateMatch:
 
         self.bridge=CvBridge()
         self.lturn_template=cv2.imread('/home/sj/Desktop/TB/images/lturn1.png',cv2.IMREAD_GRAYSCALE)
-        self.lturn_template=cv2.resize(self.lturn_template,(100,100))
+        self.lturn_template=cv2.resize(self.lturn_template,(150,150))
 
         self.rturn_template=cv2.imread('/home/sj/Desktop/TB/images/rturn1.png',cv2.IMREAD_GRAYSCALE)
-        self.rturn_template=cv2.resize(self.rturn_template,(100,100))
+        self.rturn_template=cv2.resize(self.rturn_template,(150,150))
 
         rospy.Subscriber('/camera/color/image_raw',Image,self.image_callback,queue_size=1,buff_size=2**24)
 
@@ -49,6 +49,7 @@ class TemplateMatch:
         right_percent=rmax_val*100
 
         rospy.loginfo("LEFT sign: %.1f%%     RIGHT sign: %.1f%%",left_percent,right_percent)
+
 if __name__=='__main__':
     node=TemplateMatch()
     rospy.spin()

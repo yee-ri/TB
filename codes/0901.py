@@ -42,10 +42,10 @@ class turtlebot():
         self.hide_yellow=0
         self.hide_white=0
 
-        self.lturn_template=cv2.imread('/home/sj/Desktop/TB/images/lturn.jpg',cv2.IMREAD_GRAYSCALE)
+        self.lturn_template=cv2.imread('/home/sj/Desktop/TB/images/lturn2.png',cv2.IMREAD_GRAYSCALE)
         self.lturn_template=cv2.resize(self.lturn_template,(100,100))
 
-        self.rturn_template=cv2.imread('/home/sj/Desktop/TB/images/rturn.jpg',cv2.IMREAD_GRAYSCALE)
+        self.rturn_template=cv2.imread('/home/sj/Desktop/TB/images/rturn2.png',cv2.IMREAD_GRAYSCALE)
         self.rturn_template=cv2.resize(self.rturn_template,(100,100))
 
     def detect_light(self,data):
@@ -66,10 +66,10 @@ class turtlebot():
         self.detect_lturn(data)
         self.detect_rturn(data)
 
-        if self.max_val_l>self.max_val_r+0.05 and self.max_val_l>0.53 or self.max_val_l>0.65:
+        if self.max_val_l>self.max_val_r+0.04 and self.max_val_l>0.35 or self.max_val_l>0.4:
             return 'left'
 
-        if self.max_val_r>self.max_val_l+0.05 and self.max_val_r>0.53 or self.max_val_r>0.65:
+        if self.max_val_r>self.max_val_l+0.04 and self.max_val_r>0.35 or self.max_val_r>0.4:
             return 'right'
 
         return None
