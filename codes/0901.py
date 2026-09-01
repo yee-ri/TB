@@ -19,6 +19,8 @@ class turtlebot() :
         self.msg = Twist()
         self.v_l = 0.0
         self.v_r = 0.0
+        self.last_v_l = 0.0
+        self.last_v_r = 0.0
 
         self.cx_w=0
         self.cy_w=0
@@ -27,19 +29,68 @@ class turtlebot() :
 
         self.wheel_radius = 0.0475
         self.wheel_separation = 0.148
+        self.lost_count=0
+        self.lane_width = 260
+
+        self.mode = 'stop'
+        self.light = None
+
+        self.prev_white_x = None
+        self.prev_yellow_x = None
 
 ####### related with TURN SIGN ######
         self.hide = 0
         self.hide_yellow = 0
         self.hide_white = 0
-        self.template=cv2.imread('/home/sj/Desktop/TB/images/lturn.jpg',cv2.IMREAD_GRAYSCALE)
-        self.template = cv2.resize(self.template,(100,100))
-        if self.template is None:
-            rospy.logerr("TEMPLATE LOAD FAIL")
-            rospy.signal_shutdown("template load fail")
-            return
+        self.lturn_template=cv2.imread('/home/sj/Desktop/TB/images/lturn.jpg',cv2.IMREAD_GRAYSCALE)
+        self.lturn_template = cv2.resize(self.lturn_template,(100,100))
+        self.rturn_template=cv2.imread('/home/sj/Desktop/TB/images/rturn.jpg',cv2.IMREAD_GRAYSCALE)
+        self.rturn_template = cv2.resize(self.rturn_template,(100,100))
       
 #####################################  
+
+    def detect_light(self,data):
+        hsv_frame = cv2.cvtColor(data,cv2.COLOR_BGR2HSV)
+        green_mask = cv2.inRange(hsv_frame,np.array([35,50,50]),np.array([85,255,255]))
+        green_mask = cv2.erode(green_mask,None,iterations=1)
+        green_mask = cv2.dilate(green_mask,None,iterations=2)
+
+        if cv2.countNonZero(green_mask) >= 200:
+            rospy.loginfo("DETECTED GREEN LIGHT")
+            self.light = 'green'
+            self.mode = 'lane'
+            return 'green'
+
+        return None
+    
+    def detect_sign(self,data):
+        self.detect_lturn(data)
+        self.detect_rturn(data)
+
+        # rospy.loginfo("Lturn score: %.3f Rturn score: %.3f",self.max_val_l,self.max_val_r)
+
+        # if 0.1 < self.front_distance <= 0.47:
+        #     if self.max_val_l > self.max_val_r+0.05 and self.max_val_l > 0.53 or self.max_val_l>0.65:#65
+        #         return 'left'
+
+        #     if self.max_val_r > self.max_val_l+0.05 and self.max_val_r > 0.53 or self.max_val_r>0.65 :
+        #         return 'right'
+        if self.max_val_l > self.max_val_r+0.05 and self.max_val_l > 0.53 or self.max_val_l>0.65:#65
+            return 'left'
+
+        if self.max_val_r > self.max_val_l+0.05 and self.max_val_r > 0.53 or self.max_val_r>0.65 :
+            return 'right'
+        return None
+
+    def detect_lturn(self,data):
+        gray = cv2.cvtColor(data,cv2.COLOR_BGR2GRAY)
+        res = cv2.matchTemplate(gray,self.lturn_template,cv2.TM_CCOEFF_NORMED)
+        _,self.max_val_l,_,_ = cv2.minMaxLoc(res)
+
+    def detect_rturn(self,data):
+        gray = cv2.cvtColor(data,cv2.COLOR_BGR2GRAY)
+        res = cv2.matchTemplate(gray,self.rturn_template,cv2.TM_CCOEFF_NORMED)
+        _,self.max_val_r,_,_ = cv2.minMaxLoc(res)
 
     def img_callback(self,data):
 
@@ -49,24 +100,24 @@ class turtlebot() :
 
         height,width=image.shape[:2]
 
-        rospy.loginfo("left: %3f   front: %3f   right: %3f", self.left_distance,self.front_distance,self.right_distance)
+        # rospy.loginfo("left: %3f   front: %3f   right: %3f", self.left_distance,self.front_distance,self.right_distance)
         # rospy.loginfo(self.yellow_area)
         if self.mode == 'stop':
             if self.detect_light(image) != 'green':
                 return
 
-        if self.mode == 'lane' and self.gain == 1 and self.after_parking == 0:
+        if self.mode == 'lane' :
             self.sign = self.detect_sign(image)
 
             if self.sign == 'left':
                 self.mode = 'turn_left'
-                self.c_mode = 1
+                # self.c_mode = 1
                 self.hide_yellow = 1
                 rospy.loginfo("@@@ TURN LEFT !!!! @@@")
 
             elif self.sign == 'right':
                 self.mode = 'turn_right'
-                self.c_mode = 1
+                # self.c_mode = 1
                 self.hide_white = 1
                 rospy.loginfo("@@@ TURN RIGHT !!!! @@@")
 
