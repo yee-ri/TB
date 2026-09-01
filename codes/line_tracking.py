@@ -35,7 +35,7 @@ class turtlebot() :
        
         self.crop_img = image
         
-        self.crop_img = image[150:,:]
+        self.crop_img = image[200:,:]
         display_image = self.crop_img.copy()
         
 
@@ -65,11 +65,11 @@ class turtlebot() :
             self.cen = (self.cx_w + self.cx_y) / 2
             self.err_x = self.cen - center_x
 
-            linear = 5
-            angular = -float(self.err_x) / 2
-            wheel_distance = 0.1
-            self.v_l = linear - angular * wheel_distance *0.55
-            self.v_r = linear + angular * wheel_distance *0.55
+            linear = 7
+            angular = -float(self.err_x) /2*0.25
+            wheel_distance = 0.148
+            self.v_l = linear - angular * wheel_distance *1.2
+            self.v_r = linear + angular * wheel_distance *1.2
             
             self.publish_velocity()
 
@@ -79,9 +79,9 @@ class turtlebot() :
             self.cen = self.cx_w 
             self.err_x = self.cen - center_x - 150
 
-            linear = 5.2
+            linear = 7
             angular =-float(self.err_x) / 5
-            wheel_distance = 0.2
+            wheel_distance = 0.148
 
             self.v_l = linear - angular * wheel_distance * 0.9
             self.v_r = linear + angular * wheel_distance * 0.9
@@ -94,9 +94,9 @@ class turtlebot() :
             self.cen = self.cx_y
             self.err_x = self.cen - center_x + 135
 
-            linear = 4.5
+            linear = 7
             angular =-float(self.err_x) / 5
-            wheel_distance = 0.2
+            wheel_distance = 0.148
    
             self.v_l = linear - angular * wheel_distance * 0.9
             self.v_r = linear + angular * wheel_distance * 0.9

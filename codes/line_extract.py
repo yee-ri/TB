@@ -64,10 +64,10 @@ class turtlebot():
 
     def img_callback(self,data):
         image=cv2.imdecode(np.frombuffer(data.data,np.uint8),cv2.IMREAD_COLOR)
-
+        image = image[160:,:]
         hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV)
 
-        white_mask=cv2.inRange(hsv,np.array([0,0,200]),np.array([179,50,255]))
+        white_mask=cv2.inRange(hsv,np.array([0,0,150]),np.array([179,50,255]))
         yellow_mask=cv2.inRange(hsv,np.array([20,100,100]),np.array([50,255,255]))
 
         white_mask=cv2.erode(white_mask,None,iterations=1)
@@ -79,8 +79,8 @@ class turtlebot():
         mask=cv2.bitwise_or(white_mask,yellow_mask)
         result=cv2.bitwise_and(image,image,mask=mask)
 
-        # cv2.imshow('COLOR DETECTION',result)
-        # cv2.waitKey(3)
+        cv2.imshow('COLOR DETECTION',result)
+        cv2.waitKey(3)
 
     def find_line(self,mask,previous_x):
         contours,_ = cv2.findContours(mask,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
