@@ -4,123 +4,124 @@ import cv2
 import numpy as np
 from sensor_msgs.msg import CompressedImage
 from geometry_msgs.msg import Twist
-from sensor_msgs.msg import Image  
+from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 
-class turtlebot() :
+class turtlebot():
     def __init__(self):
-        rospy.init_node('controller', anonymous=True)
+        rospy.init_node('controller',anonymous=True)
 
-        self.cmd_pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
+        self.cmd_pub=rospy.Publisher("/cmd_vel",Twist,queue_size=10)
         self.image_sub=rospy.Subscriber('/camera/color/image_raw/compressed',CompressedImage,self.img_callback,queue_size=1)
 
-        self.bridge = CvBridge()
+        self.bridge=CvBridge()
 
-        self.msg = Twist()
-        self.v_l = 0.0
-        self.v_r = 0.0
-        self.last_v_l = 0.0
-        self.last_v_r = 0.0
+        self.msg=Twist()
+        self.v_l=0.0
+        self.v_r=0.0
+        self.last_v_l=0.0
+        self.last_v_r=0.0
 
         self.cx_w=0
         self.cy_w=0
         self.cx_y=0
         self.cy_y=0
 
-        self.wheel_radius = 0.0475
-        self.wheel_separation = 0.148
+        self.wheel_radius=0.0475
+        self.wheel_separation=0.148
         self.lost_count=0
-        self.lane_width = 260
+        self.lane_width=260
 
-        self.mode = 'stop'
-        self.light = None
+        self.mode='stop'
+        self.light=None
 
-        self.prev_white_x = None
-        self.prev_yellow_x = None
+        self.prev_white_x=None
+        self.prev_yellow_x=None
 
-####### related with TURN SIGN ######
-        self.hide = 0
-        self.hide_yellow = 0
-        self.hide_white = 0
+        self.hide=0
+        self.hide_yellow=0
+        self.hide_white=0
+
         self.lturn_template=cv2.imread('/home/sj/Desktop/TB/images/lturn.jpg',cv2.IMREAD_GRAYSCALE)
-        self.lturn_template = cv2.resize(self.lturn_template,(100,100))
+        self.lturn_template=cv2.resize(self.lturn_template,(100,100))
+
         self.rturn_template=cv2.imread('/home/sj/Desktop/TB/images/rturn.jpg',cv2.IMREAD_GRAYSCALE)
-        self.rturn_template = cv2.resize(self.rturn_template,(100,100))
-      
-#####################################  
+        self.rturn_template=cv2.resize(self.rturn_template,(100,100))
 
     def detect_light(self,data):
-        hsv_frame = cv2.cvtColor(data,cv2.COLOR_BGR2HSV)
-        green_mask = cv2.inRange(hsv_frame,np.array([35,50,50]),np.array([85,255,255]))
-        green_mask = cv2.erode(green_mask,None,iterations=1)
-        green_mask = cv2.dilate(green_mask,None,iterations=2)
+        hsv_frame=cv2.cvtColor(data,cv2.COLOR_BGR2HSV)
+        green_mask=cv2.inRange(hsv_frame,np.array([35,50,50]),np.array([85,255,255]))
+        green_mask=cv2.erode(green_mask,None,iterations=1)
+        green_mask=cv2.dilate(green_mask,None,iterations=2)
 
-        if cv2.countNonZero(green_mask) >= 200:
+        if cv2.countNonZero(green_mask)>=200:
             rospy.loginfo("DETECTED GREEN LIGHT")
-            self.light = 'green'
-            self.mode = 'lane'
+            self.light='green'
+            self.mode='lane'
             return 'green'
 
         return None
-    
+
     def detect_sign(self,data):
         self.detect_lturn(data)
         self.detect_rturn(data)
 
-        # rospy.loginfo("Lturn score: %.3f Rturn score: %.3f",self.max_val_l,self.max_val_r)
-
-        # if 0.1 < self.front_distance <= 0.47:
-        #     if self.max_val_l > self.max_val_r+0.05 and self.max_val_l > 0.53 or self.max_val_l>0.65:#65
-        #         return 'left'
-
-        #     if self.max_val_r > self.max_val_l+0.05 and self.max_val_r > 0.53 or self.max_val_r>0.65 :
-        #         return 'right'
-        if self.max_val_l > self.max_val_r+0.05 and self.max_val_l > 0.53 or self.max_val_l>0.65:#65
+        if self.max_val_l>self.max_val_r+0.05 and self.max_val_l>0.53 or self.max_val_l>0.65:
             return 'left'
 
-        if self.max_val_r > self.max_val_l+0.05 and self.max_val_r > 0.53 or self.max_val_r>0.65 :
+        if self.max_val_r>self.max_val_l+0.05 and self.max_val_r>0.53 or self.max_val_r>0.65:
             return 'right'
+
         return None
 
     def detect_lturn(self,data):
-        gray = cv2.cvtColor(data,cv2.COLOR_BGR2GRAY)
-        res = cv2.matchTemplate(gray,self.lturn_template,cv2.TM_CCOEFF_NORMED)
-        _,self.max_val_l,_,_ = cv2.minMaxLoc(res)
+        gray=cv2.cvtColor(data,cv2.COLOR_BGR2GRAY)
+        res=cv2.matchTemplate(gray,self.lturn_template,cv2.TM_CCOEFF_NORMED)
+        _,self.max_val_l,_,_=cv2.minMaxLoc(res)
 
     def detect_rturn(self,data):
-        gray = cv2.cvtColor(data,cv2.COLOR_BGR2GRAY)
-        res = cv2.matchTemplate(gray,self.rturn_template,cv2.TM_CCOEFF_NORMED)
-        _,self.max_val_r,_,_ = cv2.minMaxLoc(res)
+        gray=cv2.cvtColor(data,cv2.COLOR_BGR2GRAY)
+        res=cv2.matchTemplate(gray,self.rturn_template,cv2.TM_CCOEFF_NORMED)
+        _,self.max_val_r,_,_=cv2.minMaxLoc(res)
 
     def img_callback(self,data):
-
         image=cv2.imdecode(np.frombuffer(data.data,np.uint8),cv2.IMREAD_COLOR)
+
         if image is None:
             return
 
-        height,width=image.shape[:2]
+        hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV)
 
-        # rospy.loginfo("left: %3f   front: %3f   right: %3f", self.left_distance,self.front_distance,self.right_distance)
-        # rospy.loginfo(self.yellow_area)
-        if self.mode == 'stop':
-            if self.detect_light(image) != 'green':
+        yellow_mask=cv2.inRange(hsv,np.array([20,100,100]),np.array([50,255,255]))
+        white_mask=cv2.inRange(hsv,np.array([0,0,150]),np.array([179,50,255]))
+        blue_mask=cv2.inRange(hsv,np.array([90,80,50]),np.array([130,255,255]))
+
+        mask=cv2.bitwise_or(yellow_mask,white_mask)
+        mask=cv2.bitwise_or(mask,blue_mask)
+
+        filtered=cv2.bitwise_and(image,image,mask=mask)
+
+        cv2.imshow('COLOR FILTER',filtered)
+        cv2.waitKey(1)
+
+        height,width=filtered.shape[:2]
+
+        if self.mode=='stop':
+            if self.detect_light(image)!='green':
                 return
 
-        if self.mode == 'lane' :
-            self.sign = self.detect_sign(image)
+        if self.mode=='lane':
+            self.sign=self.detect_sign(filtered)
 
-            if self.sign == 'left':
-                self.mode = 'turn_left'
-                # self.c_mode = 1
-                self.hide_yellow = 1
+            if self.sign=='left':
+                self.mode='turn_left'
+                self.hide_yellow=1
                 rospy.loginfo("@@@ TURN LEFT !!!! @@@")
 
-            elif self.sign == 'right':
-                self.mode = 'turn_right'
-                # self.c_mode = 1
-                self.hide_white = 1
+            elif self.sign=='right':
+                self.mode='turn_right'
+                self.hide_white=1
                 rospy.loginfo("@@@ TURN RIGHT !!!! @@@")
-
 
 
         roi_list=[
@@ -137,23 +138,23 @@ class turtlebot() :
         roi_end=height
 
         for start_y,end_y in roi_list:
-            crop_img=image[start_y:end_y,:]
+            crop_img=filtered[start_y:end_y,:]
             hsv_frame=cv2.cvtColor(crop_img,cv2.COLOR_BGR2HSV)
 
-            white_mask=cv2.inRange(hsv_frame,np.array([0,0,200]),np.array([179,50,255]))
+            white_mask=cv2.inRange(hsv_frame,np.array([0,0,150]),np.array([179,50,255]))
             yellow_mask=cv2.inRange(hsv_frame,np.array([20,100,100]),np.array([50,255,255]))
 
-            if self.hide_yellow == 1: # TURN LEFT 반말고 왼쪽 노란거 1/4 날리기
-                yellow_mask[:,3*width//4:] = 0
-                white_mask[:,: ] = 0
+            if self.hide_yellow==1:
+                yellow_mask[:,3*width//4:]=0
+                white_mask[:,:]=0
 
-            elif self.hide_white == 1: # TURN RIGHT 흰거 왼쪽 날리기
-                white_mask[:,:width//2] = 0
-                yellow_mask[:,: ] = 0
-
+            elif self.hide_white==1:
+                white_mask[:,:width//2]=0
+                yellow_mask[:,:]=0
 
             white_mask=cv2.erode(white_mask,None,iterations=1)
             white_mask=cv2.dilate(white_mask,None,iterations=2)
+
             yellow_mask=cv2.erode(yellow_mask,None,iterations=1)
             yellow_mask=cv2.dilate(yellow_mask,None,iterations=2)
 
@@ -184,70 +185,79 @@ class turtlebot() :
 
         if white_line is not None and yellow_line is not None:
             measured_lane_width=abs(self.cx_w-self.cx_y)
+
             if 100<measured_lane_width<width:
                 self.lane_width=0.9*self.lane_width+0.1*measured_lane_width
+
             target_x=(self.cx_w+self.cx_y)/2.0
             self.lost_count=0
+
         elif white_line is not None:
             target_x=self.cx_w-self.lane_width/2.0
             self.lost_count=0
+
         elif yellow_line is not None:
             target_x=self.cx_y+self.lane_width/2.0
             self.lost_count=0
-
 
         if target_x is not None:
             error_x=target_x-center_x
             linear=5.0
             angular=np.clip(-float(error_x)/5.0,-10.0,10.0)
             wheel_distance=0.2
+
             self.v_l=linear-angular*wheel_distance*0.9
             self.v_r=linear+angular*wheel_distance*0.9
+
             self.last_v_l=self.v_l
             self.last_v_r=self.v_r
+
         elif self.lost_count<8:
             self.lost_count+=1
             self.v_l=self.last_v_l*0.9
             self.v_r=self.last_v_r*0.9
+
         else:
             self.v_l=0.0
             self.v_r=0.0
 
-        
         self.msg.linear.x=self.wheel_radius*(self.v_r+self.v_l)/2.0*0.2
         self.msg.angular.z=self.wheel_radius*(self.v_r-self.v_l)/self.wheel_separation*0.2
-        self.publish_velocity()
 
-        display=image.copy()
+        self.publish_velocity()
 
         if selected_white_mask is None:
             selected_white_mask=np.zeros((1,width),dtype=np.uint8)
+
         if selected_yellow_mask is None:
             selected_yellow_mask=np.zeros((1,width),dtype=np.uint8)
-
-        # cv2.imshow('line tracking',display)
-        # cv2.imshow('white mask',selected_white_mask)
-        # cv2.imshow('yellow mask',selected_yellow_mask)
-        # cv2.waitKey(3)
 
     def find_line(self,mask,previous_x):
         contours,_=cv2.findContours(mask,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
         candidates=[]
+
         for contour in contours:
             area=cv2.contourArea(contour)
+
             if area<80:
                 continue
+
             M=cv2.moments(contour)
+
             if M['m00']==0:
                 continue
+
             cx=int(M['m10']/M['m00'])
             cy=int(M['m01']/M['m00'])
+
             candidates.append((cx,cy,area))
 
         if not candidates:
             return None
+
         if previous_x is None:
             return max(candidates,key=lambda x:x[2])
+
         return min(candidates,key=lambda x:abs(x[0]-previous_x))
 
     def publish_velocity(self):
@@ -257,4 +267,3 @@ class turtlebot() :
 if __name__=='__main__':
     controller=turtlebot()
     rospy.spin()
-

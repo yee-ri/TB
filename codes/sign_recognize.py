@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import rospy
 import cv2
+import numpy as np
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 
@@ -10,40 +11,45 @@ class TemplateMatch:
         rospy.init_node('template_match',anonymous=True)
 
         self.bridge=CvBridge()
-        self.template=cv2.imread('/home/sj/Desktop/TB/images/lturn.jpg',cv2.IMREAD_GRAYSCALE)
-        self.template = cv2.resize(self.template,(100,100))
-        if self.template is None:
-            rospy.logerr("TEMPLATE LOAD FAIL")
-            rospy.signal_shutdown("template load fail")
-            return
-       
-        self.th,self.tw=self.template.shape
-      
+        self.lturn_template=cv2.imread('/home/sj/Desktop/TB/images/lturn1.png',cv2.IMREAD_GRAYSCALE)
+        self.lturn_template=cv2.resize(self.lturn_template,(100,100))
+
+        self.rturn_template=cv2.imread('/home/sj/Desktop/TB/images/rturn1.png',cv2.IMREAD_GRAYSCALE)
+        self.rturn_template=cv2.resize(self.rturn_template,(100,100))
+
         rospy.Subscriber('/camera/color/image_raw',Image,self.image_callback,queue_size=1,buff_size=2**24)
 
     def image_callback(self,msg):
         image=self.bridge.imgmsg_to_cv2(msg,'bgr8')
-        gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
-    
-        result=cv2.matchTemplate(gray,self.template,cv2.TM_CCOEFF_NORMED)
-        _,max_val,_,max_loc=cv2.minMaxLoc(result)
-   
-        percent=max_val*100
-        x,y=max_loc
-   
 
-        rospy.loginfo("MATCH: %.1f%%",percent)
-    
-        # template_view=cv2.cvtColor(self.template,cv2.COLOR_GRAY2BGR)
-        # template_view=cv2.resize(template_view,(200,200))
-     
-        # camera_view=cv2.resize(image,(640,480))
-     
-        # cv2.imshow('TEMPLATE',template_view)
-        # cv2.imshow('CAMERA MATCH',camera_view)
-        # cv2.waitKey(1)
+        hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV)
 
+        yellow_mask=cv2.inRange(hsv,np.array([20,100,100]),np.array([50,255,255]))
+        white_mask=cv2.inRange(hsv,np.array([0,0,150]),np.array([179,50,255]))
+        blue_mask=cv2.inRange(hsv,np.array([90,80,50]),np.array([130,255,255]))
+
+        mask=cv2.bitwise_or(yellow_mask,white_mask)
+        mask=cv2.bitwise_or(mask,blue_mask)
+
+        filtered=cv2.bitwise_and(image,image,mask=mask)
+
+        cv2.imshow('COLOR FILTER',filtered)
+        cv2.waitKey(1)
+
+        gray=cv2.cvtColor(filtered,cv2.COLOR_BGR2GRAY)
+
+        left_result=cv2.matchTemplate(gray,self.lturn_template,cv2.TM_CCOEFF_NORMED)
+        _,lmax_val,_,lmax_loc=cv2.minMaxLoc(left_result)
+
+        left_percent=lmax_val*100
+
+        right_result=cv2.matchTemplate(gray,self.rturn_template,cv2.TM_CCOEFF_NORMED)
+        _,rmax_val,_,rmax_loc=cv2.minMaxLoc(right_result)
+
+        right_percent=rmax_val*100
+
+        rospy.loginfo("LEFT sign: %.1f%%     RIGHT sign: %.1f%%",left_percent,right_percent)
 if __name__=='__main__':
     node=TemplateMatch()
     rospy.spin()
-    # cv2.destroyAllWindows()
+    cv2.destroyAllWindows()
