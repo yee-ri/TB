@@ -222,7 +222,7 @@ class turtlebot():
                     rospy.loginfo("LANE -> WHITE PRIORITY")
 
                 elif self.cy_y>self.cy_w+20:
-                    self.cen=self.cx_y+145
+                    self.cen=self.cx_y+140
                     rospy.loginfo("LANE -> YELLOW PRIORITY")
 
                 else:
