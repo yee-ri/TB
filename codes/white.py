@@ -36,55 +36,57 @@ class turtlebot():
         if image is None:
             return
 
-        self.crop_img = image[350:, :]
+        self.crop_img = image[300:, :]
         display_image = self.crop_img.copy()
 
         hsvFrame = cv2.cvtColor(self.crop_img, cv2.COLOR_BGR2HSV)
 
-        white_lower = np.array([0, 0, 200])
+        white_lower = np.array([0, 0, 150])
         white_upper = np.array([179, 50, 255])
         white_mask = cv2.inRange(hsvFrame, white_lower, white_upper)
 
-        yellow_lower = np.array([20, 100, 100])
-        yellow_upper = np.array([50, 255, 255])
-        yellow_mask = cv2.inRange(hsvFrame, yellow_lower, yellow_upper)
+        # yellow_lower = np.array([20, 100, 100])
+        # yellow_upper = np.array([50, 255, 255])
+        # yellow_mask = cv2.inRange(hsvFrame, yellow_lower, yellow_upper)
 
         M_w = cv2.moments(white_mask)
-        M_y = cv2.moments(yellow_mask)
+        # M_y = cv2.moments(yellow_mask)
 
         height, width = self.crop_img.shape[:2]
         center_x = width / 2.0
 
         target_x = None
 
-        if M_w["m00"] > 0 and M_y["m00"] > 0:
+        rospy.loginfo(M_w["m00"])
+
+        if M_w["m00"] > 0:
             self.cx_w = int(M_w["m10"] / M_w["m00"])
             self.cy_w = int(M_w["m01"] / M_w["m00"])
 
-            self.cx_y = int(M_y["m10"] / M_y["m00"])
-            self.cy_y = int(M_y["m01"] / M_y["m00"])
+            # self.cx_y = int(M_y["m10"] / M_y["m00"])
+            # self.cy_y = int(M_y["m01"] / M_y["m00"])
 
             # measured_lane_width = abs(self.cx_w - self.cx_y)
 
             # if 150 < measured_lane_width < 400:
             #     self.lane_width = self.lane_width * 0.9 + measured_lane_width * 0.1
 
-            target_x = (self.cx_w + self.cx_y) / 2.0
+            target_x = self.cx_w - 300
 
             rospy.loginfo("CENTER: %f",target_x)
-            rospy.loginfo("Yellow: %f.   White: %f",self.cx_y,self.cx_w)
+            rospy.loginfo("White: %f",self.cx_w)
 
-        elif M_w["m00"] > 0:
-            self.cx_w = int(M_w["m10"] / M_w["m00"])
-            self.cy_w = int(M_w["m01"] / M_w["m00"])
+        # elif M_w["m00"] > 0:
+        #     self.cx_w = int(M_w["m10"] / M_w["m00"])
+        #     self.cy_w = int(M_w["m01"] / M_w["m00"])
 
-            target_x = self.cx_w - 300 #self.lane_width / 2.0
+        #     target_x = self.cx_w - 300 #self.lane_width / 2.0
 
-        elif M_y["m00"] > 0:
-            self.cx_y = int(M_y["m10"] / M_y["m00"])
-            self.cy_y = int(M_y["m01"] / M_y["m00"])
+        # elif M_y["m00"] > 0:
+        #     self.cx_y = int(M_y["m10"] / M_y["m00"])
+        #     self.cy_y = int(M_y["m01"] / M_y["m00"])
 
-            target_x = self.cx_y + 300 #self.lane_width / 2.0
+        #     target_x = self.cx_y + 300 #self.lane_width / 2.0
 
         if target_x is not None:
             # if self.last_target_x is None:
