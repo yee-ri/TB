@@ -86,7 +86,6 @@ class turtlebot():
             rospy.loginfo("@@@@@@ RIGHT SIGN DETECTED @@@@@@")
 
         self.crop_img = image[300:, :]
-        display_image = self.crop_img.copy()
 
         height, width = self.crop_img.shape[:2]
 
@@ -128,26 +127,19 @@ class turtlebot():
 
             target_x = (self.cx_w + self.cx_y) / 2.0
 
-        elif M_w["m00"] > 0:
+        elif M_w["m00"] >0 and M_y["m00"]<=0:
             self.cx_w = int(M_w["m10"] / M_w["m00"])
             self.cy_w = int(M_w["m01"] / M_w["m00"])
 
             target_x = self.cx_w - 300
 
-        elif M_y["m00"] > 0:
+        elif M_y["m00"] > 0 and M_w["m00"]<=0 :
             self.cx_y = int(M_y["m10"] / M_y["m00"])
             self.cy_y = int(M_y["m01"] / M_y["m00"])
 
             target_x = self.cx_y + 300
 
-        
-
         if target_x is not None:
-            # err_x = target_x - center_x
-
-            # linear = 8.0
-            # angular = -float(err_x) / 4.0
-            # angular = np.clip(angular, -12.0, 12.0)
             err_x = target_x - center_x
             diff_x = err_x - self.prev_error
 
@@ -156,13 +148,13 @@ class turtlebot():
 
             linear = 8.0
             angular = -(Kp * err_x + Kd * diff_x)
-            angular = np.clip(angular, -12.0, 12.0)
+            angular = np.clip(angular, -18.0, 18.0)
 
             self.prev_error = err_x
             wheel_distance = 0.148
 
-            self.v_l = linear - angular * wheel_distance * 0.8
-            self.v_r = linear + angular * wheel_distance * 0.8
+            self.v_l = linear - angular * wheel_distance * 1
+            self.v_r = linear + angular * wheel_distance * 1
 
         else:
             self.v_l = 0.1
@@ -170,17 +162,15 @@ class turtlebot():
 
         self.publish_velocity()
 
-        # cv2.imshow('crop', display_image)
         cv2.imshow('WHITE MASK', white_mask)
         cv2.imshow('YELLOW MASK', yellow_mask)
         cv2.waitKey(1)
 
     def publish_velocity(self):
         self.msg.linear.x = (self.wheel_radius * (self.v_r + self.v_l) / 2.0) * 0.1
-        self.msg.angular.z = (self.wheel_radius * (self.v_r - self.v_l) / self.wheel_separation) * 0.18
+        self.msg.angular.z = (self.wheel_radius * (self.v_r - self.v_l) / self.wheel_separation) * 0.2
 
         self.cmd_pub.publish(self.msg)
-        # rospy.loginfo("linear: %.3f angular: %.3f", self.msg.linear.x, self.msg.angular.z)
 
 if __name__ == '__main__':
     controller = turtlebot()

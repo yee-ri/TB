@@ -127,12 +127,12 @@ class turtlebot():
 
                 self.err_x=self.cen-center_x
 
-                linear=5.0
-                angular=-float(self.err_x)/4.0
+                linear=6
+                angular=-float(self.err_x)/3.0
                 wheel_distance=0.2
 
-                self.v_l=linear-angular*wheel_distance*0.7
-                self.v_r=linear+angular*wheel_distance*0.7
+                self.v_l=linear-angular*wheel_distance*1
+                self.v_r=linear+angular*wheel_distance*1
 
                 self.publish_velocity()
 
@@ -143,12 +143,12 @@ class turtlebot():
                 self.cen=self.cx_w-150
                 self.err_x=self.cen-center_x
 
-                linear=5.2
-                angular=-float(self.err_x)/5.0
+                linear=6
+                angular=-float(self.err_x)/3.0
                 wheel_distance=0.2
 
-                self.v_l=linear-angular*wheel_distance*0.9
-                self.v_r=linear+angular*wheel_distance*0.9
+                self.v_l=linear-angular*wheel_distance*1
+                self.v_r=linear+angular*wheel_distance*1
 
                 self.publish_velocity()
 
@@ -159,12 +159,12 @@ class turtlebot():
                 self.cen=self.cx_y+135
                 self.err_x=self.cen-center_x
 
-                linear=4.5
-                angular=-float(self.err_x)/5.0
+                linear=6
+                angular=-float(self.err_x)/3.0
                 wheel_distance=0.2
 
-                self.v_l=linear-angular*wheel_distance*0.9
-                self.v_r=linear+angular*wheel_distance*0.9
+                self.v_l=linear-angular*wheel_distance*1
+                self.v_r=linear+angular*wheel_distance*1
 
                 self.publish_velocity()
 
@@ -176,11 +176,11 @@ class turtlebot():
                 self.cx_y=int(M_y["m10"]/M_y["m00"])
                 self.cy_y=int(M_y["m01"]/M_y["m00"])
 
-                self.cen=self.cx_y+85
+                self.cen=self.cx_y+150
                 self.err_x=self.cen-center_x
 
-                linear=4.5
-                angular=-float(self.err_x)/5.0
+                linear=6
+                angular=-float(self.err_x)/3.0
                 wheel_distance=0.2
 
                 self.v_l=linear-angular*wheel_distance*0.9
@@ -196,15 +196,15 @@ class turtlebot():
                 self.cx_w=int(M_w["m10"]/M_w["m00"])
                 self.cy_w=int(M_w["m01"]/M_w["m00"])
 
-                self.cen=self.cx_w-90
+                self.cen=self.cx_w-150
                 self.err_x=self.cen-center_x
 
-                linear=5.2
-                angular=-float(self.err_x)/5.0
+                linear=6
+                angular=-float(self.err_x)/3.0
                 wheel_distance=0.2
 
-                self.v_l=linear-angular*wheel_distance*0.9
-                self.v_r=linear+angular*wheel_distance*0.9
+                self.v_l=linear-angular*wheel_distance*1
+                self.v_r=linear+angular*wheel_distance*1
 
                 self.publish_velocity()
 
