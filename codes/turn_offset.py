@@ -31,7 +31,9 @@ class turtlebot():
         self.turn_direction = None
 
         self.prev_error = 0.0
-
+        self.prev_target_x = None
+        self.prev_v_l = 0.0
+        self.prev_v_r = 0.0
         self.wheel_radius = 0.0475
         self.wheel_separation = 0.148
 
@@ -53,7 +55,8 @@ class turtlebot():
 
         self.front_distance = min(front_ranges) if front_ranges else float('inf')
 
-        # rospy.loginfo('FRONT: %.2f', self.front_distance)
+
+        rospy.loginfo('FRONT: %.2f', self.front_distance)
 
     def detect_sign(self, image):
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
@@ -76,10 +79,10 @@ class turtlebot():
 
         rospy.loginfo('LEFT: %.1f%% RIGHT: %.1f%%', max_val_l * 100, max_val_r * 100)
 
-        if (max_val_l > max_val_r + 0.03 and max_val_l > 0.27) or max_val_l > 0.32:
+        if (max_val_l > max_val_r + 0.05 and max_val_l > 0.3) or max_val_l > 0.4:
             return 'left'
 
-        if (max_val_r > max_val_l + 0.03 and max_val_r > 0.27) or max_val_r > 0.32:
+        if (max_val_r > max_val_l + 0.05 and max_val_r > 0.3) or max_val_r > 0.4:
             return 'right'
 
         return None
@@ -117,11 +120,11 @@ class turtlebot():
         sign = self.detect_sign(image)
 
         if not self.turn_done:
-            if sign == 'left' and self.turn_detect is None and self.front_distance <= 0.45:
+            if sign == 'left' and self.turn_detect is None and self.front_distance <= 0.55:
                 self.turn_detect = 'left'
                 rospy.loginfo('@@@@@@ LEFT SIGN DETECTED @@@@@@')
 
-            elif sign == 'right' and self.turn_detect is None and self.front_distance <= 0.45:
+            elif sign == 'right' and self.turn_detect is None and self.front_distance <= 0.55:
                 self.turn_detect = 'right'
                 rospy.loginfo('@@@@@@ RIGHT SIGN DETECTED @@@@@@')
 
@@ -170,11 +173,43 @@ class turtlebot():
         center_x = width / 2.0
         target_x = None
 
+        # if M_w['m00'] > 0 and M_y['m00'] > 0:
+        #     cx_w = int(M_w['m10'] / M_w['m00'])
+        #     cx_y = int(M_y['m10'] / M_y['m00'])
+
+        #     target_x = (cx_w + cx_y) / 2.0
         if M_w['m00'] > 0 and M_y['m00'] > 0:
             cx_w = int(M_w['m10'] / M_w['m00'])
             cx_y = int(M_y['m10'] / M_y['m00'])
 
+            h = white_mask.shape[0]
+
+            white_upper = white_mask[:h//2, :]
+            white_lower = white_mask[h//2:, :]
+            yellow_upper = yellow_mask[:h//2, :]
+            yellow_lower = yellow_mask[h//2:, :]    
+
+            Mw_u = cv2.moments(white_upper)
+            Mw_l = cv2.moments(white_lower)
+            My_u = cv2.moments(yellow_upper)
+            My_l = cv2.moments(yellow_lower)
+
             target_x = (cx_w + cx_y) / 2.0
+
+            if Mw_u['m00'] > 0 and Mw_l['m00'] > 0 and My_u['m00'] > 0 and My_l['m00'] > 0:
+                cx_w_u = int(Mw_u['m10'] / Mw_u['m00'])
+                cx_w_l = int(Mw_l['m10'] / Mw_l['m00'])
+                cx_y_u = int(My_u['m10'] / My_u['m00'])
+                cx_y_l = int(My_l['m10'] / My_l['m00'])
+
+                white_curve = abs(cx_w_u - cx_w_l)
+                yellow_curve = abs(cx_y_u - cx_y_l)
+
+                if white_curve > yellow_curve + 40:
+                    target_x +=90
+
+                elif yellow_curve > white_curve + 40:
+                    target_x -= 90
 
         elif M_w['m00'] > 0:
             cx_w = int(M_w['m10'] / M_w['m00'])
@@ -197,7 +232,7 @@ class turtlebot():
                 if curve >180:  # BIG 110-145
                     offset += min((curve - 180) * 0.8, 100)
 
-                rospy.loginfo('WHITE UPPER: %d LOWER: %d CURVE: %d OFFSET: %.1f', cx_upper, cx_lower, curve, offset)
+                # rospy.loginfo('WHITE UPPER: %d LOWER: %d CURVE: %d OFFSET: %.1f', cx_upper, cx_lower, curve, offset)
 
 
             target_x = cx_w - offset
@@ -224,15 +259,21 @@ class turtlebot():
 
                     offset += min((curve - 180) * 0.8, 100)
 
-                rospy.loginfo('YELLOW UPPER: %d LOWER: %d CURVE: %d OFFSET: %.1f', cx_upper, cx_lower, curve, offset)
+                # rospy.loginfo('YELLOW UPPER: %d LOWER: %d CURVE: %d OFFSET: %.1f', cx_upper, cx_lower, curve, offset)
 
             target_x = cx_y + offset
 
         if target_x is not None:
+            if self.prev_target_x is None:
+                self.prev_target_x = target_x
+            else:
+                target_x = 0.25 * target_x + 0.75 * self.prev_target_x
+                self.prev_target_x = target_x
+
             err_x = target_x - center_x
             diff_x = err_x - self.prev_error
 
-            Kp = 0.25
+            Kp = 0.18
             Kd = 0.01
             linear = 10.0
             max_angular = 25.0
@@ -247,10 +288,13 @@ class turtlebot():
             v_l = linear - angular * wheel_distance * 0.6
             v_r = linear + angular * wheel_distance * 0.6
 
+            self.prev_v_l = v_l
+            self.prev_v_r = v_r
+
             self.publish_velocity(v_l, v_r)
 
         else:
-            self.publish_velocity(0.1, 0.1)
+            self.publish_velocity(self.prev_v_l, self.prev_v_r)
 
         mask_view = cv2.vconcat([white_mask, yellow_mask])
         cv2.imshow('MASK VIEW', mask_view)
