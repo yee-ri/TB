@@ -53,7 +53,7 @@ class turtlebot():
 
         self.front_distance = min(front_ranges) if front_ranges else float('inf')
 
-        rospy.loginfo('FRONT: %.2f', self.front_distance)
+        # rospy.loginfo('FRONT: %.2f', self.front_distance)
 
     def detect_sign(self, image):
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
@@ -126,26 +126,23 @@ class turtlebot():
                 rospy.loginfo('@@@@@@ RIGHT SIGN DETECTED @@@@@@')
 
         if self.turn_detect is not None and not self.turn_done and self.front_distance <= 0.3:
-            if self.turn_detect == 'left':
-                rospy.loginfo('@@@@@@ TURN LEFT @@@@@@')
-                self.turn_time('left', 0.8, 0.03, 0.4)
+            direction = self.turn_detect
 
-            elif self.turn_detect == 'right':
-                rospy.loginfo('@@@@@@ TURN RIGHT @@@@@@')
-                self.turn_time('right', 0.8, 0.03, 0.4)
-
-            self.turn_direction = self.turn_detect
+            self.turn_direction = direction
             self.turn_detect = None
             self.turn_done = True
             self.prev_error = 0.0
+
+            if direction == 'left':
+                rospy.loginfo('@@@@@@ TURN LEFT @@@@@@')
+                self.turn_time('left', 0.8, 0.03, 0.4)
+
+            elif direction == 'right':
+                rospy.loginfo('@@@@@@ TURN RIGHT @@@@@@')
+                self.turn_time('right', 0.8, 0.03, 0.4)
+
             return
 
-        if self.turn_done and sign is None and self.front_distance > 1.0:
-            rospy.loginfo('@@@@@@ TURN END -> WHITE TRACKING @@@@@@')
-
-            self.turn_done = False
-            self.turn_direction = None
-            self.prev_error = 0.0
 
         crop_img = image[300:, :]
         height, width = crop_img.shape[:2]
@@ -156,15 +153,16 @@ class turtlebot():
         yellow_mask = cv2.inRange(hsv, np.array([20, 100, 100]), np.array([50, 255, 255]))
 
         if not self.turn_done:
-            yellow_mask[:, :] = 0
+            # yellow_mask[:, :] = 0
+            pass
 
         elif self.turn_direction == 'left':
             yellow_mask[:, width//2:] = 0
-            white_mask[:, :] = 0
+            # white_mask[:, :] = 0
 
         elif self.turn_direction == 'right':
             white_mask[:, :width//2] = 0
-            yellow_mask[:, :] = 0
+            # yellow_mask[:, :] = 0
 
         M_w = cv2.moments(white_mask)
         M_y = cv2.moments(yellow_mask)
@@ -196,8 +194,8 @@ class turtlebot():
 
                 curve = abs(cx_upper - cx_lower)
 
-                if curve > 80:
-                    offset += min((curve - 80) * 0.8, 100)
+                if curve >180:  # BIG 110-145
+                    offset += min((curve - 180) * 0.8, 100)
 
                 rospy.loginfo('WHITE UPPER: %d LOWER: %d CURVE: %d OFFSET: %.1f', cx_upper, cx_lower, curve, offset)
 
@@ -222,8 +220,9 @@ class turtlebot():
 
                 curve = abs(cx_upper - cx_lower)
 
-                if curve > 100:
-                    offset += min((curve - 100) * 0.8, 100)
+                if curve > 180:
+
+                    offset += min((curve - 180) * 0.8, 100)
 
                 rospy.loginfo('YELLOW UPPER: %d LOWER: %d CURVE: %d OFFSET: %.1f', cx_upper, cx_lower, curve, offset)
 
@@ -236,7 +235,7 @@ class turtlebot():
             Kp = 0.25
             Kd = 0.01
             linear = 10.0
-            max_angular = 20.0
+            max_angular = 25.0
 
             angular = -(Kp * err_x + Kd * diff_x)
             angular = np.clip(angular, -max_angular, max_angular)
