@@ -58,7 +58,7 @@ class turtlebot():
         for point in point_cloud2.read_points(data, field_names=('x', 'y', 'z'), skip_nans=True):
             x, y, z = point
 
-            distance = np.sqrt(x * x + y * y)
+            distance = np.sqrt(x*x +y*y)
 
             if distance <= 0:
                 continue
@@ -221,11 +221,11 @@ class turtlebot():
                 white_curve = abs(cx_w_u - cx_w_l)
                 yellow_curve = abs(cx_y_u - cx_y_l)
 
-                if white_curve > yellow_curve + 40:
-                    target_x +=90
+                # if white_curve > yellow_curve + 40:
+                #     target_x +=90
 
-                elif yellow_curve > white_curve + 40:
-                    target_x -= 90
+                # elif yellow_curve > white_curve + 40:
+                #     target_x -= 90
 
         elif M_w['m00'] > 0:
             cx_w = int(M_w['m10'] / M_w['m00'])
