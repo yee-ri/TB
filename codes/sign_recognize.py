@@ -24,7 +24,7 @@ class TemplateMatch:
 
         hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV)
 
-        yellow_mask=cv2.inRange(hsv,np.array([20,100,100]),np.array([50,255,255]))
+        yellow_mask=cv2.inRange(hsv,np.array([15,100,100]),np.array([50,255,255]))
         white_mask=cv2.inRange(hsv,np.array([0,0,150]),np.array([179,50,255]))
         blue_mask=cv2.inRange(hsv,np.array([90,80,50]),np.array([130,255,255]))
 
@@ -33,6 +33,7 @@ class TemplateMatch:
 
         filtered=cv2.bitwise_and(image,image,mask=mask)
 
+        cv2.imshow('COLOR',image)
         cv2.imshow('COLOR FILTER',filtered)
         cv2.waitKey(1)
 

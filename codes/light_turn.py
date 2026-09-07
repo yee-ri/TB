@@ -45,8 +45,8 @@ class turtlebot():
 
         if cv2.countNonZero(green_mask) >= 200:
             rospy.loginfo("DETECTED GREEN LIGHT")
-            self.mode = 'LANE'
-            
+            rospy.sleep(1.5)
+            self.mode = 'LANE'       
             return  'GREEN'
         # cv2.imshow('output', green_mask)
 
@@ -149,7 +149,7 @@ class turtlebot():
                 self.turn_detect = 'right'
                 rospy.loginfo('@@@@@@ RIGHT SIGN DETECTED @@@@@@')
 
-        if self.turn_detect is not None and not self.turn_done and self.front_distance <= 0.3:
+        if self.turn_detect is not None and not self.turn_done and self.front_distance < 0.36:
             direction = self.turn_detect
 
             self.turn_direction = direction
@@ -159,11 +159,11 @@ class turtlebot():
 
             if direction == 'left':
                 rospy.loginfo('@@@@@@ TURN LEFT @@@@@@')
-                self.turn_time('left', 0.8, 0.03, 0.4)
+                self.turn_time('left', 1, 0.03, 0.4)
 
             elif direction == 'right':
                 rospy.loginfo('@@@@@@ TURN RIGHT @@@@@@')
-                self.turn_time('right', 0.8, 0.03, 0.4)
+                self.turn_time('right', 1, 0.03, 0.4)
 
             return
 
@@ -174,7 +174,7 @@ class turtlebot():
         hsv = cv2.cvtColor(crop_img, cv2.COLOR_BGR2HSV)
 
         white_mask = cv2.inRange(hsv, np.array([0, 0, 150]), np.array([179, 50, 255]))
-        yellow_mask = cv2.inRange(hsv, np.array([20, 100, 100]), np.array([50, 255, 255]))
+        yellow_mask = cv2.inRange(hsv, np.array([15, 100, 100]), np.array([50, 255, 255]))
 
         if not self.turn_done:
             # yellow_mask[:, :] = 0
@@ -245,8 +245,8 @@ class turtlebot():
 
                 curve = abs(cx_upper - cx_lower)
 
-                if curve >180:  # BIG 110-145
-                    offset += min((curve - 180) * 0.8, 100)
+                if curve >190:  # BIG 110-145
+                    offset += min((curve - 190) * 0.82, 100)
 
             target_x = cx_w - offset
 
@@ -284,10 +284,10 @@ class turtlebot():
             err_x = target_x - center_x
             diff_x = err_x - self.prev_error
 
-            Kp = 0.18
-            Kd = 0.01
-            linear = 10.0
-            max_angular = 25.0
+            Kp = 0.15
+            Kd = 0.008
+            linear = 14.0 #10
+            max_angular = 38.0 #25
 
             angular = -(Kp * err_x + Kd * diff_x)
             angular = np.clip(angular, -max_angular, max_angular)
@@ -296,8 +296,8 @@ class turtlebot():
 
             wheel_distance = 0.148
 
-            v_l = linear - angular * wheel_distance * 0.6
-            v_r = linear + angular * wheel_distance * 0.6
+            v_l = linear - angular * wheel_distance * 0.5
+            v_r = linear + angular * wheel_distance * 0.5
 
             self.prev_v_l = v_l
             self.prev_v_r = v_r
