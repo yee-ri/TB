@@ -94,10 +94,10 @@ class turtlebot():
 
         rospy.loginfo('LEFT: %.1f%% RIGHT: %.1f%%', max_val_l * 100, max_val_r * 100)
 
-        if (max_val_l > max_val_r + 0.05 and max_val_l > 0.3) or max_val_l > 0.4:
+        if (max_val_l > max_val_r + 0.05 and max_val_l > 0.3) or max_val_l > 0.315:
             return 'left'
 
-        if (max_val_r > max_val_l + 0.05 and max_val_r > 0.3) or max_val_r > 0.4:
+        if (max_val_r > max_val_l + 0.05 and max_val_r > 0.3) or max_val_r > 0.315:
             return 'right'
 
         return None
@@ -149,7 +149,7 @@ class turtlebot():
                 self.turn_detect = 'right'
                 rospy.loginfo('@@@@@@ RIGHT SIGN DETECTED @@@@@@')
 
-        if self.turn_detect is not None and not self.turn_done and self.front_distance < 0.36:
+        if self.turn_detect is not None and not self.turn_done and self.front_distance < 0.33:
             direction = self.turn_detect
 
             self.turn_direction = direction
@@ -260,7 +260,7 @@ class turtlebot():
             M_upper = cv2.moments(upper_mask)
             M_lower = cv2.moments(lower_mask)
 
-            offset = 300
+            offset = 310
 
             if M_upper['m00'] > 0 and M_lower['m00'] > 0:
                 cx_upper = int(M_upper['m10'] / M_upper['m00'])
@@ -268,9 +268,9 @@ class turtlebot():
 
                 curve = abs(cx_upper - cx_lower)
 
-                if curve > 180:
+                if curve > 170:
 
-                    offset += min((curve - 180) * 0.8, 100)
+                    offset += min((curve - 170) * 0.8, 100)
 
             target_x = cx_y + offset
 
