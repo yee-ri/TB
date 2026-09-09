@@ -102,7 +102,7 @@ class turtlebot():
 
         return None
 
-    def turn_time(self, direction, duration, linear_speed, angular_speed):
+    def turn_time(self, direction, duration, linear_speed, angular_speed):# turn sign 인식하면 좌/우회전 하는 함수
         msg = Twist()
         msg.linear.x = linear_speed
 
