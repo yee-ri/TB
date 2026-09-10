@@ -7,7 +7,6 @@ from sensor_msgs.msg import Image,PointCloud2
 from sensor_msgs import point_cloud2
 from geometry_msgs.msg import Twist
 from cv_bridge import CvBridge
-
 from std_msgs.msg import UInt8
 import tf2_ros
 import tf2_sensor_msgs.tf2_sensor_msgs
@@ -16,7 +15,7 @@ class turtlebot():
     def __init__(self):
         rospy.init_node('controller',anonymous=True)
 
-        self.step_sub=rospy.Subscriber('/step',UInt8,self.step_callback)
+        self.step_sub=rospy.Subscriber('/step',UInt8,self.step_callback) #rostopic pub사용
 
         self.cmd_pub=rospy.Publisher('/cmd_vel',Twist,queue_size=10)
         self.image_sub=rospy.Subscriber('/camera/color/image_raw',Image,self.img_callback,queue_size=1,buff_size=2**24)
@@ -25,24 +24,22 @@ class turtlebot():
 
         self.lturn_template=cv2.imread('/home/sj/Desktop/TB/images/lturn1.png',cv2.IMREAD_GRAYSCALE)
         self.lturn_template=cv2.resize(self.lturn_template,(100,100))
-
         self.rturn_template=cv2.imread('/home/sj/Desktop/TB/images/rturn1.png',cv2.IMREAD_GRAYSCALE)
         self.rturn_template=cv2.resize(self.rturn_template,(100,100))
 
-        self.step=2
-        # 0 :신호등 기달(정지상ㅌ)
-        # 1 :초록불감지하고 주행시작
-        # 2 :회전인식하고 회전함수까지 돌림끝
-        # 3 :장애물 구간 시작전부터 끝
-        # 4 :장애물 끝나고 다시 그대로가ㄱ기
+############## 구간별 테스트 설정 ##############
+        self.step=2 #(원래 0으로 세팅)
 
+############## 라이다 관련 변수 ##############
         self.left_distance=float('inf')
         self.front_distance=float('inf')
         self.right_distance=float('inf')
 
+############## 회전 관련 변수 ##############
         self.turn_detect=None #회전표지판 감지
         self.turn_direction=None # 회전명령
 
+############## 라인 트랙킹 관련 변수 ##############
         self.prev_error=0.0
         self.prev_target_x=None
         self.prev_v_l=0.0
@@ -51,25 +48,26 @@ class turtlebot():
         self.wheel_radius=0.0475
         self.wheel_separation=0.19 #0.148이었던것
 
-
-
-
+############## tf setting 관련 변수 ##############
         self.tf_buffer=tf2_ros.Buffer()
         self.tf_listener=tf2_ros.TransformListener(self.tf_buffer)
-
         self.robot_half_width=0.08# 0.085
         self.safety_margin=0.03
 
+############## 장애물 관련 변수 ##############
         self.obstacle_direction=None
         self.obstacle_pass_count=0
         self.obstacle_clear_count=0
         self.obstacle_points=[]
 
-
+############## 직선 구간 관련 변수 ##############
         self.straight_count = 0
         self.straight = None
 
-    def step_callback(self,data):
+############## 주차 관련 변수 ##############
+        self.parking_ready = None
+
+    def step_callback(self,data): # 그냥 rostopic pub으로 구간별 테스트하려고 만든거
         self.step=data.data
         self.prev_error=0.0
         self.prev_target_x=None
@@ -86,25 +84,7 @@ class turtlebot():
 
         rospy.loginfo("@@@@@@ STEP CHANGE -> %d @@@@@@",self.step)
 
-    def traffic_light(self,data):
-        hsv_frame=cv2.cvtColor(data,cv2.COLOR_BGR2HSV)
-
-        green_mask=cv2.inRange(hsv_frame,np.array([45,100,80]),np.array([85,255,255]))
-        green_mask=cv2.erode(green_mask,None,iterations=1)
-        green_mask=cv2.dilate(green_mask,None,iterations=2)
-
-        if cv2.countNonZero(green_mask)>=200:
-            rospy.loginfo("@@@@@@ GREEN LIGHT @@@@@@")
-            self.stop()
-            rospy.sleep(0.5)
-            self.step=1
-            rospy.loginfo("@@@@@@ STEP 1 @@@@@@")
-            return True
-
-        self.stop()
-        return False
-
-    def scan_callback(self,data):
+    def scan_callback(self,data): # 라이다 
         try:
             transform=self.tf_buffer.lookup_transform('base_footprint',data.header.frame_id,rospy.Time(0),rospy.Duration(0.1))
             cloud=tf2_sensor_msgs.tf2_sensor_msgs.do_transform_cloud(data,transform)
@@ -145,8 +125,29 @@ class turtlebot():
         self.right_distance=min(right_ranges) if right_ranges else float('inf')
 
         rospy.loginfo("LEFT: %.2f FRONT: %.2f RIGHT: %.2f DIR: %s",self.left_distance,self.front_distance,self.right_distance,str(self.obstacle_direction))
-    
-    def detect_sign(self,image):
+
+    def stop(self): # 초록불 감지 전 정지상태
+        self.cmd_pub.publish(Twist())
+
+    def traffic_light(self,data): # 초록불 감지 함수
+        hsv_frame=cv2.cvtColor(data,cv2.COLOR_BGR2HSV)
+
+        green_mask=cv2.inRange(hsv_frame,np.array([45,100,80]),np.array([85,255,255]))
+        green_mask=cv2.erode(green_mask,None,iterations=1)
+        green_mask=cv2.dilate(green_mask,None,iterations=2)
+
+        if cv2.countNonZero(green_mask)>=200:
+            rospy.loginfo("@@@@@@ GREEN LIGHT @@@@@@")
+            self.stop()
+            rospy.sleep(0.5)
+            self.step=1
+            rospy.loginfo("@@@@@@ STEP 1 @@@@@@")
+            return True
+
+        self.stop()
+        return False
+
+    def detect_sign(self,image): # 좌/우회전 감지, self.turn_detect값 반환
         hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV)
 
         yellow_mask=cv2.inRange(hsv,np.array([20,100,100]),np.array([50,255,255]))
@@ -175,7 +176,7 @@ class turtlebot():
 
         return None
 
-    def check_turn(self,image):
+    def check_turn(self,image): # self.turn_detect들어오면 회전명령 수행
         sign=self.detect_sign(image)
 
         if self.turn_detect is None:
@@ -207,24 +208,90 @@ class turtlebot():
 
         return False
 
+    def turn_time(self,direction,duration,linear_speed,angular_speed): # 회전인식->회전명령 되면 회전 수행하는 함수
+        msg=Twist()
+        msg.linear.x=linear_speed
 
-    def check_obstacle_end(self):
-        if self.front_distance>0.9 and self.left_distance>0.5 and self.right_distance>0.5:
-            self.obstacle_clear_count+=1
-            rospy.loginfo("OBSTACLE CLEAR COUNT: %d",self.obstacle_clear_count)
+        if direction=='left':
+            msg.angular.z=angular_speed
+
+        elif direction=='right':
+            msg.angular.z=-angular_speed
+
+        start_time=rospy.Time.now()
+        rate=rospy.Rate(20)
+
+        while not rospy.is_shutdown():
+            elapsed=(rospy.Time.now()-start_time).to_sec()
+
+            if elapsed>=duration:
+                break
+
+            self.cmd_pub.publish(msg)
+            rate.sleep()
+
+        self.stop()
+
+    def is_straight(self,image,iter): # 직선구간인지 판별
+        height,width = image.shape[:2]
+
+        roi = image[int(height*0.35):,:]
+        hsv = cv2.cvtColor(roi,cv2.COLOR_BGR2HSV)
+
+        white_mask=cv2.inRange(hsv,np.array([0,0,150]),np.array([179,50,255]))
+        yellow_mask=cv2.inRange(hsv,np.array([15,100,100]),np.array([50,255,255]))
+
+        mask = cv2.bitwise_or(white_mask,yellow_mask)
+
+        mask = cv2.erode(mask,None,iterations=1)
+        mask = cv2.dilate(mask,None,iterations=2)
+
+        edges = cv2.Canny(mask,50,150)
+
+        lines = cv2.HoughLinesP(edges,1,np.pi/180,30,minLineLength=40,maxLineGap=20)
+
+        if lines is None:
+            rospy.loginfo("STRAIGHT CHECK: NO LINE")
+            return False
+
+        angles = []
+
+        for line in lines:
+            x1,y1,x2,y2 = line[0]
+
+            dx = x2-x1
+            dy = y2-y1
+
+            if abs(dy) < 20:
+                continue
+
+            angle = math.degrees(math.atan2(dx,dy))
+
+            if abs(angle) < 60:
+                angles.append(angle)
+
+        if len(angles) < 1.5:
+            rospy.loginfo("STRAIGHT CHECK: LINE COUNT %d",len(angles))
+            return False
+
+        angle_std = np.std(angles)
+        mean_angle = np.mean(angles)
+
+        rospy.loginfo("STRAIGHT CHECK MEAN: %.2f STD: %.2f LINES: %d",mean_angle,angle_std,len(angles))
+
+        if angle_std < 5.0:
+                        
+            self.straight_count += 1
         else:
-            self.obstacle_clear_count=0
+            self.straight_count = 0
 
-        if self.obstacle_clear_count>=10:
-            self.step=5
-            self.obstacle_clear_count=0
-            self.obstacle_direction=None
-            rospy.loginfo("@@@@@@ OBSTACLE END -> STEP 5 @@@@@@")
-            return True
+        if self.straight_count >= iter : return True
+
+        rospy.loginfo("STRAIGHT COUNT: %d",self.straight_count)
 
         return False
 
-    def check_obstacle_start(self):
+    def check_obstacle_start(self): # 정면에 장애물 검출되면 장애물 구간 시작으로 인식
         if self.front_distance<=0.32:
             self.step=3
             self.turn_direction=None
@@ -235,9 +302,7 @@ class turtlebot():
 
         return False
 
- ################################################################################
-
-    def obstacle_move(self,image):
+    def obstacle_move(self,image): # 대충 장애물 피하기
         height,width=image.shape[:2]
         hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV)
 
@@ -413,68 +478,30 @@ class turtlebot():
                 else: # 일단 넣어봄,,
                     rospy.loginfo("IDK (right)")
                     self.move(0.06,-0.18)
-#########################################################
 
-    def is_straight(self,image):
-        height,width = image.shape[:2]
+    def move(self,linear,angular): # 장애물 피할때 선속도/각속도 설정하는 부분
+        msg=Twist()
+        msg.linear.x=linear
+        msg.angular.z=angular
+        self.cmd_pub.publish(msg)
 
-        roi = image[int(height*0.35):,:]
-        hsv = cv2.cvtColor(roi,cv2.COLOR_BGR2HSV)
-
-        white_mask=cv2.inRange(hsv,np.array([0,0,150]),np.array([179,50,255]))
-        yellow_mask=cv2.inRange(hsv,np.array([15,100,100]),np.array([50,255,255]))
-
-        mask = cv2.bitwise_or(white_mask,yellow_mask)
-
-        mask = cv2.erode(mask,None,iterations=1)
-        mask = cv2.dilate(mask,None,iterations=2)
-
-        edges = cv2.Canny(mask,50,150)
-
-        lines = cv2.HoughLinesP(edges,1,np.pi/180,30,minLineLength=40,maxLineGap=20)
-
-        if lines is None:
-            rospy.loginfo("STRAIGHT CHECK: NO LINE")
-            return False
-
-        angles = []
-
-        for line in lines:
-            x1,y1,x2,y2 = line[0]
-
-            dx = x2-x1
-            dy = y2-y1
-
-            if abs(dy) < 20:
-                continue
-
-            angle = math.degrees(math.atan2(dx,dy))
-
-            if abs(angle) < 60:
-                angles.append(angle)
-
-        if len(angles) < 1.5:
-            rospy.loginfo("STRAIGHT CHECK: LINE COUNT %d",len(angles))
-            return False
-
-        angle_std = np.std(angles)
-        mean_angle = np.mean(angles)
-
-        rospy.loginfo("STRAIGHT CHECK MEAN: %.2f STD: %.2f LINES: %d",mean_angle,angle_std,len(angles))
-
-        if angle_std < 5.0:
-                        
-            self.straight_count += 1
+    def check_obstacle_end(self): # 장애물 구간 끝났는지 확인
+        if self.front_distance>0.9 and self.left_distance>0.5 and self.right_distance>0.5:
+            self.obstacle_clear_count+=1
+            rospy.loginfo("OBSTACLE CLEAR COUNT: %d",self.obstacle_clear_count)
         else:
-            self.straight_count = 0
+            self.obstacle_clear_count=0
 
-        if self.straight_count >= 70: return True
-
-        rospy.loginfo("STRAIGHT COUNT: %d",self.straight_count)
+        if self.obstacle_clear_count>=10:
+            self.step=5
+            self.obstacle_clear_count=0
+            self.obstacle_direction=None
+            rospy.loginfo("@@@@@@ OBSTACLE END -> STEP 5 @@@@@@")
+            return True
 
         return False
 
-    def lane_tracking(self,image):
+    def lane_tracking(self,image): #기본적인 라인 트래킹 수행
         crop_img=image[300:,:]
         height,width=crop_img.shape[:2]
 
@@ -483,11 +510,16 @@ class turtlebot():
         white_mask=cv2.inRange(hsv,np.array([0,0,150]),np.array([179,50,255]))
         yellow_mask=cv2.inRange(hsv,np.array([15,100,100]),np.array([50,255,255]))
         rospy.loginfo("TURN DETECT(SIGN) is %s",str(self.turn_detect))
+
         if self.turn_direction=='left':
             yellow_mask[:,width//2:]=0
 
         elif self.turn_direction=='right':
             white_mask[:,:width//2]=0
+
+        elif self.turn_direction== 'parking':
+            yellow_mask[:height/2,:]=0
+            white_mask[:,width/2:] = 0
 
         else: 
             white_mask[:,:width//2]=0
@@ -608,48 +640,29 @@ class turtlebot():
         cv2.imshow('MASK VIEW',mask_view)
         cv2.waitKey(1)
 
-    def turn_time(self,direction,duration,linear_speed,angular_speed):
-        msg=Twist()
-        msg.linear.x=linear_speed
+    def parking(self,image): #노란2선 직선인식 후, 주차 시퀀스->뒤돌아서 다시 빠져나오기 수행까지
 
-        if direction=='left':
-            msg.angular.z=angular_speed
+        if self.left_distance >0.5 and self.right_distance>0.5:
+            self.move(0.3,0)
 
-        elif direction=='right':
-            msg.angular.z=-angular_speed
+        elif self.right_distance<=0.2:
+            self.move(0,0)
+            rospy.sleep(0.5)
 
-        start_time=rospy.Time.now()
-        rate=rospy.Rate(20)
+            if self.set_yaw(2):
+                self.move(0.15,0)
+                rospy.sleep(1.8)
+                self.move(0,0)
+                rospy.sleep(0.08)
+                self.move(-0.15,0)
+                rospy.sleep(1.9)
+                self.move(0,0)
+                rospy.sleep(0.08)
+                self.sequence = 'end'
+        
+        pass
 
-        while not rospy.is_shutdown():
-            elapsed=(rospy.Time.now()-start_time).to_sec()
-
-            if elapsed>=duration:
-                break
-
-            self.cmd_pub.publish(msg)
-            rate.sleep()
-
-        self.stop()
-
-    def move(self,linear,angular):
-        msg=Twist()
-        msg.linear.x=linear
-        msg.angular.z=angular
-        self.cmd_pub.publish(msg)
-
-    def stop(self):
-        self.cmd_pub.publish(Twist())
-
-    def publish_velocity(self,v_l,v_r):
-        msg=Twist()
-
-        msg.linear.x=(self.wheel_radius*(v_r+v_l)/2.0)*0.1
-        msg.angular.z=(self.wheel_radius*(v_r-v_l)/self.wheel_separation)*0.2
-
-        self.cmd_pub.publish(msg)
-
-    def img_callback(self,data):
+    def img_callback(self,data): # 메인코드
         image=self.bridge.imgmsg_to_cv2(data,'bgr8')
 
         if image is None:
@@ -657,33 +670,60 @@ class turtlebot():
 
         rospy.loginfo("@@@@@@ STEP: %d @@@@@@",self.step)
 
-        if self.step==0:
+        if self.step==0:  # stop status
             self.traffic_light(image)
             return
 
-        if self.step==1:
+        if self.step==1: # detect sign ~ end turn
             if self.check_turn(image):
                 return
         
-        elif self.step == 2:
+        elif self.step == 2: # straight find --> turn detect reset for obstacle !!~!~!~
             self.turn_detect='left'
-            self.straight = self.is_straight(image)
+            self.straight = self.is_straight(image,70)
             if self.straight:
                 self.turn_detect = None
                 self.step = 3
+                 # straight 초기화 --> 장애물 이후에 다시 써야함
 
-        elif self.step==3:
+        elif self.step==3: # obstacle detect ~ end obstacle
             if self.check_obstacle_start():
                 self.obstacle_move(image)
                 return
             if self.check_obstacle_end():
                 return
 
-        elif self.step==4:
-            self.obstacle_move(image)
-            return
+        elif self.step==4: # 장애물 후 straight 발견 --> 주차구간 시작 직전임
+            self.straight = self.is_straight(image,40)
+            if self.straight:
+                self.step = 5
+                self.straight =None
+
+        elif self.step ==5 : #주차장으로 빠지는 노란선 따라가기 ~ 주차
+            self.turn_direction = 'parking' #아래 노란선만 따라감+ 오른쪽 흰선 안보임
+            self.straight = self.is_straight(image,40) #양옆에 노란선 2개있는 직선구간 오면
+
+            if self.straight: 
+                self.parking_ready = 1 
+            if self.parking_ready:
+                self.parking(image)  
+
+            if self.parking_end():
+                self.check_turn(image)
+                self.turn_direction = None
+                self.step = 6
+                return
+
 
         self.lane_tracking(image)
+
+    def publish_velocity(self,v_l,v_r): # 속도 퍼블리시 
+        msg=Twist()
+
+        msg.linear.x=(self.wheel_radius*(v_r+v_l)/2.0)*0.1
+        msg.angular.z=(self.wheel_radius*(v_r-v_l)/self.wheel_separation)*0.2
+
+        self.cmd_pub.publish(msg)
 
 if __name__=='__main__':
     controller=turtlebot()
