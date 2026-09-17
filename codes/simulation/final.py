@@ -117,7 +117,6 @@ class turtlebot():
 
         return None
 
-
     def scan_callback(self,data):
         left_ranges = []
         front_ranges = []
