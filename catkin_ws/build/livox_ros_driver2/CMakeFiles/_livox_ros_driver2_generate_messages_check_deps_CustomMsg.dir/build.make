@@ -54,7 +54,7 @@ CMAKE_BINARY_DIR = /home/sj/Desktop/TB/catkin_ws/build
 include livox_ros_driver2/CMakeFiles/_livox_ros_driver2_generate_messages_check_deps_CustomMsg.dir/progress.make
 
 livox_ros_driver2/CMakeFiles/_livox_ros_driver2_generate_messages_check_deps_CustomMsg:
-	cd /home/sj/Desktop/TB/catkin_ws/build/livox_ros_driver2 && ../catkin_generated/env_cached.sh /usr/bin/python3 /opt/ros/noetic/share/genmsg/cmake/../../../lib/genmsg/genmsg_check_deps.py livox_ros_driver2 /home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomMsg.msg std_msgs/Header:livox_ros_driver2/CustomPoint
+	cd /home/sj/Desktop/TB/catkin_ws/build/livox_ros_driver2 && ../catkin_generated/env_cached.sh /usr/bin/python3 /opt/ros/noetic/share/genmsg/cmake/../../../lib/genmsg/genmsg_check_deps.py livox_ros_driver2 /home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomMsg.msg livox_ros_driver2/CustomPoint:std_msgs/Header
 
 _livox_ros_driver2_generate_messages_check_deps_CustomMsg: livox_ros_driver2/CMakeFiles/_livox_ros_driver2_generate_messages_check_deps_CustomMsg
 _livox_ros_driver2_generate_messages_check_deps_CustomMsg: livox_ros_driver2/CMakeFiles/_livox_ros_driver2_generate_messages_check_deps_CustomMsg.dir/build.make

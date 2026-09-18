@@ -7,10 +7,8 @@
 # new environment variables
 
 # modified environment variables
-export CMAKE_PREFIX_PATH="/home/sj/Desktop/TB/catkin_ws/devel:$CMAKE_PREFIX_PATH"
-export LD_LIBRARY_PATH="/home/sj/Desktop/TB/catkin_ws/devel/lib:$LD_LIBRARY_PATH"
-export PKG_CONFIG_PATH="/home/sj/Desktop/TB/catkin_ws/devel/lib/pkgconfig:$PKG_CONFIG_PATH"
+export LD_LIBRARY_PATH='/opt/ros/noetic/lib:/opt/ros/noetic/lib/x86_64-linux-gnu'
+export PATH='/opt/ros/noetic/bin:/home/sj/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin'
+export PKG_CONFIG_PATH='/opt/ros/noetic/lib/pkgconfig:/opt/ros/noetic/lib/x86_64-linux-gnu/pkgconfig'
 export PWD='/home/sj/Desktop/TB/catkin_ws/build'
-export PYTHONPATH="/home/sj/Desktop/TB/catkin_ws/devel/lib/python3/dist-packages:$PYTHONPATH"
-export ROSLISP_PACKAGE_DIRECTORIES='/home/sj/Desktop/TB/catkin_ws/devel/share/common-lisp'
-export ROS_PACKAGE_PATH="/home/sj/Desktop/TB/catkin_ws/src:$ROS_PACKAGE_PATH"
+export PYTHONPATH='/opt/ros/noetic/lib/python3/dist-packages'

@@ -25,13 +25,15 @@ class turtlebot():
         self.odom_sub = rospy.Subscriber('/odom',Odometry,self.odom_callback)
         self.bridge=CvBridge()
 
+        rospy.Subscriber('/camera/depth/image_rect_raw',Image,self.depth_callback,queue_size=1,buff_size=2**24)
+  
         self.lturn_template=cv2.imread('/home/sj/Desktop/TB/images/lturn1.png',cv2.IMREAD_GRAYSCALE)
         self.lturn_template=cv2.resize(self.lturn_template,(100,100))
         self.rturn_template=cv2.imread('/home/sj/Desktop/TB/images/rturn1.png',cv2.IMREAD_GRAYSCALE)
         self.rturn_template=cv2.resize(self.rturn_template,(100,100))
 
 ############## 구간별 테스트 설정 ##############
-        self.step= 5 #(원래 0으로 세팅)
+        self.step= 7 #(원래 0으로 세팅)
         self.yaw = 0.0
         self.initial_yaw=None
 
@@ -82,7 +84,11 @@ class turtlebot():
         self.parking_side=None      
 
 ############## 게이트바 관련 변수 ##############
-        self.gate = None
+        self.gate_state = 0
+        self.gate_open_count = 0
+        self.gate_close_count=0
+        self.red_area = 0
+        self.depth = 0
 
     def step_callback(self,data): # 그냥 rostopic pub으로 구간별 테스트하려고 만든거
         self.step=data.data
@@ -151,8 +157,8 @@ class turtlebot():
         self.front_distance=min(front_ranges) if front_ranges else float('inf')
         self.right_distance=min(right_ranges) if right_ranges else float('inf')
 
-        rospy.loginfo("LEFT: %.2f FRONT: %.2f RIGHT: %.2f DIR: %s",self.left_distance,self.front_distance,self.right_distance,str(self.obstacle_direction))
-
+        # rospy.loginfo("LEFT: %.2f FRONT: %.2f RIGHT: %.2f DIR: %s",self.left_distance,self.front_distance,self.right_distance,str(self.obstacle_direction))
+        rospy.loginfo("Front : %.2f",self.front_distance)
     def stop(self): # 초록불 감지 전 정지상태
         self.cmd_pub.publish(Twist())
 
@@ -178,7 +184,8 @@ class turtlebot():
         hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV)
 
         yellow_mask=cv2.inRange(hsv,np.array([20,100,100]),np.array([50,255,255]))
-        white_mask=cv2.inRange(hsv,np.array([0,0,150]),np.array([179,50,255]))
+        white_mask=cv2.inRange(hsv,np.array([0,0,210]),np.array([179, 55, 255]))
+        # white_mask=cv2.inRange(hsv,np.array([0,0,150]),np.array([179,50,255]))
         blue_mask=cv2.inRange(hsv,np.array([90,80,50]),np.array([130,255,255]))
 
         mask=cv2.bitwise_or(yellow_mask,white_mask)
@@ -542,8 +549,10 @@ class turtlebot():
 
         hsv=cv2.cvtColor(crop_img,cv2.COLOR_BGR2HSV)
 
-        white_mask=cv2.inRange(hsv,np.array([0,0,150]),np.array([179,50,255]))
+        white_mask=cv2.inRange(hsv,np.array([0,0,210]),np.array([179, 55, 255]))
         yellow_mask=cv2.inRange(hsv,np.array([15,100,100]),np.array([50,255,255]))
+        red_mask = cv2.inRange(hsv, np.array([0, 180, 100]), np.array([10, 255, 160]))        # mask=cv2.bitwise_or(red_mask)
+   
         # rospy.loginfo("TURN DETECT(SIGN) is %s",str(self.turn_detect))
 
         if self.turn_direction=='left':
@@ -557,12 +566,14 @@ class turtlebot():
             yellow_mask[:,width//2:]=0
             white_mask[:,:]=0
 
-        else: 
+        elif self.step == 2 or self.step == 3:
             white_mask[:,:width//2]=0
+        else:pass
 
         M_w=cv2.moments(white_mask)
         M_y=cv2.moments(yellow_mask)
 
+        self.red_area = cv2.countNonZero(red_mask)
         self.yellow_area=cv2.countNonZero(yellow_mask)
         white_area=cv2.countNonZero(white_mask)
 
@@ -777,13 +788,35 @@ class turtlebot():
 
         self.move(0,0)
 
+    def depth_callback(self,data):
+        dep=self.bridge.imgmsg_to_cv2(data,desired_encoding='passthrough')
+
+        height,width=dep.shape[:2]
+
+        roi=dep[::int(height*2/3),:]
+        # roi=depth[y1:y2,x1:x2]
+
+        valid=roi[(roi>0)&np.isfinite(roi)]
+
+        if len(valid)==0:
+            rospy.loginfo("DEPTH: NO DATA")
+            return
+
+        self.depth=np.percentile(valid,5)
+
+        if data.encoding=='16UC1':
+            self.depth/=1000.0
+
+        rospy.loginfo("CLOSEST FRONT DEPTH: %.3f m",self.depth)
+
+
     def img_callback(self,data): # 메인코드
         image=self.bridge.imgmsg_to_cv2(data,'bgr8')
 
         if image is None:
             return
 
-        rospy.loginfo("@@@@@@ STEP: %d @@@@@@",self.step)
+        # rospy.loginfo("@@@@@@ STEP: %d @@@@@@",self.step)
 
         if self.step==0:  # stop status
             self.traffic_light(image)
@@ -863,16 +896,76 @@ class turtlebot():
                 return
                 
 
-        elif self.step ==7: # 지그재그 전, 흰/노란선 다 보이기 시작 ~ gatebar
-            self.turn_direction = None
-            if self.front_distance <=0.6 and self.gate == None:
-                self.gate = 1
-                self.stop()
-            if self.front_distance>0.6 and self.gate ==1:
-                self.step =8
-                return
+        # elif self.step == 7: # 지그재그 전, 흰/노란선 다 보이기 시작 ~ gatebar
+        #     self.turn_direction=None
 
-            
+        #     if self.gate_state == 0:
+        #         if self.front_distance <= 0.4:
+        #             self.gate_close_count += 1
+        #             rospy.loginfo("GATE CLOSE COUNT: %d / 5",self.gate_close_count)
+        #         else:
+        #             self.gate_close_count=0
+
+        #         if self.gate_close_count >= 5:
+        #             self.gate_state=1
+        #             self.gate_close_count=0
+        #             self.gate_open_count=0
+        #             rospy.loginfo("@@@ GATE DETECTED -> STOP @@@")
+        #             self.stop()
+        #             return
+
+        #     elif self.gate_state == 1:
+        #         self.stop()
+
+        #         if self.front_distance >= 0.9:
+        #             self.gate_open_count += 1
+        #             rospy.loginfo("GATE OPEN COUNT: %d / 10",self.gate_open_count)
+        #         else:
+        #             self.gate_open_count=0
+
+        #         if self.gate_open_count >= 15:
+        #             rospy.loginfo("@@@ GATE OPEN -> STEP 8 @@@")
+        #             self.gate_state=2
+        #             self.gate_open_count=0
+        #             self.step=8
+
+        #         return
+        elif self.step == 7: # 지그재그 전, 흰/노란선 다 보이기 시작 ~ gatebar
+            self.turn_direction=None
+
+            if self.gate_state == 0:
+                if self.depth <= 0.28 and self.red_area>4000:
+                    self.gate_close_count += 1
+                    rospy.loginfo("GATE CLOSE COUNT: %d / 5",self.gate_close_count)
+                else:
+                    self.gate_close_count=0
+
+                if self.gate_close_count >= 5:
+                    self.gate_state=1
+                    self.gate_close_count=0
+                    self.gate_open_count=0
+                    rospy.loginfo("@@@ GATE DETECTED -> STOP @@@")
+                    self.stop()
+                    return
+
+            elif self.gate_state == 1:
+                self.stop()
+
+                if self.depth >= 0.5 and self.red_area<=4000:
+                    self.gate_open_count += 1
+                    rospy.loginfo("GATE OPEN COUNT: %d / 10",self.gate_open_count)
+                else:
+                    self.gate_open_count=0
+
+                if self.gate_open_count >= 10:
+                    rospy.loginfo("@@@ GATE OPEN -> STEP 8 @@@")
+                    self.gate_state=2
+                    self.gate_open_count=0
+                    self.step=8
+
+                return            
+
+            elif self.step ==8: pass
 
 
         self.lane_tracking(image)
