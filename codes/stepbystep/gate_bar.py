@@ -158,7 +158,7 @@ class turtlebot():
         self.right_distance=min(right_ranges) if right_ranges else float('inf')
 
         # rospy.loginfo("LEFT: %.2f FRONT: %.2f RIGHT: %.2f DIR: %s",self.left_distance,self.front_distance,self.right_distance,str(self.obstacle_direction))
-        rospy.loginfo("Front : %.2f",self.front_distance)
+        # rospy.loginfo("Front : %.2f",self.front_distance)
     def stop(self): # 초록불 감지 전 정지상태
         self.cmd_pub.publish(Twist())
 
@@ -551,7 +551,7 @@ class turtlebot():
 
         white_mask=cv2.inRange(hsv,np.array([0,0,210]),np.array([179, 55, 255]))
         yellow_mask=cv2.inRange(hsv,np.array([15,100,100]),np.array([50,255,255]))
-        red_mask = cv2.inRange(hsv, np.array([0, 180, 100]), np.array([10, 255, 160]))        # mask=cv2.bitwise_or(red_mask)
+        # red_mask = cv2.inRange(hsv, np.array([0, 180, 100]), np.array([10, 255, 160]))        # mask=cv2.bitwise_or(red_mask)
    
         # rospy.loginfo("TURN DETECT(SIGN) is %s",str(self.turn_detect))
 
@@ -573,11 +573,11 @@ class turtlebot():
         M_w=cv2.moments(white_mask)
         M_y=cv2.moments(yellow_mask)
 
-        self.red_area = cv2.countNonZero(red_mask)
+        # self.red_area = cv2.countNonZero(red_mask)
         self.yellow_area=cv2.countNonZero(yellow_mask)
         white_area=cv2.countNonZero(white_mask)
 
-        # rospy.loginfo("Yellow is: %3f",self.yellow_area)
+        
 
         center_x=width/2.0
         target_x=None
@@ -793,7 +793,7 @@ class turtlebot():
 
         height,width=dep.shape[:2]
 
-        roi=dep[::int(height*2/3),:]
+        roi=dep[:int(height*2/3),:int(width*3/4)]
         # roi=depth[y1:y2,x1:x2]
 
         valid=roi[(roi>0)&np.isfinite(roi)]
@@ -895,46 +895,15 @@ class turtlebot():
                 self.step =7
                 return
                 
-
-        # elif self.step == 7: # 지그재그 전, 흰/노란선 다 보이기 시작 ~ gatebar
-        #     self.turn_direction=None
-
-        #     if self.gate_state == 0:
-        #         if self.front_distance <= 0.4:
-        #             self.gate_close_count += 1
-        #             rospy.loginfo("GATE CLOSE COUNT: %d / 5",self.gate_close_count)
-        #         else:
-        #             self.gate_close_count=0
-
-        #         if self.gate_close_count >= 5:
-        #             self.gate_state=1
-        #             self.gate_close_count=0
-        #             self.gate_open_count=0
-        #             rospy.loginfo("@@@ GATE DETECTED -> STOP @@@")
-        #             self.stop()
-        #             return
-
-        #     elif self.gate_state == 1:
-        #         self.stop()
-
-        #         if self.front_distance >= 0.9:
-        #             self.gate_open_count += 1
-        #             rospy.loginfo("GATE OPEN COUNT: %d / 10",self.gate_open_count)
-        #         else:
-        #             self.gate_open_count=0
-
-        #         if self.gate_open_count >= 15:
-        #             rospy.loginfo("@@@ GATE OPEN -> STEP 8 @@@")
-        #             self.gate_state=2
-        #             self.gate_open_count=0
-        #             self.step=8
-
-        #         return
         elif self.step == 7: # 지그재그 전, 흰/노란선 다 보이기 시작 ~ gatebar
+            hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV)
+            red_mask = cv2.inRange(hsv, np.array([0, 180, 100]), np.array([10, 255, 160]))        # mask=cv2.bitwise_or(red_mask)
+            self.red_area=cv2.countNonZero(red_mask)   
+            rospy.loginfo("Red is: %3f",self.red_area)
             self.turn_direction=None
 
             if self.gate_state == 0:
-                if self.depth <= 0.28 and self.red_area>4000:
+                if self.depth <= 0.25 and self.red_area>3000:
                     self.gate_close_count += 1
                     rospy.loginfo("GATE CLOSE COUNT: %d / 5",self.gate_close_count)
                 else:
@@ -951,7 +920,7 @@ class turtlebot():
             elif self.gate_state == 1:
                 self.stop()
 
-                if self.depth >= 0.5 and self.red_area<=4000:
+                if  self.red_area<=4000:
                     self.gate_open_count += 1
                     rospy.loginfo("GATE OPEN COUNT: %d / 10",self.gate_open_count)
                 else:
