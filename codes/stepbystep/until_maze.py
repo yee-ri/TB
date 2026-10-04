@@ -34,7 +34,7 @@ class turtlebot():
         self.rturn_template=cv2.resize(self.rturn_template,(100,100))
 
 ############## 구간별 테스트 설정 ##############
-        self.step= 7 #(원래 0으로 세팅)
+        self.step= 1 #(원래 0으로 세팅)
         self.yaw = 0.0
         self.initial_yaw=None
 
@@ -68,7 +68,7 @@ class turtlebot():
         self.obstacle_pass_count=0
         self.obstacle_clear_count=0
         self.obstacle_points=[]
-        self.white_area = None
+        self.white_area = 0 
 
 ############## 직선 구간 관련 변수 ##############
         self.straight_count = 0
@@ -77,7 +77,7 @@ class turtlebot():
 ############## 주차 관련 변수 ##############
         self.parking_ready = None
         self.parking_end = None
-        self.yellow_area = None
+        self.yellow_area = 0
         self.set = None
         self.parking_count = 0
         self.signal = 0
@@ -170,7 +170,7 @@ class turtlebot():
         self.right_distance=min(right_ranges) if right_ranges else float('inf')
 
         # rospy.loginfo("LEFT: %.2f FRONT: %.2f RIGHT: %.2f DIR: %s",self.left_distance,self.front_distance,self.right_distance,str(self.obstacle_direction))
-        # rospy.loginfo("Front : %.2f",self.front_distance)
+        rospy.loginfo("Front : %.2f",self.front_distance)
 
     def stop(self): # 초록불 감지 전 정지상태
         self.cmd_pub.publish(Twist())
@@ -215,10 +215,10 @@ class turtlebot():
 
         rospy.loginfo("LEFT: %.1f%% RIGHT: %.1f%%",max_val_l*100,max_val_r*100)
 
-        if (max_val_l>max_val_r+0.05 and max_val_l>0.3) or max_val_l>0.315:
+        if (max_val_l>max_val_r+0.05 and max_val_l>0.32) or max_val_l>0.36:
             return 'left'
 
-        if (max_val_r>max_val_l+0.05 and max_val_r>0.3) or max_val_r>0.315:
+        if (max_val_r>max_val_l+0.05 and max_val_r>0.32) or max_val_r>0.36:
             return 'right'
 
         return None
@@ -227,16 +227,16 @@ class turtlebot():
         sign=self.detect_sign(image)
 
         if self.turn_detect is None :
-            if sign=='left' and self.front_distance<=0.55:
+            if sign=='left' and self.front_distance<=1.6:
                 self.turn_detect='left'
                 rospy.loginfo("@@@@@@ LEFT SIGN DETECTED @@@@@@")
 
-            elif sign=='right' and self.front_distance<=0.55:
+            elif sign=='right' and self.front_distance<=1.6:
                 self.turn_detect='right'
                 rospy.loginfo("@@@@@@ RIGHT SIGN DETECTED @@@@@@")
 
 
-        if self.turn_detect is not None and self.front_distance<0.33:
+        if self.turn_detect is not None and self.front_distance<0.8: #0.35:
             self.turn_direction=self.turn_detect
             self.turn_detect=None
             self.prev_error=0.0
@@ -244,12 +244,12 @@ class turtlebot():
 
             if self.turn_direction=='left':
                 rospy.loginfo("@@@@@@ TURN LEFT @@@@@@")
-                self.turn_time('left',1,0.03,0.4)
+                self.turn_time('left',1,0.03,0.35)
                 
 
             elif self.turn_direction=='right':
                 rospy.loginfo("@@@@@@ TURN RIGHT @@@@@@")
-                self.turn_time('right',1,0.03,0.4)
+                self.turn_time('right',1,0.03,0.35)
                 
             if self.step ==1:
                 self.step=2
@@ -368,7 +368,7 @@ class turtlebot():
         right_white_b=white_mask[bottom:,width//2:]
 
         yellow=yellow_mask[height//2:,:]
-        white=white_mask[height//2:,:width//2]
+        white=white_mask[height//2:,width//2:]
 
         yellow_area_b=cv2.countNonZero(left_yellow_b)
         white_area_b=cv2.countNonZero(right_white_b)
@@ -557,7 +557,14 @@ class turtlebot():
         return False
 
     def lane_tracking(self,image): #기본적인 라인 트래킹 수행
-        crop_img=image[300:,:]
+        # crop_img=image[300:,:]
+        # height,width=crop_img.shape[:2]
+
+        if self.step==3:
+            crop_img=image[380:,:]
+        else:
+            crop_img=image[300:,:]
+
         height,width=crop_img.shape[:2]
 
         hsv=cv2.cvtColor(crop_img,cv2.COLOR_BGR2HSV)
@@ -569,7 +576,9 @@ class turtlebot():
         # rospy.loginfo("TURN DETECT(SIGN) is %s",str(self.turn_detect))
 
         if self.turn_direction=='left':
-            yellow_mask[:,width//2:]=0
+            yellow_mask[:,3*width//4:]=0
+            # white_mask[:,:1*width//4] = 0
+            # yellow_mask[:height//2,:]=0
 
         elif self.turn_direction=='right':
             white_mask[:,:width//2]=0
@@ -579,7 +588,7 @@ class turtlebot():
             yellow_mask[:,width//2:]=0
             white_mask[:,:]=0
 
-        elif self.step == 2 or self.step == 3:
+        elif self.step == 3:#self.step == 2 or self.step == 3:
             white_mask[:,:width//2]=0
         else:pass
 
@@ -632,7 +641,7 @@ class turtlebot():
             M_upper=cv2.moments(upper_mask)
             M_lower=cv2.moments(lower_mask)
 
-            offset=300
+            offset=330#300
 
             if M_upper['m00']>0 and M_lower['m00']>0:
                 cx_upper=int(M_upper['m10']/M_upper['m00'])
@@ -655,7 +664,7 @@ class turtlebot():
             M_upper=cv2.moments(upper_mask)
             M_lower=cv2.moments(lower_mask)
 
-            offset=310
+            offset=330
 
             if M_upper['m00']>0 and M_lower['m00']>0:
                 cx_upper=int(M_upper['m10']/M_upper['m00'])
@@ -672,16 +681,26 @@ class turtlebot():
             if self.prev_target_x is None:
                 self.prev_target_x=target_x
             else:
-                target_x=0.25*target_x+0.75*self.prev_target_x
+                if self.step==2:
+                    target_x=0.8*target_x+0.2*self.prev_target_x
+                else:
+                    target_x=0.25*target_x+0.75*self.prev_target_x
+
                 self.prev_target_x=target_x
 
             err_x=target_x-center_x
             diff_x=err_x-self.prev_error
 
-            Kp=0.15
-            Kd=0.008
-            linear=14.0
-            max_angular=38.0
+            if self.step==2:
+                Kp=0.25
+                Kd=0.012
+                linear=15.0
+                max_angular=50.0
+            else:
+                Kp=0.15
+                Kd=0.008
+                linear=15.0
+                max_angular=38.0
 
             angular=-(Kp*err_x+Kd*diff_x)
             angular=np.clip(angular,-max_angular,max_angular)
@@ -703,7 +722,50 @@ class turtlebot():
                 self.move(0.06,0)
                 return
 
+            if self.step==2:
+                self.prev_target_x=None
+                self.prev_error=0.0
+                self.move(0.05,0)
+                return
+
             self.publish_velocity(self.prev_v_l,self.prev_v_r)
+
+        # if target_x is not None:
+        #     if self.prev_target_x is None:
+        #         self.prev_target_x=target_x
+        #     else:
+        #         target_x=0.25*target_x+0.75*self.prev_target_x
+        #         self.prev_target_x=target_x
+
+        #     err_x=target_x-center_x
+        #     diff_x=err_x-self.prev_error
+
+        #     Kp=0.15
+        #     Kd=0.008
+        #     linear=14.0
+        #     max_angular=38.0
+
+        #     angular=-(Kp*err_x+Kd*diff_x)
+        #     angular=np.clip(angular,-max_angular,max_angular)
+
+        #     self.prev_error=err_x
+
+        #     wheel_distance=0.148
+
+        #     v_l=linear-angular*wheel_distance*0.5
+        #     v_r=linear+angular*wheel_distance*0.5
+
+        #     self.prev_v_l=v_l
+        #     self.prev_v_r=v_r
+
+        #     self.publish_velocity(v_l,v_r)
+
+        # else:
+        #     if self.turn_direction=='parking':
+        #         self.move(0.06,0)
+        #         return
+
+        #     self.publish_velocity(self.prev_v_l,self.prev_v_r)
 
         mask_view=cv2.vconcat([white_mask,yellow_mask])
         cv2.imshow('MASK VIEW',mask_view)
@@ -820,7 +882,7 @@ class turtlebot():
         if data.encoding=='16UC1':
             self.depth/=1000.0
 
-        rospy.loginfo("CLOSEST FRONT DEPTH: %.3f m",self.depth)
+        # rospy.loginfo("CLOSEST FRONT DEPTH: %.3f m",self.depth)
 
     def img_callback(self,data): # 메인코드
         image=self.bridge.imgmsg_to_cv2(data,'bgr8')
@@ -828,7 +890,7 @@ class turtlebot():
         if image is None:
             return
 
-        # rospy.loginfo("@@@@@@ STEP: %d @@@@@@",self.step)
+        rospy.loginfo("@@@ STEP: %d @@@",self.step)
 
         if self.step==0:  # stop status
             self.traffic_light(image)
@@ -839,9 +901,10 @@ class turtlebot():
                 return
         
         elif self.step == 2: # straight find --> turn detect reset for obstacle !!~!~!~
-            self.turn_detect='left'
-            self.straight = self.is_straight(image,70)
+            # self.turn_detect='left'
+            self.straight = self.is_straight(image,90)
             if self.straight:
+                rospy.loginfo("IMHERE")
                 self.turn_detect = None
                 self.step = 3
                 self.straight_count = 0

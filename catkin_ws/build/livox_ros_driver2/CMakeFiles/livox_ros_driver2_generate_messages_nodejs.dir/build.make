@@ -64,8 +64,8 @@ livox_ros_driver2/CMakeFiles/livox_ros_driver2_generate_messages_nodejs: /home/s
 
 /home/sj/Desktop/TB/catkin_ws/devel/share/gennodejs/ros/livox_ros_driver2/msg/CustomMsg.js: /opt/ros/noetic/lib/gennodejs/gen_nodejs.py
 /home/sj/Desktop/TB/catkin_ws/devel/share/gennodejs/ros/livox_ros_driver2/msg/CustomMsg.js: /home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomMsg.msg
-/home/sj/Desktop/TB/catkin_ws/devel/share/gennodejs/ros/livox_ros_driver2/msg/CustomMsg.js: /home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomPoint.msg
 /home/sj/Desktop/TB/catkin_ws/devel/share/gennodejs/ros/livox_ros_driver2/msg/CustomMsg.js: /opt/ros/noetic/share/std_msgs/msg/Header.msg
+/home/sj/Desktop/TB/catkin_ws/devel/share/gennodejs/ros/livox_ros_driver2/msg/CustomMsg.js: /home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomPoint.msg
 	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --blue --bold --progress-dir=/home/sj/Desktop/TB/catkin_ws/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Generating Javascript code from livox_ros_driver2/CustomMsg.msg"
 	cd /home/sj/Desktop/TB/catkin_ws/build/livox_ros_driver2 && ../catkin_generated/env_cached.sh /usr/bin/python3 /opt/ros/noetic/share/gennodejs/cmake/../../../lib/gennodejs/gen_nodejs.py /home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomMsg.msg -Ilivox_ros_driver2:/home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg -Istd_msgs:/opt/ros/noetic/share/std_msgs/cmake/../msg -p livox_ros_driver2 -o /home/sj/Desktop/TB/catkin_ws/devel/share/gennodejs/ros/livox_ros_driver2/msg
 

@@ -354,33 +354,7 @@ class turtlebot():
         self.white_area=cv2.countNonZero(white)
         rospy.loginfo(self.white_area)
 
-        #########################################
-        # yellow_full=np.zeros((height,width),dtype=np.uint8)
-        # white_full=np.zeros((height,width),dtype=np.uint8)
-        # left_yellow_b_full=np.zeros((height,width),dtype=np.uint8)
-        # right_white_b_full=np.zeros((height,width),dtype=np.uint8)
-
-        # yellow_full[height//2:,:]=yellow
-        # white_full[height//2:,width//2:]=white
-        # left_yellow_b_full[bottom:,:width//2]=left_yellow_b
-        # right_white_b_full[bottom:,width//2:]=right_white_b
-
-        # cv2.putText(yellow_full,'yellow',(20,40),cv2.FONT_HERSHEY_SIMPLEX,1,255,2)
-        # cv2.putText(white_full,'white',(20,40),cv2.FONT_HERSHEY_SIMPLEX,1,255,2)
-        # cv2.putText(left_yellow_b_full,'left_yellow_b',(20,40),cv2.FONT_HERSHEY_SIMPLEX,1,255,2)
-        # cv2.putText(right_white_b_full,'right_white_b',(20,40),cv2.FONT_HERSHEY_SIMPLEX,1,255,2)
-
-        # top=cv2.hconcat([yellow_full,white_full])
-        # bottom_view=cv2.hconcat([left_yellow_b_full,right_white_b_full])
-        # mask_view=cv2.vconcat([top,bottom_view])
-        # mask_view=cv2.resize(mask_view,None,fx=0.4,fy=0.4)
-
-        # cv2.imshow('obstacle_masks',mask_view)
-        # cv2.imshow('image',image)
-        # cv2.waitKey(1)
-        #########################################        
-
-        # rospy.loginfo("Y_b: %3f W_b: %3f",yellow_area_b,white_area_b)
+        #########################################    
         rospy.loginfo("Y: %3f W: %3f",yellow_area,self.white_area)
 
         line_area=2000
@@ -396,18 +370,6 @@ class turtlebot():
             if 0<x<0.35 and abs(y)<safe_width:
                 front_points.append((x,y))
 
-        # rospy.loginfo("DIR:%s LEFT:%.2f FRONT:%.2f RIGHT:%.2f",str(self.obstacle_direction),self.left_distance,self.front_distance,self.right_distance)
-
-        #################################################################################
-        # if white_area>8100:
-        #     if 0<= white_area_b:
-        #         rospy.loginfo("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-        #         self.obstacle_clear_count +=1
-        #     else :self.obstacle_clear_count = 0
-
-        # if self.obstacle_clear_count >=1:
-        #     self.step = 5
-        #     return
 
         if self.obstacle_direction is None:
             if self.right_distance<0.25 and self.front_distance<=0.25 and self.left_distance>1.0 and white_area_b>4000:

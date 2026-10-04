@@ -24,7 +24,7 @@ add_custom_target(_livox_ros_driver2_generate_messages_check_deps_${_filename}
 
 get_filename_component(_filename "/home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomMsg.msg" NAME_WE)
 add_custom_target(_livox_ros_driver2_generate_messages_check_deps_${_filename}
-  COMMAND ${CATKIN_ENV} ${PYTHON_EXECUTABLE} ${GENMSG_CHECK_DEPS_SCRIPT} "livox_ros_driver2" "/home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomMsg.msg" "livox_ros_driver2/CustomPoint:std_msgs/Header"
+  COMMAND ${CATKIN_ENV} ${PYTHON_EXECUTABLE} ${GENMSG_CHECK_DEPS_SCRIPT} "livox_ros_driver2" "/home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomMsg.msg" "std_msgs/Header:livox_ros_driver2/CustomPoint"
 )
 
 #
@@ -42,7 +42,7 @@ _generate_msg_cpp(livox_ros_driver2
 _generate_msg_cpp(livox_ros_driver2
   "/home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomMsg.msg"
   "${MSG_I_FLAGS}"
-  "/home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomPoint.msg;/opt/ros/noetic/share/std_msgs/cmake/../msg/Header.msg"
+  "/opt/ros/noetic/share/std_msgs/cmake/../msg/Header.msg;/home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomPoint.msg"
   ${CATKIN_DEVEL_PREFIX}/${gencpp_INSTALL_DIR}/livox_ros_driver2
 )
 
@@ -83,7 +83,7 @@ _generate_msg_eus(livox_ros_driver2
 _generate_msg_eus(livox_ros_driver2
   "/home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomMsg.msg"
   "${MSG_I_FLAGS}"
-  "/home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomPoint.msg;/opt/ros/noetic/share/std_msgs/cmake/../msg/Header.msg"
+  "/opt/ros/noetic/share/std_msgs/cmake/../msg/Header.msg;/home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomPoint.msg"
   ${CATKIN_DEVEL_PREFIX}/${geneus_INSTALL_DIR}/livox_ros_driver2
 )
 
@@ -124,7 +124,7 @@ _generate_msg_lisp(livox_ros_driver2
 _generate_msg_lisp(livox_ros_driver2
   "/home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomMsg.msg"
   "${MSG_I_FLAGS}"
-  "/home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomPoint.msg;/opt/ros/noetic/share/std_msgs/cmake/../msg/Header.msg"
+  "/opt/ros/noetic/share/std_msgs/cmake/../msg/Header.msg;/home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomPoint.msg"
   ${CATKIN_DEVEL_PREFIX}/${genlisp_INSTALL_DIR}/livox_ros_driver2
 )
 
@@ -165,7 +165,7 @@ _generate_msg_nodejs(livox_ros_driver2
 _generate_msg_nodejs(livox_ros_driver2
   "/home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomMsg.msg"
   "${MSG_I_FLAGS}"
-  "/home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomPoint.msg;/opt/ros/noetic/share/std_msgs/cmake/../msg/Header.msg"
+  "/opt/ros/noetic/share/std_msgs/cmake/../msg/Header.msg;/home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomPoint.msg"
   ${CATKIN_DEVEL_PREFIX}/${gennodejs_INSTALL_DIR}/livox_ros_driver2
 )
 
@@ -206,7 +206,7 @@ _generate_msg_py(livox_ros_driver2
 _generate_msg_py(livox_ros_driver2
   "/home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomMsg.msg"
   "${MSG_I_FLAGS}"
-  "/home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomPoint.msg;/opt/ros/noetic/share/std_msgs/cmake/../msg/Header.msg"
+  "/opt/ros/noetic/share/std_msgs/cmake/../msg/Header.msg;/home/sj/Desktop/TB/catkin_ws/src/livox_ros_driver2/msg/CustomPoint.msg"
   ${CATKIN_DEVEL_PREFIX}/${genpy_INSTALL_DIR}/livox_ros_driver2
 )
 

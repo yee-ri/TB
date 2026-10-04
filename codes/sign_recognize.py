@@ -32,36 +32,43 @@ class TemplateMatch:
 
     def image_callback(self,msg):
         image=self.bridge.imgmsg_to_cv2(msg,'bgr8')
+        height,width=image.shape[:2]
 
         hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV)
-
         yellow_mask=cv2.inRange(hsv,np.array([15,100,100]),np.array([50,255,255]))
-        #white_mask=cv2.inRange(hsv,np.array([0,0,150]),np.array([179,50,255]))
         white_mask=cv2.inRange(hsv,np.array([0,0,210]),np.array([179, 55, 255]))
-        blue_mask=cv2.inRange(hsv,np.array([90,80,50]),np.array([130,255,255]))
+        # white_mask[:3*height//4,:] = 0
 
+        # red_mask =cv2.inRange(hsv,np.array([0,180,170]),np.array([10,255,220]))# cv2.inRange(hsv, np.array([0, 180, 100]), np.array([10, 255, 160])) 
+        # red_mask=cv2.inRange(hsv,np.array([0,220,175]),np.array([8,255,225]))
+        # red_mask=cv2.inRange(hsv,np.array([0,220,165]),np.array([8,255,225]))
+        # mask=cv2.bitwise_or(yellow_mask,white_mask)
+        red_mask=cv2.inRange(hsv,np.array([0,180,158]),np.array([5,255,191]))
         mask=cv2.bitwise_or(yellow_mask,white_mask)
-        mask=cv2.bitwise_or(mask,blue_mask)
+
+        mask=cv2.bitwise_or(mask,red_mask)
+        red_area=cv2.countNonZero(red_mask)  
 
         filtered=cv2.bitwise_and(image,image,mask=mask)
 
         cv2.imshow('COLOR',image)
-        # cv2.imshow('COLOR FILTER',filtered)
+        cv2.imshow('COLOR FILTER',filtered)
         cv2.waitKey(1)
 
         gray=cv2.cvtColor(filtered,cv2.COLOR_BGR2GRAY)
 
-        left_result=cv2.matchTemplate(gray,self.lturn_template,cv2.TM_CCOEFF_NORMED)
-        _,lmax_val,_,lmax_loc=cv2.minMaxLoc(left_result)
+        # left_result=cv2.matchTemplate(gray,self.lturn_template,cv2.TM_CCOEFF_NORMED)
+        # _,lmax_val,_,lmax_loc=cv2.minMaxLoc(left_result)
 
-        left_percent=lmax_val*100
+        # left_percent=lmax_val*100
 
-        right_result=cv2.matchTemplate(gray,self.rturn_template,cv2.TM_CCOEFF_NORMED)
-        _,rmax_val,_,rmax_loc=cv2.minMaxLoc(right_result)
+        # right_result=cv2.matchTemplate(gray,self.rturn_template,cv2.TM_CCOEFF_NORMED)
+        # _,rmax_val,_,rmax_loc=cv2.minMaxLoc(right_result)
 
-        right_percent=rmax_val*100
+        # right_percent=rmax_val*100
 
-        # rospy.loginfo("LEFT sign: %.1f%%     RIGHT sign: %.1f%%",left_percent,right_percent)
+        # rospy.loginfo("LEFT sign: %.1f%% RIGHT sign: %.1f%%",left_percent,right_percent)
+        rospy.loginfo("RED is %.3f",red_area)
 
 if __name__=='__main__':
     node=TemplateMatch()
