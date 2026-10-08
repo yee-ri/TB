@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-08",
+  "upstream": "https://github.com/yee-ri/TB.git",
+  "base_commit": "b683f7c458791e2bf5da6b57da3be8ecb140cf60",
+  "branch": "codex/tunnel-port",
+  "worktree_changes_committed": false,
+  "pushed": false,
+  "source_project_modified_by_port": false,
+  "runtime_python_lines_in_tunnel_package": 3458,
+  "tb_main_python_lines_before": 1169,
+  "tb_main_python_lines_after": 1107,
+  "verification": {
+    "environment": "custom-autorace:noetic Docker image; isolated --network none container",
+    "unit_command": "python3 -m unittest discover -s tests -v",
+    "unit_tests": 53,
+    "unit_failures": 0,
+    "unit_errors": 0,
+    "unit_elapsed_wall_seconds": 35.671,
+    "core_tests": 16,
+    "mission_tests": 21,
+    "mock_ros_wiring_tests": 16,
+    "ideal_closed_loop_scenarios": ["straight room path", "turning room path"],
+    "actual_ros_smoke_command": "python3 tests/ros_smoke.py",
+    "actual_ros_smoke_pass": true,
+    "actual_ros_smoke_scope": "Real imports, initialization, one cmd_vel publisher, zero commands while sensors are absent; no driving",
+    "git_diff_check_pass": true
+  },
+  "goal": {
+    "source_staging_map_x_y_yaw_deg": [-1.7475895, 0.140, -90.0],
+    "source_exit_map_x_y_yaw_deg": [0.200, -1.748373, 0.0],
+    "frozen_entry_frame_exit_x_y_yaw_deg": [1.888373, 1.9475895, 90.0]
+  },
+  "limitations": [
+    "No Gazebo driving of the port or official-start ordered-course validation was performed.",
+    "No physical robot validation was performed; footprint is the source custom robot, not a measured TB body.",
+    "The odom anchor assumes the configured surveyed entry pose. TB camera disappearance does not establish that pose; portal registration was not ported.",
+    "The port uses live LiDAR mapping and source keep-in geometry, not the source static wall map or AMCL.",
+    "Ideal closed-loop tests do not reproduce the actual Gazebo tunnel obstacles, sensor noise, delays, wheel slip, or real camera lane recovery."
+  ]
+}
