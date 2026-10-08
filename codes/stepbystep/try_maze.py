@@ -3,6 +3,8 @@ import rospy
 import cv2
 import math
 import numpy as np
+from pathlib import Path
+from threading import RLock
 from tf.transformations import euler_from_quaternion
 from sensor_msgs.msg import Image,PointCloud2
 from sensor_msgs import point_cloud2
@@ -12,32 +14,30 @@ from nav_msgs.msg import Odometry
 from std_msgs.msg import UInt8
 import tf2_ros
 import tf2_sensor_msgs.tf2_sensor_msgs
-from maze_navigation import MazeNavigation
+from tunnel.mission import TunnelMission, load_config
 
 class turtlebot():
     def __init__(self):
-        self.maze=MazeNavigation()
         rospy.init_node('controller',anonymous=True)
-
-        self.step_sub=rospy.Subscriber('/step',UInt8,self.step_callback) #rostopic pub사용
-
+        self.command_lock=RLock()
+        self.shutting_down=False
+        self.tunnel_generation=0
+        self.tunnel_active=False
+        config_path=rospy.get_param('~tunnel_config',str(Path(__file__).with_name('tunnel.yaml')))
+        self.tunnel_config=load_config(config_path)
+        self.tunnel=TunnelMission(self.tunnel_config,clock=lambda:rospy.Time.now().to_sec())
         self.cmd_pub=rospy.Publisher('/cmd_vel',Twist,queue_size=10)
-        self.image_sub=rospy.Subscriber('/camera/color/image_raw',Image,self.img_callback,queue_size=1,buff_size=2**24)
-        self.scan_sub=rospy.Subscriber('/livox/lidar',PointCloud2,self.scan_callback)
-        self.odom_sub = rospy.Subscriber('/odom',Odometry,self.odom_callback)
         self.bridge=CvBridge()
-        rospy.Subscriber('/camera/depth/image_rect_raw',Image,self.depth_callback,queue_size=1,buff_size=2**24)
-  
-
-        self.lturn_template=cv2.imread('/home/sj/Desktop/TB/images/lturn1.png',cv2.IMREAD_GRAYSCALE)
+        image_dir=Path(__file__).resolve().parents[2]/'images'
+        self.lturn_template=cv2.imread(str(image_dir/'lturn1.png'),cv2.IMREAD_GRAYSCALE)
         self.lturn_template=cv2.resize(self.lturn_template,(100,100))
-        self.rturn_template=cv2.imread('/home/sj/Desktop/TB/images/rturn1.png',cv2.IMREAD_GRAYSCALE)
+        self.rturn_template=cv2.imread(str(image_dir/'rturn1.png'),cv2.IMREAD_GRAYSCALE)
         self.rturn_template=cv2.resize(self.rturn_template,(100,100))
 
         
 
 ############## 구간별 테스트 설정 ##############
-        self.step= 10   #(원래 0으로 세팅)
+        self.step=int(rospy.get_param('~start_step',0))
         self.yaw = 0.0
         self.initial_yaw=None
 
@@ -102,50 +102,52 @@ class turtlebot():
 
 ############## 터널 관련 변수 ##############        
         self.maze_count = 0
-        self.maze_points=[]
         self.odom_x=0.0
         self.odom_y=0.0
         self.odom_received=False
-        self.maze_stop=False
-        self.maze_clear_count=0
+        self.odom_frame=None
         self.initial_x=None
         self.initial_y=None
         self.initial_yaw=None
-        self.maze_stop_direction=None
+
+        # ROS callbacks can run immediately: subscribe only after initialization.
+        self.step_sub=rospy.Subscriber('/step',UInt8,self.step_callback)
+        self.image_sub=rospy.Subscriber('/camera/color/image_raw',Image,self.img_callback,queue_size=1,buff_size=2**24)
+        self.scan_sub=rospy.Subscriber('/livox/lidar',PointCloud2,self.scan_callback,queue_size=1)
+        self.odom_sub=rospy.Subscriber('/odom',Odometry,self.odom_callback,queue_size=1)
+        self.depth_sub=rospy.Subscriber('/camera/depth/image_rect_raw',Image,self.depth_callback,queue_size=1,buff_size=2**24)
+        self.tunnel_timer=rospy.Timer(rospy.Duration(self.tunnel_config['control']['period']),self.tunnel_tick)
+        rospy.on_shutdown(self.shutdown)
+
+    def shutdown(self):
+        with self.command_lock:
+            if self.shutting_down:
+                return
+            self.shutting_down=True
+            self.tunnel_generation+=1
+            self.tunnel_timer.shutdown()
+            self.cmd_pub.publish(Twist())
+        self.tunnel.close()
 
 
     def step_callback(self,data): # 그냥 rostopic pub으로 구간별 테스트하려고 만든거
-        self.step=data.data
-        self.prev_error=0.0
-        self.prev_target_x=None
-        self.prev_v_l=0.0
-        self.prev_v_r=0.0
-
-        if self.step<=2:
-            
-            pass
-
-        if self.step==3:
-            self.obstacle_direction=None
-            self.obstacle_clear_count=0
+        with self.command_lock:
+            was_tunnel=self.step in (9,10)
+            self.step=data.data
+            self.tunnel_generation+=1
+            self.tunnel_active=False
+            self.tunnel.close()
+            self.prev_error=0.0
+            self.prev_target_x=None
+            self.prev_v_l=0.0
+            self.prev_v_r=0.0
+            if was_tunnel or self.step in (9,10):
+                self.move(0.0,0.0,tunnel=self.step in (9,10))
+            if self.step==3:
+                self.obstacle_direction=None
+                self.obstacle_clear_count=0
 
         rospy.loginfo("@@@@@@ STEP CHANGE -> %d @@@@@@",self.step)
-
-    # def odom_callback(self,data):
-
-    #     self.odom_x=data.pose.pose.position.x
-    #     self.odom_y=data.pose.pose.position.y
-
-    #     q=data.pose.pose.orientation
-    #     _,_,raw_yaw=euler_from_quaternion([q.x,q.y,q.z,q.w])
-
-    #     if self.initial_yaw is None:
-    #         self.initial_yaw=raw_yaw
-
-    #     self.yaw=raw_yaw-self.initial_yaw
-    #     self.yaw=math.atan2(math.sin(self.yaw),math.cos(self.yaw))
-    #     self.odom_received=True
-
 
     def odom_callback(self,data):
         x=data.pose.pose.position.x
@@ -158,152 +160,112 @@ class turtlebot():
             self.initial_x=x
             self.initial_y=y
 
-        dx=x-self.initial_x
-        dy=y-self.initial_y
-
-        c=math.cos(self.initial_yaw)
-        s=math.sin(self.initial_yaw)
-
-        self.odom_x=c*dx+s*dy
-        self.odom_y=-s*dx+c*dy
-
-        self.yaw=raw_yaw-self.initial_yaw
-        self.yaw=math.atan2(math.sin(self.yaw),math.cos(self.yaw))
+        self.odom_x,self.odom_y,self.yaw=self.local_pose(x,y,raw_yaw)
+        self.odom_frame=data.header.frame_id
         self.odom_received=True
-    # def scan_callback(self,data): # 라이다 
-    #     try:
-    #         transform=self.tf_buffer.lookup_transform('base_footprint',data.header.frame_id,rospy.Time(0),rospy.Duration(0.1))
-    #         cloud=tf2_sensor_msgs.tf2_sensor_msgs.do_transform_cloud(data,transform)
-    #     except Exception as e:
-    #         rospy.logwarn("TF ERROR: %s",e)
-    #         return
+        self.tunnel.update_odometry((self.odom_x,self.odom_y,self.yaw),
+                                    data.twist.twist.linear.x,data.twist.twist.angular.z,
+                                    data.header.stamp.to_sec())
 
-    #     self.obstacle_points=[]
-    #     self.maze_points=[]
+    def local_pose(self,x,y,yaw):
+        dx,dy=x-self.initial_x,y-self.initial_y
+        c,s=math.cos(self.initial_yaw),math.sin(self.initial_yaw)
+        angle=yaw-self.initial_yaw
+        return c*dx+s*dy,-s*dx+c*dy,math.atan2(math.sin(angle),math.cos(angle))
 
-    #     left_ranges=[]
-    #     front_ranges=[]
-    #     right_ranges=[]
+    def tunnel_tick(self,_event):
+        with self.command_lock:
+            if self.shutting_down or self.step not in (9,10):
+                return
+            if not self.tunnel_active:
+                self.tunnel.reset()
+                self.tunnel_active=True
+            generation=self.tunnel_generation
+        linear,angular,finished=self.tunnel.step(rospy.Time.now().to_sec())
+        with self.command_lock:
+            if generation!=self.tunnel_generation or self.step not in (9,10):
+                return
+            self.move(linear,angular,tunnel=True)
+            if finished:
+                self.step=11
+                self.tunnel_active=False
+                self.prev_error=0.0
+                self.prev_target_x=None
+                self.prev_v_l=self.prev_v_r=0.0
+            else:
+                self.step=9 if self.tunnel.state=='ENTRY' else 10
+            rospy.loginfo_throttle(1.0,"TUNNEL: %s %s",self.tunnel.state,self.tunnel.reason)
 
-    #     safe_width=self.robot_half_width+self.safety_margin
-    #     side_limit=0.55
-
-    #     for point in point_cloud2.read_points(cloud,field_names=('x','y','z'),skip_nans=True):
-    #         x,y,z=point
-
-    #         if self.step==10 and 0.20<x<4.0 and abs(y)<3.0 and 0.03<z<0.30:
-    #             self.maze_points.append((x,y))
-
-    #         if -0.15<x<0.8 and abs(y)<side_limit:
-    #             self.obstacle_points.append((x,y))
-
-    #         if x<=0.1:
-    #             continue
-
-    #         if z>0.30:
-    #             continue
-
-    #         if abs(y)<safe_width:
-    #             front_ranges.append(x)
-    #         elif safe_width<=y<side_limit:
-    #             left_ranges.append(np.sqrt(x*x+y*y))
-    #         elif -side_limit<y<=-safe_width:
-    #             right_ranges.append(np.sqrt(x*x+y*y))
-
-    #     if self.step==10:
-    #         self.maze.update_lidar(self.maze_points)
-
-    #         if self.front_distance<0.20:
-    #             self.maze_stop=True
-    #             self.maze_clear_count=0
-    #         elif self.maze_stop:
-    #             if self.front_distance>0.30:self.maze_clear_count+=1
-    #             else:self.maze_clear_count=0
-    #             if self.maze_clear_count>=5:
-    #                 self.maze_stop=False
-    #                 self.maze_clear_count=0
-
-    #     self.left_distance=min(left_ranges) if left_ranges else float('inf')
-    #     self.front_distance=min(front_ranges) if front_ranges else float('inf')
-    #     self.right_distance=min(right_ranges) if right_ranges else float('inf')
-
-    #     # if self.step==10 and self.front_distance<0.20:self.stop()
-
-    #     rospy.loginfo("LEFT: %.2f FRONT: %.2f RIGHT: %.2f DIR: %s",self.left_distance,self.front_distance,self.right_distance,str(self.obstacle_direction))
-
+    def lane_detect(self,image):
+        crop=image[300:,:]
+        if crop.size==0:
+            return False
+        hsv=cv2.cvtColor(crop,cv2.COLOR_BGR2HSV)
+        white=cv2.inRange(hsv,np.array([0,0,210]),np.array([179,55,255]))
+        yellow=cv2.inRange(hsv,np.array([15,100,100]),np.array([50,255,255]))
+        minimum=self.tunnel_config['sensors']['minimum_lane_pixels']
+        return cv2.countNonZero(white)>minimum and cv2.countNonZero(yellow)>minimum
 
     def scan_callback(self,data):
+        settings=self.tunnel_config['sensors']
+        base_frame=settings['base_frame']
+        if data.header.stamp.to_sec()<=0.0:
+            return
         try:
-            transform=self.tf_buffer.lookup_transform('base_footprint',data.header.frame_id,rospy.Time(0),rospy.Duration(0.1))
+            transform=self.tf_buffer.lookup_transform(base_frame,data.header.frame_id,data.header.stamp,rospy.Duration(0.1))
             cloud=tf2_sensor_msgs.tf2_sensor_msgs.do_transform_cloud(data,transform)
         except Exception as e:
             rospy.logwarn("TF ERROR: %s",e)
             return
 
         self.obstacle_points=[]
-        self.maze_points=[]
         left_ranges=[]
         front_ranges=[]
         right_ranges=[]
 
-        maze_mode=self.step==10
-        safe_width=0.15 if maze_mode else self.robot_half_width+self.safety_margin
-        side_limit=1.50 if maze_mode else 0.55
+        tunnel_mode=self.step in (9,10)
+        tunnel_points=[]
+        safe_width=self.robot_half_width+self.safety_margin
+        side_limit=0.55
 
         for point in point_cloud2.read_points(cloud,field_names=('x','y','z'),skip_nans=True):
             x,y,z=point
 
-            if maze_mode:
-                if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):continue
-                if not (0.03<z<0.30):continue
+            if tunnel_mode:
+                if (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)
+                        and settings['z_min']<z<settings['z_max']
+                        and math.hypot(x,y)<=settings['range_max']):
+                    tunnel_points.append((x,y))
+                continue
+            if -0.15<x<0.8 and abs(y)<side_limit:self.obstacle_points.append((x,y))
+            if x<=0.15 or z>0.30:continue
+            if abs(y)<safe_width:front_ranges.append(x)
+            elif safe_width<=y<side_limit:left_ranges.append(math.hypot(x,y))
+            elif -side_limit<y<=-safe_width:right_ranges.append(math.hypot(x,y))
 
-                if -0.10<x<4.0 and abs(y)<3.0:self.maze_points.append((x,y))
-
-                if 0.15<x<3.0 and abs(y)<safe_width:
-                    front_ranges.append(x)
-
-                if 0.0<x<0.80:
-                    if safe_width<=y<side_limit:left_ranges.append(y)
-                    elif -side_limit<y<=-safe_width:right_ranges.append(-y)
-
-            else:
-                if -0.15<x<0.8 and abs(y)<side_limit:self.obstacle_points.append((x,y))
-                if x<=0.15 or z>0.30:continue
-
-                if abs(y)<safe_width:front_ranges.append(x)
-                elif safe_width<=y<side_limit:left_ranges.append(math.hypot(x,y))
-                elif -side_limit<y<=-safe_width:right_ranges.append(math.hypot(x,y))
-
-        if maze_mode:
-            self.left_distance=np.percentile(left_ranges,10) if len(left_ranges)>=3 else float('nan')
-            self.front_distance=np.percentile(front_ranges,10) if len(front_ranges)>=3 else float('nan')
-            self.right_distance=np.percentile(right_ranges,10) if len(right_ranges)>=3 else float('nan')
-
-            self.maze.update_lidar(self.maze_points)
-
-            if not math.isfinite(self.front_distance) or self.front_distance<=0.2:
-                if not self.maze_stop:
-                    self.maze_stop_direction='left' if self.left_distance>self.right_distance else 'right'
-                self.maze_stop=True
-                self.maze_clear_count=0
-            elif self.maze_stop:
-                if self.front_distance>0.35:self.maze_clear_count+=1
-                else:self.maze_clear_count=0
-
-                if self.maze_clear_count>=5:
-                    self.maze_stop=False
-                    self.maze_clear_count=0
-                    self.maze_stop_direction=None
-
-        else:
-            self.left_distance=np.percentile(left_ranges,10) if left_ranges else float('inf')
-            self.front_distance=np.percentile(front_ranges,10) if front_ranges else float('inf')
-            self.right_distance=np.percentile(right_ranges,10) if right_ranges else float('inf')
+        if tunnel_mode:
+            if not self.odom_received or not self.odom_frame:
+                return
+            try:
+                odom_tf=self.tf_buffer.lookup_transform(self.odom_frame,base_frame,data.header.stamp,rospy.Duration(0.1))
+            except Exception as e:
+                rospy.logwarn_throttle(1.0,"Tunnel acquisition TF unavailable: %s",e)
+                return
+            p,q=odom_tf.transform.translation,odom_tf.transform.rotation
+            yaw=euler_from_quaternion([q.x,q.y,q.z,q.w])[2]
+            scan_pose=self.local_pose(p.x,p.y,yaw)
+            p,q=transform.transform.translation,transform.transform.rotation
+            sensor_pose=(p.x,p.y,euler_from_quaternion([q.x,q.y,q.z,q.w])[2])
+            self.tunnel.update_cloud(tunnel_points,sensor_pose,scan_pose,data.header.stamp.to_sec())
+            return
+        self.left_distance=np.percentile(left_ranges,10) if left_ranges else float('inf')
+        self.front_distance=np.percentile(front_ranges,10) if front_ranges else float('inf')
+        self.right_distance=np.percentile(right_ranges,10) if right_ranges else float('inf')
 
         rospy.loginfo("LEFT: %.2f FRONT: %.2f RIGHT: %.2f DIR: %s",self.left_distance,self.front_distance,self.right_distance,str(self.obstacle_direction))
 
     def stop(self): # 초록불 감지 전 정지상태
-        self.cmd_pub.publish(Twist())
+        self.move(0.0,0.0)
 
     def traffic_light(self,data): # 초록불 감지 함수
         hsv_frame=cv2.cvtColor(data,cv2.COLOR_BGR2HSV)
@@ -435,7 +397,7 @@ class turtlebot():
             if elapsed>=duration:
                 break
 
-            self.cmd_pub.publish(msg)
+            self.move(msg.linear.x,msg.angular.z)
             rate.sleep()
 
         self.stop()
@@ -603,11 +565,14 @@ class turtlebot():
                     rospy.loginfo("IDK (right)")
                     self.move(0.06,-0.18)
 
-    def move(self,linear,angular): # 장애물 피할때 선속도/각속도 설정하는 부분
+    def move(self,linear,angular,tunnel=False): # 기존 노드가 유일한 명령 발행자
         msg=Twist()
         msg.linear.x=linear
         msg.angular.z=angular
-        self.cmd_pub.publish(msg)
+        with self.command_lock:
+            if self.shutting_down or (self.step in (9,10))!=tunnel:
+                return
+            self.cmd_pub.publish(msg)
 
     def check_obstacle_end(self): # 장애물 구간 끝났는지 확인
         if self.front_distance>0.9 and self.left_distance>0.5 and self.right_distance>0.5 :#and self.white_area>=200:
@@ -952,6 +917,10 @@ class turtlebot():
         if image is None:
             return
 
+        if self.step in (9,10):
+            self.tunnel.update_lane(self.lane_detect(image),data.header.stamp.to_sec())
+            return
+
         rospy.loginfo("@@@@@@ STEP: %d @@@@@@",self.step)
 
         if self.step==0:  # stop status
@@ -1113,46 +1082,14 @@ class turtlebot():
             else: self.maze_count =0
             
             if self.maze_count == 10:
-                self.step =9
+                with self.command_lock:
+                    self.step=9
+                    self.tunnel_generation+=1
+                    self.tunnel_active=False
+                return
                 
             else: pass
 
-        elif self.step ==9:
-            self.move_time_yaw_hold(0.06,-1.565,2.5)
-            self.move(0,0)
-            self.maze.reset()
-            self.step=10
-            return
-            
-
-        elif self.step==10:
-            # linear,angular,finished=self.maze.run(self.odom_x,self.odom_y,self.yaw)
-            
-            linear,angular,finished=self.maze.run(self.odom_x,self.odom_y,self.yaw,self.left_distance,self.front_distance,self.right_distance)
-            
-            if self.maze.final_phase==0:
-                if self.maze_stop:
-                    linear=0.0
-                    angular=0.20 if self.maze_stop_direction=='left' else -0.20
-                elif self.right_distance<0.18:
-                    linear=0.0
-                    angular=0.18
-                elif self.left_distance<0.18:
-                    linear=0.0
-                    angular=-0.18
-
-            rx,ry,_=self.maze.relative_pose(self.odom_x,self.odom_y,self.yaw)
-            goal_distance=math.hypot(rx-self.maze.goal_x,ry-self.maze.goal_y)
-            rospy.loginfo("FINAL CMD: linear=%.3f angular=%.3f stop=%s phase=%d front=%.2f",linear,angular,self.maze_stop,self.maze.final_phase,self.front_distance)
-
-
-            if finished:
-                self.stop()
-                self.step=11
-                return
-
-            self.move(linear,angular)
-            return          
         self.lane_tracking(image)
 
     def publish_velocity(self,v_l,v_r): # 속도 퍼블리시 
@@ -1161,9 +1098,10 @@ class turtlebot():
         msg.linear.x=(self.wheel_radius*(v_r+v_l)/2.0)*0.1
         msg.angular.z=(self.wheel_radius*(v_r-v_l)/self.wheel_separation)*0.2
 
-        self.cmd_pub.publish(msg)
+        with self.command_lock:
+            if not self.shutting_down and self.step not in (9,10):
+                self.cmd_pub.publish(msg)
 
 if __name__=='__main__':
     controller=turtlebot()
     rospy.spin()
-
