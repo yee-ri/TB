@@ -2,6 +2,22 @@
 
 `yee-ri/TB`의 `b683f7c`에서 분리한 터널 이식본. 다른 미션은 TB 코드를 사용한다.
 
+## 분리된 Gazebo 시험
+
+`codex/tunnel-port`는 이식 기준본, `codex/tunnel-gazebo`는 별도 작업 폴더의 시뮬레이션 브랜치다.
+`main`에는 병합하지 않는다. 실행 명령은 [DOCKER_NOETIC.md](DOCKER_NOETIC.md)를 참고한다.
+
+- 기존 custom robot·경기장·빌드 결과를 `/workspace`에 읽기 전용으로 연결한다.
+- 전용 컨테이너 내부에서만 ROS를 실행하며, TB 노드 하나만 `/cmd_vel`을 발행한다.
+- 터널 입구에서 step 9로 시작한다. 공식 시작점 전체 주행이 아니다.
+- Gazebo `LaserScan`을 TB 노드가 직접 받는다. 기본 실물 입력은 기존 `PointCloud2`다.
+- Gazebo는 원본 통합 설정과 같은 world odometry + EKF를 사용한다. 실물 위치추정 검증이 아니다.
+- 전체 코스는 입구 기준 정합과 다른 TB 미션의 센서 연결도 필요하다. 현재 Gazebo RGB 카메라는 TB 차단봉용 깊이 영상을 제공하지 않는다.
+
+2026-10-08 연결 시험: Gazebo GUI 프로세스·RGB·LiDAR·EKF odom·TB 단독 명령 발행을 확인했다.
+터널 입구 단독 출발에서는 `ENTRY: waiting for an observed entry corridor with turning room`에 머물렀다.
+30초 관측 중 전진 명령은 없었으며, 터널 통과·차선 복귀는 미검증이다. 안전 조건이나 경로 코어는 변경하지 않았다.
+
 ## 실행
 
 ROS Noetic, 정상 빌드한 센서 드라이버 작업공간, `numpy`, `PyYAML`, OpenCV가 필요하다.

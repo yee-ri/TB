@@ -1,34 +1,26 @@
-# Noetic 단위 검사
+# Gazebo 터널 단독 실행
 
-기존 `custom-autorace:noetic` 이미지로 이식본의 테스트를 실행한다.
+분리된 작업 폴더에서 기존 경기장·로봇을 읽기 전용으로 사용한다. 공식 시작점 전체 코스 시험이 아니다.
 
 ```bash
-docker run --rm --network none \
-  -e PYTHONDONTWRITEBYTECODE=1 \
-  -v /home/sj/TB_tunnel_port:/target -w /target \
-  custom-autorace:noetic bash -lc \
-  'source /opt/ros/noetic/setup.bash && python3 -m unittest discover -s tests -v'
+cd /home/sj/TB_tunnel_gazebo
+docker compose -f compose.gazebo.yaml up
 ```
 
-외부 로봇과 격리된 ROS에서 실제 노드 초기화·명령 발행자·센서 없는 정지를 검사한다.
+화면 없이 실행한다.
 
 ```bash
-docker run --rm --network none \
-  -e PYTHONDONTWRITEBYTECODE=1 \
-  -v /home/sj/TB_tunnel_port:/target -w /target \
-  custom-autorace:noetic bash -lc \
-  'source /opt/ros/noetic/setup.bash && python3 tests/ros_smoke.py'
+TB_GAZEBO_GUI=false docker compose -f compose.gazebo.yaml up -d
 ```
 
-센서 확인 후 TB 공식 미션 순서로 실행한다.
+이 시뮬레이션만 종료한다.
 
 ```bash
-cd /home/sj/TB_tunnel_port/codes/stepbystep
-python3 try_maze.py _start_step:=0
+docker compose -f compose.gazebo.yaml down
 ```
 
-설정된 터널 진입 자세에서 단독 실행한다.
+이식본 단위 검사와 ROS 실행 검사를 한다.
 
 ```bash
-python3 try_maze.py _start_step:=9
+docker compose -f compose.gazebo.yaml run --rm --no-deps gazebo bash -lc 'python3 -m unittest discover -s tests -v && python3 tests/ros_smoke.py'
 ```

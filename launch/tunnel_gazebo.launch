@@ -1,0 +1,24 @@
+<launch>
+  <arg name="gui" default="true"/>
+  <!-- Diagnostic tunnel-only start; this is NOT the official course start. -->
+  <include file="$(find custom_autorace_description)/launch/gazebo_autorace.launch">
+    <arg name="x_pos" value="-1.7475895"/>
+    <arg name="y_pos" value="0.140"/>
+    <arg name="yaw_pos" value="-1.5707963267948966"/>
+    <arg name="gui" value="$(arg gui)"/>
+    <arg name="tunnel_obstacle_layout" value="layout_a"/>
+    <!-- Match the source integrated simulator: signed world odometry + EKF.
+         These are simulation inputs, not physical localization evidence. -->
+    <arg name="odometry_source" value="world"/>
+    <arg name="fuse_imu" value="true"/>
+  </include>
+  <!-- No original lane/mission controller is launched. TB owns cmd_vel. -->
+  <node pkg="tb_tunnel_sim" type="try_maze.py" name="tb_controller"
+        output="screen" required="true">
+    <param name="start_step" value="9"/>
+    <param name="lidar_type" value="laserscan"/>
+    <param name="lidar_topic" value="/scan_mid360_raw"/>
+    <param name="tunnel_config" value="$(find tb_tunnel_sim)/codes/stepbystep/tunnel.yaml"/>
+    <remap from="/odom" to="/odometry/filtered"/>
+  </node>
+</launch>

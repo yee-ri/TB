@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>tb_tunnel_sim</name>
+  <version>0.1.0</version>
+  <description>Isolated Gazebo wiring for the TB tunnel port.</description>
+  <maintainer email="woongchul2@pusan.ac.kr">woongchul2</maintainer>
+  <license>Unspecified in upstream TB repository</license>
+  <buildtool_depend>catkin</buildtool_depend>
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>tf</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>tf2_sensor_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>gazebo_ros</exec_depend>
+  <exec_depend>custom_autorace_description</exec_depend>
+</package>
