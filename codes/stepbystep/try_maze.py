@@ -1,12 +1,12 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import rospy
 import cv2
 import math
 import numpy as np
 from pathlib import Path
 from threading import RLock
-from tf.transformations import euler_from_quaternion
-from sensor_msgs.msg import Image,PointCloud2
+from tf.transformations import euler_from_quaternion,quaternion_matrix
+from sensor_msgs.msg import Image,PointCloud2,LaserScan
 from sensor_msgs import point_cloud2
 from geometry_msgs.msg import Twist
 from cv_bridge import CvBridge
@@ -25,6 +25,11 @@ class turtlebot():
         self.tunnel_active=False
         config_path=rospy.get_param('~tunnel_config',str(Path(__file__).with_name('tunnel.yaml')))
         self.tunnel_config=load_config(config_path)
+        self.lidar_type=rospy.get_param('~lidar_type','pointcloud2')
+        if self.lidar_type not in ('pointcloud2','laserscan'):
+            raise ValueError('~lidar_type must be pointcloud2 or laserscan')
+        self.lidar_topic=rospy.get_param('~lidar_topic',
+                                       '/livox/lidar' if self.lidar_type=='pointcloud2' else '/scan_mid360_raw')
         self.tunnel=TunnelMission(self.tunnel_config,clock=lambda:rospy.Time.now().to_sec())
         self.cmd_pub=rospy.Publisher('/cmd_vel',Twist,queue_size=10)
         self.bridge=CvBridge()
@@ -113,7 +118,8 @@ class turtlebot():
         # ROS callbacks can run immediately: subscribe only after initialization.
         self.step_sub=rospy.Subscriber('/step',UInt8,self.step_callback)
         self.image_sub=rospy.Subscriber('/camera/color/image_raw',Image,self.img_callback,queue_size=1,buff_size=2**24)
-        self.scan_sub=rospy.Subscriber('/livox/lidar',PointCloud2,self.scan_callback,queue_size=1)
+        scan_type,scan_callback=(PointCloud2,self.scan_callback) if self.lidar_type=='pointcloud2' else (LaserScan,self.laser_callback)
+        self.scan_sub=rospy.Subscriber(self.lidar_topic,scan_type,scan_callback,queue_size=1)
         self.odom_sub=rospy.Subscriber('/odom',Odometry,self.odom_callback,queue_size=1)
         self.depth_sub=rospy.Subscriber('/camera/depth/image_rect_raw',Image,self.depth_callback,queue_size=1,buff_size=2**24)
         self.tunnel_timer=rospy.Timer(rospy.Duration(self.tunnel_config['control']['period']),self.tunnel_tick)
@@ -206,17 +212,52 @@ class turtlebot():
         minimum=self.tunnel_config['sensors']['minimum_lane_pixels']
         return cv2.countNonZero(white)>minimum and cv2.countNonZero(yellow)>minimum
 
-    def scan_callback(self,data):
-        settings=self.tunnel_config['sensors']
-        base_frame=settings['base_frame']
-        if data.header.stamp.to_sec()<=0.0:
-            return
+    def lidar_transform(self,header):
+        if header.stamp.to_sec()<=0.0:
+            return None
         try:
-            transform=self.tf_buffer.lookup_transform(base_frame,data.header.frame_id,data.header.stamp,rospy.Duration(0.1))
-            cloud=tf2_sensor_msgs.tf2_sensor_msgs.do_transform_cloud(data,transform)
+            return self.tf_buffer.lookup_transform(self.tunnel_config['sensors']['base_frame'],
+                                                   header.frame_id,header.stamp,rospy.Duration(0.1))
         except Exception as e:
             rospy.logwarn("TF ERROR: %s",e)
+            return None
+
+    def scan_callback(self,data):
+        transform=self.lidar_transform(data.header)
+        if transform is None:
             return
+        try:
+            cloud=tf2_sensor_msgs.tf2_sensor_msgs.do_transform_cloud(data,transform)
+        except Exception as e:
+            rospy.logwarn("PointCloud transform failed: %s",e)
+            return
+        self.lidar_points(point_cloud2.read_points(cloud,field_names=('x','y','z'),skip_nans=True),transform,data.header)
+
+    def laser_callback(self,data):
+        # No-return beams stay unobserved; never turn infinity into a fake hit.
+        if not (math.isfinite(data.angle_min) and math.isfinite(data.angle_increment)
+                and data.angle_increment!=0.0 and math.isfinite(data.range_min)
+                and math.isfinite(data.range_max) and 0.0<=data.range_min<data.range_max):
+            return
+        ranges=np.asarray(data.ranges,dtype=float)
+        valid=np.flatnonzero(np.isfinite(ranges))
+        valid=valid[(ranges[valid]>=data.range_min)&(ranges[valid]<=data.range_max)]
+        if not len(valid):
+            return
+        transform=self.lidar_transform(data.header)
+        if transform is None:
+            return
+        angles=data.angle_min+valid*data.angle_increment
+        r=ranges[valid]
+        points=np.column_stack((r*np.cos(angles),r*np.sin(angles),np.zeros(len(r))))
+        p,q=transform.transform.translation,transform.transform.rotation
+        rotation=quaternion_matrix([q.x,q.y,q.z,q.w])[:3,:3]
+        points=points.dot(rotation.T)+np.array([p.x,p.y,p.z])
+        self.lidar_points(points,transform,data.header)
+
+    def lidar_points(self,points,transform,header):
+        settings=self.tunnel_config['sensors']
+        base_frame=settings['base_frame']
 
         self.obstacle_points=[]
         left_ranges=[]
@@ -228,7 +269,7 @@ class turtlebot():
         safe_width=self.robot_half_width+self.safety_margin
         side_limit=0.55
 
-        for point in point_cloud2.read_points(cloud,field_names=('x','y','z'),skip_nans=True):
+        for point in points:
             x,y,z=point
 
             if tunnel_mode:
@@ -247,7 +288,7 @@ class turtlebot():
             if not self.odom_received or not self.odom_frame:
                 return
             try:
-                odom_tf=self.tf_buffer.lookup_transform(self.odom_frame,base_frame,data.header.stamp,rospy.Duration(0.1))
+                odom_tf=self.tf_buffer.lookup_transform(self.odom_frame,base_frame,header.stamp,rospy.Duration(0.1))
             except Exception as e:
                 rospy.logwarn_throttle(1.0,"Tunnel acquisition TF unavailable: %s",e)
                 return
@@ -256,7 +297,7 @@ class turtlebot():
             scan_pose=self.local_pose(p.x,p.y,yaw)
             p,q=transform.transform.translation,transform.transform.rotation
             sensor_pose=(p.x,p.y,euler_from_quaternion([q.x,q.y,q.z,q.w])[2])
-            self.tunnel.update_cloud(tunnel_points,sensor_pose,scan_pose,data.header.stamp.to_sec())
+            self.tunnel.update_cloud(tunnel_points,sensor_pose,scan_pose,header.stamp.to_sec())
             return
         self.left_distance=np.percentile(left_ranges,10) if left_ranges else float('inf')
         self.front_distance=np.percentile(front_ranges,10) if front_ranges else float('inf')

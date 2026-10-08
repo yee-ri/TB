@@ -1,0 +1,38 @@
+name: tb-tunnel-gazebo
+services:
+  gazebo:
+    image: custom-autorace:noetic
+    container_name: tb-tunnel-gazebo
+    init: true
+    # All ROS/Gazebo processes live in this container. No host robot/ROS access.
+    network_mode: none
+    shm_size: 512mb
+    gpus:
+      - driver: nvidia
+        count: all
+    environment:
+      DISPLAY: ${DISPLAY:-:0}
+      QT_X11_NO_MITSHM: "1"
+      NVIDIA_DRIVER_CAPABILITIES: graphics,display,utility,compute
+      ROS_MASTER_URI: http://127.0.0.1:11311
+      ROS_HOSTNAME: 127.0.0.1
+      GAZEBO_MASTER_URI: http://127.0.0.1:11345
+      GAZEBO_MODEL_PATH: /workspace/src/turtlebot3_simulations/turtlebot3_gazebo/models
+      GAZEBO_PLUGIN_PATH: /workspace/devel/lib
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      TURTLEBOT3_MODEL: burger
+    volumes:
+      - ${AUTORACE_SOURCE_WORKSPACE:-/home/sj/tb3_autorace_noetic_ws}:/workspace:ro
+      - .:/target:ro
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+    working_dir: /target
+    command:
+      - bash
+      - -lc
+      - |
+        source /opt/ros/noetic/setup.bash
+        source /workspace/devel/setup.bash
+        export ROS_PACKAGE_PATH=/target:$$ROS_PACKAGE_PATH
+        exec roslaunch tb_tunnel_sim tunnel_gazebo.launch gui:=${TB_GAZEBO_GUI:-true}
+    stop_grace_period: 20s

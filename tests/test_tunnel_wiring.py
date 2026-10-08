@@ -34,9 +34,19 @@ def quaternion(yaw=0.0):
     return types.SimpleNamespace(x=0.0, y=0.0, z=math.sin(yaw / 2), w=math.cos(yaw / 2))
 
 
-def transform(x=0.0, y=0.0, yaw=0.0):
+def transform(x=0.0, y=0.0, yaw=0.0, z=0.0):
     return types.SimpleNamespace(transform=types.SimpleNamespace(
-        translation=vector(x, y), rotation=quaternion(yaw)))
+        translation=vector(x, y, z), rotation=quaternion(yaw)))
+
+
+def quaternion_matrix(q):
+    x, y, z, w = q
+    return np.array([
+        [1-2*(y*y+z*z), 2*(x*y-z*w), 2*(x*z+y*w), 0],
+        [2*(x*y+z*w), 1-2*(x*x+z*z), 2*(y*z-x*w), 0],
+        [2*(x*z-y*w), 2*(y*z+x*w), 1-2*(x*x+y*y), 0],
+        [0, 0, 0, 1],
+    ])
 
 
 class Twist:
@@ -85,7 +95,7 @@ class TunnelWiringTests(unittest.TestCase):
             for field in ("step", "bridge", "tf_buffer", "tunnel", "command_lock",
                           "odom_frame", "initial_x", "gate_state", "turn_direction"):
                 self.assertTrue(hasattr(node, field), field)
-            self.subscribers.append((topic, callback, kwargs))
+            self.subscribers.append((topic, callback, kwargs, message_type))
             return object()
 
         def timer(period, callback):
@@ -98,7 +108,7 @@ class TunnelWiringTests(unittest.TestCase):
                        on_shutdown=Mock(), loginfo=Mock(), logwarn=Mock(),
                        loginfo_throttle=Mock(), logwarn_throttle=Mock())
         tf_math = module("tf.transformations", euler_from_quaternion=lambda q:
-                         (0.0, 0.0, 2.0 * math.atan2(q[2], q[3])))
+                         (0.0, 0.0, 2.0 * math.atan2(q[2], q[3])), quaternion_matrix=quaternion_matrix)
         cloud_reader = module("sensor_msgs.point_cloud2", read_points=lambda cloud, **kwargs: cloud.points)
         cloud_tf = module("tf2_sensor_msgs.tf2_sensor_msgs", do_transform_cloud=lambda cloud, tf: cloud)
         mission = module("tunnel.mission", TunnelMission=Mission, load_config=lambda path: self.config)
@@ -106,7 +116,8 @@ class TunnelWiringTests(unittest.TestCase):
             "rospy": rospy,
             "tf": module("tf", transformations=tf_math), "tf.transformations": tf_math,
             "sensor_msgs": module("sensor_msgs", point_cloud2=cloud_reader),
-            "sensor_msgs.msg": module("sensor_msgs.msg", Image=object, PointCloud2=object),
+            "sensor_msgs.msg": module("sensor_msgs.msg", Image=object,
+                                      PointCloud2=type("PointCloud2", (), {}), LaserScan=type("LaserScan", (), {})),
             "sensor_msgs.point_cloud2": cloud_reader,
             "geometry_msgs": module("geometry_msgs"),
             "geometry_msgs.msg": module("geometry_msgs.msg", Twist=Twist),
@@ -145,10 +156,18 @@ class TunnelWiringTests(unittest.TestCase):
         return types.SimpleNamespace(points=points,
             header=types.SimpleNamespace(frame_id="livox_frame", stamp=Stamp(41.7)))
 
+    def laser(self, ranges, angle_min=0.0, angle_increment=math.pi / 2):
+        return types.SimpleNamespace(ranges=ranges, angle_min=angle_min,
+            angle_increment=angle_increment, range_min=0.05, range_max=4.0,
+            header=types.SimpleNamespace(frame_id="base_scan", stamp=Stamp(41.7)))
+
     def test_startup_initializes_before_callbacks_and_uses_one_publisher(self):
         self.assertEqual(self.node.step, 0)
         self.assertEqual([p.topic for p in self.publishers], ["/cmd_vel"])
         self.assertEqual(len(self.subscribers), 5)
+        self.assertEqual(self.node.lidar_type, "pointcloud2")
+        self.assertEqual(self.subscribers[2][0], "/livox/lidar")
+        self.assertEqual(self.subscribers[2][3].__name__, "PointCloud2")
         self.assertEqual(self.timers[0][0], 0.05)
         self.assertEqual(self.node.tunnel.clock(), 42.0)
         self.assertEqual(self.node.lturn_template.shape, (100, 100))
@@ -157,6 +176,21 @@ class TunnelWiringTests(unittest.TestCase):
     def test_explicit_start_step_is_configurable(self):
         self.params["~start_step"] = 9
         self.assertEqual(self.target.turtlebot().step, 9)
+
+    def test_laserscan_input_selects_one_subscriber_with_topic_override(self):
+        self.params.update({"~lidar_type": "laserscan", "~lidar_topic": "/sim/scan"})
+        self.target.turtlebot()
+        scan = self.subscribers[-3]
+        self.assertEqual(scan[0], "/sim/scan")
+        self.assertEqual(scan[3].__name__, "LaserScan")
+        self.assertEqual(scan[1].__name__, "laser_callback")
+
+    def test_laserscan_default_topic_and_invalid_type(self):
+        self.params["~lidar_type"] = "laserscan"
+        self.assertEqual(self.target.turtlebot().lidar_topic, "/scan_mid360_raw")
+        self.params["~lidar_type"] = "unknown"
+        with self.assertRaisesRegex(ValueError, "lidar_type"):
+            self.target.turtlebot()
 
     def test_timer_does_not_touch_non_tunnel_missions(self):
         for step in (0, 1, 3, 5, 8, 11):
@@ -296,6 +330,66 @@ class TunnelWiringTests(unittest.TestCase):
         self.node.odom_callback(self.odometry())
         self.tf_buffer.lookup_transform.side_effect = [transform(), RuntimeError("missing")]
         self.node.scan_callback(self.cloud([(0.5, 0.0, 0.1)]))
+        self.node.tunnel.update_cloud.assert_not_called()
+
+    def test_cloud_transform_failure_keeps_previous_sensor_stamp(self):
+        self.node.step = 10
+        with patch.object(self.target.tf2_sensor_msgs.tf2_sensor_msgs, "do_transform_cloud",
+                          side_effect=RuntimeError("invalid cloud")):
+            self.node.scan_callback(self.cloud([(0.5, 0.0, 0.1)]))
+        self.node.tunnel.update_cloud.assert_not_called()
+
+    def test_laserscan_transforms_finite_returns_at_acquisition_stamp(self):
+        self.node.step = 9
+        self.node.odom_callback(self.odometry())
+        self.tf_buffer.lookup_transform.side_effect = [
+            transform(-0.033, 0.02, math.pi / 2, 0.1439), transform(2.0, 3.0, math.pi / 2)]
+        scan = self.laser([0.5, 0.6, 0.7, 0.8, float("inf"), float("nan"), 0.01, 4.1])
+        self.node.laser_callback(scan)
+        calls = self.tf_buffer.lookup_transform.call_args_list
+        self.assertEqual(calls[0].args[:3], ("base_footprint", "base_scan", scan.header.stamp))
+        self.assertEqual(calls[1].args[:3], ("odom", "base_footprint", scan.header.stamp))
+        points, sensor, pose, stamp = self.node.tunnel.update_cloud.call_args.args
+        np.testing.assert_allclose(points, [(-0.033, 0.52), (-0.633, 0.02),
+                                           (-0.033, -0.68), (0.767, 0.02)], atol=1e-12)
+        np.testing.assert_allclose(sensor, (-0.033, 0.02, math.pi / 2), atol=1e-12)
+        np.testing.assert_allclose(pose, (1.0, 0.0, 0.0), atol=1e-12)
+        self.assertEqual(stamp, 41.7)
+        self.node.cmd_pub.publish.assert_not_called()
+
+    def test_laserscan_no_returns_never_invents_observations(self):
+        self.node.step = 10
+        for ranges in ([], [float("inf"), float("nan"), -float("inf")], [0.01, 4.1]):
+            self.node.laser_callback(self.laser(ranges))
+        self.node.tunnel.update_cloud.assert_not_called()
+        self.tf_buffer.lookup_transform.assert_not_called()
+
+    def test_laserscan_invalid_geometry_and_missing_tf_do_not_refresh_cloud(self):
+        self.node.step = 10
+        self.node.laser_callback(self.laser([0.5], angle_increment=0.0))
+        self.tf_buffer.lookup_transform.assert_not_called()
+        self.tf_buffer.lookup_transform.side_effect = RuntimeError("missing acquisition TF")
+        self.node.laser_callback(self.laser([0.5]))
+        self.node.tunnel.update_cloud.assert_not_called()
+
+    def test_laserscan_uses_full_sensor_rotation_before_height_filter(self):
+        sensor = transform(z=0.4)
+        sensor.transform.rotation = types.SimpleNamespace(x=0.0, y=math.sin(0.1), z=0.0, w=math.cos(0.1))
+        self.tf_buffer.lookup_transform.return_value = sensor
+        self.node.lidar_points = Mock()
+        self.node.laser_callback(self.laser([1.0]))
+        points = self.node.lidar_points.call_args.args[0]
+        np.testing.assert_allclose(points, [[math.cos(0.2), 0.0, 0.4-math.sin(0.2)]], atol=1e-12)
+
+    def test_laserscan_and_cloud_share_non_tunnel_distance_calculation(self):
+        self.node.step = 3
+        self.tf_buffer.lookup_transform.return_value = transform(z=0.1)
+        self.node.laser_callback(self.laser([0.5, 0.2, 0.5], angle_min=-0.5, angle_increment=0.5))
+        distances = (self.node.left_distance, self.node.front_distance, self.node.right_distance)
+        self.node.scan_callback(self.cloud([(0.5*math.cos(0.5), -0.5*math.sin(0.5), 0.1),
+                                           (0.2, 0.0, 0.1),
+                                           (0.5*math.cos(0.5), 0.5*math.sin(0.5), 0.1)]))
+        np.testing.assert_allclose((self.node.left_distance, self.node.front_distance, self.node.right_distance), distances)
         self.node.tunnel.update_cloud.assert_not_called()
 
     def test_non_tunnel_distance_statistics_are_preserved(self):
