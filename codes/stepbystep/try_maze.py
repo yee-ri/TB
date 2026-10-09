@@ -136,7 +136,6 @@ class turtlebot():
             self.cmd_pub.publish(Twist())
         self.tunnel.close()
 
-
     def step_callback(self,data): # 그냥 rostopic pub으로 구간별 테스트하려고 만든거
         with self.command_lock:
             was_tunnel=self.step in (9,10)
@@ -368,7 +367,7 @@ class turtlebot():
 
         rospy.loginfo("LEFT: %.1f%% RIGHT: %.1f%%",max_val_l*100,max_val_r*100)
 
-        if 1.2<=self.front_distance<=1.8:
+        if 1.2<=self.front_distance<=2.2:
             if max_val_r>=max_val_l and max_val_r>0.29:
                 self.right_count+=1
             elif max_val_l>=max_val_r and max_val_l>0.29:
@@ -670,8 +669,6 @@ class turtlebot():
             yellow_mask[:1*height//2,:] = 0
             white_mask[:1*height//4,:] = 0
 
-
-
         elif self.turn_direction=='right':
             white_mask[:,:width//2]=0
 
@@ -689,7 +686,6 @@ class turtlebot():
         elif self.turn_direction == 'left_yellow':
             yellow_mask[:,width//2:]=0
 
-
         else: 
             white_mask[:,:width//2]=0
 
@@ -698,8 +694,6 @@ class turtlebot():
 
         self.yellow_area=cv2.countNonZero(yellow_mask)
         white_area=cv2.countNonZero(white_mask)
-
-        # rospy.loginfo("Yellow is: %3f",self.yellow_area)
 
         center_x=width/2.0
         target_x=None
@@ -797,6 +791,11 @@ class turtlebot():
                 linear=15.0
                 max_angular=65.0
             else:
+                # Kp=0.15
+                # Kd=0.008
+                # linear=15.0
+                # max_angular=50.0
+                
                 Kp=0.15
                 Kd=0.008
                 linear=15.0
