@@ -2,12 +2,14 @@
 import importlib.util
 import math
 from pathlib import Path
+import struct
 import sys
 import types
 import unittest
 from unittest.mock import Mock, patch
 
 import numpy as np
+import cv2  # Load native bindings before per-test sys.modules restoration.
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +22,10 @@ class Stamp:
 
     def to_sec(self):
         return self.seconds
+
+    @classmethod
+    def from_sec(cls, seconds):
+        return cls(seconds)
 
     @classmethod
     def now(cls):
@@ -111,7 +117,11 @@ class TunnelWiringTests(unittest.TestCase):
         tf_math = module("tf.transformations", euler_from_quaternion=lambda q:
                          (0.0, 0.0, 2.0 * math.atan2(q[2], q[3])), quaternion_matrix=quaternion_matrix)
         cloud_reader = module("sensor_msgs.point_cloud2", read_points=lambda cloud, **kwargs: cloud.points)
-        cloud_tf = module("tf2_sensor_msgs.tf2_sensor_msgs", do_transform_cloud=lambda cloud, tf: cloud)
+        def transform_to_kdl(tf):
+            q = tf.transform.rotation
+            return types.SimpleNamespace(M=quaternion_matrix((q.x,q.y,q.z,q.w))[:3,:3])
+        cloud_tf = module("tf2_sensor_msgs.tf2_sensor_msgs", do_transform_cloud=lambda cloud, tf: cloud,
+                          transform_to_kdl=transform_to_kdl)
         self.load_config = Mock(return_value=self.config)
         mission = module("tunnel.mission", TunnelMission=Mission, load_config=self.load_config)
         modules = {
@@ -130,7 +140,8 @@ class TunnelWiringTests(unittest.TestCase):
             "tf2_ros": module("tf2_ros", Buffer=lambda: self.tf_buffer, TransformListener=lambda _: object()),
             "tf2_sensor_msgs": module("tf2_sensor_msgs", tf2_sensor_msgs=cloud_tf),
             "tf2_sensor_msgs.tf2_sensor_msgs": cloud_tf,
-            "tunnel": module("tunnel", mission=mission), "tunnel.mission": mission,
+            "tunnel": module("tunnel", mission=mission,
+                             __path__=[str(ROOT / 'codes/stepbystep/tunnel')]), "tunnel.mission": mission,
         }
         self.module_patch = patch.dict(sys.modules, modules)
         self.module_patch.start()
@@ -158,6 +169,21 @@ class TunnelWiringTests(unittest.TestCase):
         return types.SimpleNamespace(points=points,
             header=types.SimpleNamespace(frame_id="livox_frame", stamp=Stamp(41.7)))
 
+    def timed_cloud(self, points, offsets):
+        message = self.cloud(points)
+        message.fields = [types.SimpleNamespace(name=name, offset=offset, datatype=kind, count=1)
+                          for name, offset, kind in [('x',0,7), ('y',4,7), ('z',8,7),
+                                                     ('intensity',12,7), ('tag',16,2),
+                                                     ('line',17,2), ('timestamp',18,8)]]
+        message.is_bigendian = False
+        message.point_step = 26
+        message.width, message.height = len(points), 1
+        message.row_step = message.width * message.point_step
+        message.data = b''.join(struct.pack('<ffffBBd', *point, 15., 0, 0,
+                                           (41.7 + offset) * 1e9)
+                                for point, offset in zip(points, offsets))
+        return message
+
     def laser(self, ranges, angle_min=0.0, angle_increment=math.pi / 2):
         return types.SimpleNamespace(ranges=ranges, angle_min=angle_min,
             angle_increment=angle_increment, range_min=0.05, range_max=4.0,
@@ -170,6 +196,7 @@ class TunnelWiringTests(unittest.TestCase):
         self.assertEqual(self.node.lidar_type, "pointcloud2")
         self.assertEqual(self.subscribers[2][0], "/livox/lidar")
         self.assertEqual(self.subscribers[2][3].__name__, "PointCloud2")
+        self.assertEqual(self.subscribers[2][2], {'queue_size': 1, 'buff_size': 4*1024*1024})
         self.assertEqual(self.timers[0][0], 0.05)
         self.assertEqual(self.node.tunnel.clock(), 42.0)
         self.assertEqual(self.node.lturn_template.shape, (100, 100))
@@ -362,6 +389,85 @@ class TunnelWiringTests(unittest.TestCase):
                           side_effect=RuntimeError("invalid cloud")):
             self.node.scan_callback(self.cloud([(0.5, 0.0, 0.1)]))
         self.node.tunnel.update_cloud.assert_not_called()
+
+    def test_float32_cloud_fast_path_preserves_acquisition_pose_without_reserializing(self):
+        self.node.step = 9
+        self.node.odom_callback(self.odometry())
+        self.tf_buffer.lookup_transform.side_effect = [transform(-0.033, 0., z=.19),
+                                                      transform(2.,3.,math.pi/2)]
+        message = self.cloud([(0.5,0.,0.),(-0.5,0.,0.),(0.,.6,0.),
+                              (.5,0.,.5),(float('nan'),0.,0.)])
+        message.fields = [types.SimpleNamespace(name=name,offset=offset,datatype=7,count=1)
+                          for name,offset in [('x',0),('y',4),('z',8)]]
+        message.is_bigendian = False
+        message.point_step = 12
+        message.width, message.height = len(message.points), 1
+        message.row_step = message.width*12
+        with patch.object(self.target.tf2_sensor_msgs.tf2_sensor_msgs, 'do_transform_cloud') as old:
+            self.node.scan_callback(message)
+        old.assert_not_called()
+        points,sensor,pose,stamp = self.node.tunnel.update_cloud.call_args.args
+        np.testing.assert_allclose(points, [[.467,0.],[-.533,0.],[-.033,.6]],atol=1e-7)
+        self.assertEqual(sensor,(-.033,0.,0.))
+        np.testing.assert_allclose(pose,(1.,0.,0.),atol=1e-12)
+        self.assertEqual(stamp,41.7)
+        self.node.cmd_pub.publish.assert_not_called()
+
+    def test_motion_compensation_waits_once_for_last_point_tf_and_uses_header_pose(self):
+        self.node.step = 9
+        self.node.odom_callback(self.odometry())
+        self.config['sensors']['livox_motion_compensation'] = True
+        message = self.timed_cloud([[.5, 0., 0.], [.5, 0., 0.]], [.1, 0.])
+        def lookup(target, source, stamp, timeout):
+            if source == 'livox_frame':
+                return transform(-.033, 0., z=.19)
+            # Translate in world x while heading world +y; a stationary
+            # header frame sees later returns shifted to its right.
+            return transform(2. + stamp.to_sec() - 41.7, 2., math.pi / 2)
+        self.tf_buffer.lookup_transform.side_effect = lookup
+        with patch.object(self.target.tf2_sensor_msgs.tf2_sensor_msgs, 'do_transform_cloud') as fallback:
+            self.node.scan_callback(message)
+        fallback.assert_not_called()
+        calls = self.tf_buffer.lookup_transform.call_args_list
+        self.assertAlmostEqual(calls[1].args[2].to_sec(), 41.8)
+        self.assertEqual(calls[1].args[3].to_sec(), .1)
+        for call in calls[2:-1]:
+            self.assertEqual(call.args[3].to_sec(), 0.)
+            self.assertGreaterEqual(call.args[2].to_sec(), 41.7)
+        self.assertEqual(calls[-1].args[2], message.header.stamp)
+        self.assertEqual(calls[-1].args[3].to_sec(), 0.)
+        self.assertLessEqual(len(calls), 15)
+        points, sensor, pose, stamp = self.node.tunnel.update_cloud.call_args.args
+        np.testing.assert_allclose(points, [[.467, -.1], [.467, 0.]], atol=1e-7)
+        np.testing.assert_allclose(pose, [0., 0., 0.], atol=1e-12)
+        self.assertEqual(stamp, 41.7)
+        self.assertEqual(sensor, (-.033, 0., 0.))
+        self.node.cmd_pub.publish.assert_not_called()
+
+    def test_motion_compensation_missing_point_tf_or_bad_time_never_refreshes_scan(self):
+        self.node.step = 9
+        self.node.odom_callback(self.odometry())
+        self.config['sensors']['livox_motion_compensation'] = True
+        message = self.timed_cloud([[.5, 0., .1]], [.1])
+        for failure_index in (1, 3):
+            with self.subTest(failure_index=failure_index):
+                calls = []
+                def lookup(*args):
+                    calls.append(args)
+                    if len(calls) == failure_index + 1:
+                        raise RuntimeError('missing point acquisition TF')
+                    return transform()
+                self.tf_buffer.lookup_transform.side_effect = lookup
+                with patch.object(self.target.tf2_sensor_msgs.tf2_sensor_msgs, 'do_transform_cloud') as fallback:
+                    self.node.scan_callback(message)
+                fallback.assert_not_called()
+                self.node.tunnel.update_cloud.assert_not_called()
+        self.tf_buffer.lookup_transform.side_effect = None
+        with patch.object(self.target.tf2_sensor_msgs.tf2_sensor_msgs, 'do_transform_cloud') as fallback:
+            self.node.scan_callback(self.timed_cloud([[.5, 0., .1]], [float('nan')]))
+        fallback.assert_not_called()
+        self.node.tunnel.update_cloud.assert_not_called()
+        self.node.cmd_pub.publish.assert_not_called()
 
     def test_laserscan_preserves_raw_ranges_and_acquisition_pose(self):
         self.node.step = 9

@@ -1,0 +1,419 @@
+{
+  "spreadsheet_id": "1H-etCvyaBjcV4N5YvKoB9cfMIGVqfx3Xorf9GyfQ8Qc",
+  "spreadsheet_title": "2026 오토레이스",
+  "read_date": "2026-10-09",
+  "sheet": "하드웨어 정리",
+  "sheet_id": 1779283641,
+  "measurement_rows": [
+    {
+      "row": 2,
+      "cells": [
+        "기준: base_link = 좌우 바퀴 회전축 중심의 정중앙 · REP-103 (+x 전방, +y 좌측, +z 위) · 길이 m / 질량 kg / 각도 rad"
+      ]
+    },
+    {
+      "row": 5,
+      "cells": [
+        "상태 구분 · 실측 완료 = 직접 측정 | 실측·계산 완료 = 실측값과 계산 조합 | 계산 완료 = CAD/수식 계산 | 제조사 사양 = 데이터시트 | 설계값 = 좌표계·설계 기준 | 임시값 = 미실측 추정 | 실측 필요 = 미측정"
+      ]
+    },
+    {
+      "row": 30,
+      "cells": [
+        "바퀴",
+        "바퀴 지름",
+        "95.5",
+        "95.5 ÷ 2",
+        "wheel_radius = 0.04775",
+        "mm → m",
+        "실측 완료",
+        "완성 후 직선 주행거리로 유효 반지름 재보정"
+      ]
+    },
+    {
+      "row": 32,
+      "cells": [
+        "바퀴",
+        "고무 바깥쪽 전체 폭",
+        "159.5",
+        "159.5 − 11.3 = 148.2",
+        "바퀴 중심 간격 = 148.2",
+        "mm",
+        "실측 완료",
+        "대칭 바퀴의 중심면 간 거리 계산"
+      ]
+    },
+    {
+      "row": 33,
+      "cells": [
+        "바퀴",
+        "바퀴 중심 간격",
+        "148.2",
+        "mm → m",
+        "wheel_separation = 0.1482",
+        "mm → m",
+        "계산 완료",
+        "좌우 타이어 중심면 사이"
+      ]
+    },
+    {
+      "row": 34,
+      "cells": [
+        "기어",
+        "외부 기어비",
+        "2:1 증속",
+        "motor rev / wheel rev = 0.5",
+        "모터 1회전 → 바퀴 2회전",
+        "ratio",
+        "설계값",
+        "외접기어 한 쌍: 회전 방향은 서로 반대"
+      ]
+    },
+    {
+      "row": 39,
+      "cells": [
+        "카메라",
+        "RealSense D405",
+        "base_link → 뒤쪽 M3 장착 기준점",
+        "(39.665, 0, 89.248)",
+        "mm",
+        "광학 원점 계산 기준",
+        "실측 완료",
+        "두 M3 구멍의 정중앙 기준"
+      ]
+    },
+    {
+      "row": 40,
+      "cells": [
+        "카메라",
+        "RealSense D405",
+        "base_link → 광학 원점",
+        "(0.058026, 0.009000, 0.083634)",
+        "m",
+        "camera_x/y/z",
+        "계산 완료",
+        "광학 원점 = (58.026, 9.000, 83.634) mm"
+      ]
+    },
+    {
+      "row": 41,
+      "cells": [
+        "카메라",
+        "RealSense D405",
+        "base_link → 카메라 장착 자세",
+        "(0, 0.296706, 0)",
+        "rad",
+        "camera_roll/pitch/yaw",
+        "설계값",
+        "(0, 17, 0) deg · 아래보기"
+      ]
+    },
+    {
+      "row": 42,
+      "cells": [
+        "LiDAR",
+        "Livox Mid-360",
+        "본체 밑면 → 점군 원점 O",
+        "z ≈ +47",
+        "mm",
+        "lidar z 측정 기준",
+        "제조사 사양",
+        "본체 평면 중심의 측정 원점"
+      ]
+    },
+    {
+      "row": 43,
+      "cells": [
+        "LiDAR",
+        "Livox Mid-360",
+        "base_link → 점군 원점 O",
+        "(-0.033073, 0, 0.1439)",
+        "m",
+        "lidar_x/y/z",
+        "실측·계산 완료",
+        "밑면 중심 (-33.073, 0, 96.9) mm + 원점 높이 47 mm · rpy=(0, 0, 0)"
+      ]
+    },
+    {
+      "row": 46,
+      "cells": [
+        "차체",
+        "base",
+        "base collision 크기",
+        "0.185718 × 0.1222 × 0.159081",
+        "m",
+        "base_length/width/height",
+        "실측·계산 완료",
+        "앞 67.645 + 뒤 118.073 · 좌 61.1 + 우 61.1 · 위 118.531 + 아래 40.55 mm"
+      ]
+    },
+    {
+      "row": 47,
+      "cells": [
+        "차체",
+        "base",
+        "base_link → collision 중심",
+        "(-0.025214, 0, 0.0389905)",
+        "m",
+        "base_x/y/z",
+        "실측·계산 완료",
+        "비대칭 실측 외곽의 중앙 · 좌우 대칭"
+      ]
+    },
+    {
+      "row": 48,
+      "cells": [
+        "차체",
+        "수평 footprint",
+        "전/후/좌/우 외곽",
+        "(+0.067645, -0.118073, +0.0903, -0.0903)",
+        "m",
+        "footprint_front/rear/left/right",
+        "실측 완료",
+        "바퀴 볼트·카메라 등 돌출부 포함"
+      ]
+    },
+    {
+      "row": 49,
+      "cells": [
+        "차체",
+        "navigation",
+        "보수적 원형 반경",
+        "0.149",
+        "m",
+        "robot_radius",
+        "계산 완료",
+        "가장 먼 뒤쪽 모서리 약 0.148645 m를 mm 단위 올림"
+      ]
+    },
+    {
+      "row": 57,
+      "cells": [
+        "wheel_x",
+        "0.0 m",
+        "설계값",
+        "base_link를 바퀴 축 중앙으로 정의",
+        "+x 전방 · m",
+        "robot_parameters.xacro",
+        "반영 완료",
+        "Xacro wheel_x=0.0 · 좌표계 정의값"
+      ]
+    },
+    {
+      "row": 63,
+      "cells": [
+        "lidar pose",
+        "xyz=(-0.033073, 0, 0.1439) m · rpy=(0, 0, 0) rad",
+        "실측·계산 완료",
+        "base_link에서 Mid-360 밑면 중심 실측 + 점군 원점 높이 47 mm",
+        "+x 전방, +y 좌측, +z 위 · m / rad",
+        "robot_parameters.xacro",
+        "반영 완료",
+        "M12 커넥터 후방 · 수평 정방향 · Mid-360 XYZ와 base_link XYZ 일치"
+      ]
+    },
+    {
+      "row": 66,
+      "cells": [
+        "base COM · footprint",
+        "COM=(-0.031713, 0.000047, 0.040927) m · F/R/L/R=0.067645/0.118073/0.0903/0.0903 m",
+        "실측·계산 완료",
+        "Onshape base COM과 돌출부 포함 수평 외곽",
+        "m",
+        "navigation / collision",
+        "반영 완료",
+        "robot_radius=0.149 m · robot_model_mass=2.169969 kg"
+      ]
+    },
+    {
+      "row": 69,
+      "cells": [
+        "x: 바퀴 축 중심을 지나는 수직면에서 앞쪽이 양수, 뒤쪽이 음수입니다."
+      ]
+    },
+    {
+      "row": 71,
+      "cells": [
+        "z: 바퀴 축 높이에서 위쪽이 양수입니다. 바닥 기준 높이는 z = 바닥 높이 − 0.04775 m로 변환합니다."
+      ]
+    },
+    {
+      "row": 72,
+      "cells": [
+        "camera_optical_frame은 Xacro에서 +z 전방, +x 우측, +y 아래로 자동 변환합니다. 적층 높이의 단순 합으로 TF를 만들지 않습니다."
+      ]
+    }
+  ],
+  "map_sheet": {
+    "sheet": "MAP",
+    "sheet_id": 1719214352,
+    "range": "A1:Z100",
+    "tunnel_construction_row": {
+      "row": 9,
+      "cells": [
+        "",
+        "터널",
+        "",
+        "",
+        "",
+        "FALSE"
+      ]
+    },
+    "surveyed_coordinates_found": false
+  },
+  "credential_or_unrelated_test_cells_included": false,
+  "source_url": "https://docs.google.com/spreadsheets/d/1H-etCvyaBjcV4N5YvKoB9cfMIGVqfx3Xorf9GyfQ8Qc/edit?gid=1779283641",
+  "interpretation": {
+    "planar_footprint": {
+      "front": 0.067645,
+      "rear": 0.118073,
+      "half_width": 0.0903,
+      "status": "Sheet measured; user confirms current robot; active base_footprint is axle ground projection",
+      "source_range": "'하드웨어 정리'!A48:H48"
+    },
+    "lidar_pose_base_link": {
+      "xyz": [
+        -0.033073,
+        0,
+        0.1439
+      ],
+      "rpy_rad": [
+        0,
+        0,
+        0
+      ],
+      "status": "Sheet measured + calculated; current hardware confirmed; +0.04775 m ground offset applied and live TF passed",
+      "source_ranges": [
+        "'하드웨어 정리'!A43:H43",
+        "'하드웨어 정리'!A63:H63"
+      ]
+    },
+    "camera_origin_base_link": {
+      "xyz": [
+        0.058026,
+        0.009,
+        0.083634
+      ],
+      "status": "Sheet calculated; depth/left-origin interpretation applied to camera_link; driver color calibration preserved; live TF passed",
+      "source_range": "'하드웨어 정리'!A40:H40"
+    },
+    "camera_mount_rpy_rad": {
+      "value": [
+        0,
+        0.296706,
+        0
+      ],
+      "status": "Sheet design 17 degrees down; user confirms matching hardware; live TF passed",
+      "source_range": "'하드웨어 정리'!A41:H41"
+    },
+    "previous_start_robot_comparison": {
+      "lidar_xyz_equal_to_sheet_numbers": true,
+      "camera_x_old": 0.057526051,
+      "camera_x_sheet": 0.058026,
+      "camera_x_difference_m": 0.000499949,
+      "old_parent": "base_footprint",
+      "sheet_parent": "base_link",
+      "warning": "numeric similarity does not establish correct parent frame or optical-axis chain"
+    }
+  },
+  "user_confirmation_2026_10_09": {
+    "hardware_matches_sheet": true,
+    "practice": {
+      "outer_side_m": 1.82,
+      "wall_thickness_m": 0.002,
+      "inner_side_m": 1.816,
+      "clear_portal_width_m": 0.3,
+      "portal_topology": "same adjacent-wall entrance/exit as original tunnel",
+      "source": "User: outside1820,2TfoamPVC,portal alignedwith300mmline"
+    },
+    "competition": {
+      "nominal_side_m": 1.8,
+      "matches_existing_simulation": false,
+      "clear_portal_width_m": 0.3,
+      "wall_thickness_m": null,
+      "size_reference": null,
+      "source": "User-provided tunnel mission image; supersedes earlier 2 m simulation statement",
+      "attachment_path": "/home/sj/.codex/attachments/53b5e5d1-f9ca-4dff-a62e-02ed78e9d209/image.png",
+      "portal_height_text_m": 0.24,
+      "portal_height_drawing_m": 0.25,
+      "portal_height_status": "conflicting labels; no confirmed height"
+    },
+    "hardware_stop_switch": "user will build; not complete"
+  },
+  "active_frame_convention": {
+    "definition": "base_footprint is wheel-axis-centre ground projection; +x forward,+y left,+z up",
+    "sheet_base_link_xyz": [
+      0,
+      0,
+      0.04775
+    ],
+    "camera_origin_interpretation": "Sheet optical origin applied to depth/left-origin camera_link; driver retains measured color extrinsics",
+    "lidar_xyz": [
+      -0.033073,
+      0.0,
+      0.19165
+    ],
+    "camera_xyz": [
+      0.058026,
+      0.009,
+      0.131384
+    ]
+  },
+  "mount_tf_validation": {
+    "report": "records/mount_diagnostics_20261009.json",
+    "status": "empirical_sensor_tf_pass",
+    "wall_time_unix": 1791503702.9107738,
+    "tf_result_counts": {
+      "pass": 50
+    },
+    "physical_survey_source": "Sheet + user confirmation; ROS lookup validates connectivity, not an independent physical survey"
+  },
+  "user_confirmation_2026_10_10": {
+    "practice_portal_height_followup": {
+      "source": "User: 터널 입구는 저번에 알려준대로 250mm이고 지금 케이블이 뒤쪽에 좀 높이 나와있는데",
+      "clear_height_m": 0.25,
+      "robot_maximum_height_including_rear_cable_m": null,
+      "cable_height_m_approx": 0.175,
+      "cable_position": "Immediately behind the body on the left",
+      "cable_height_source": "User: 케이블이 바닥에서 175mm정도 위에 있어 차체 바로 뒤 왼쪽부분에",
+      "cable_status": "User reports cable top near 175 mm above ground; this is cable height, not the maximum of every robot component",
+      "height_envelope_calculation": {
+        "status": "Derived from confirmed sheet mounts and manufacturer body dimensions; not an independent physical height survey",
+        "lidar_bottom_ground_m": 0.14465,
+        "lidar_body_height_m": 0.060,
+        "lidar_top_ground_m": 0.20465,
+        "body_top_ground_m": 0.166281,
+        "d405_conservative_top_bound_m": 0.184075,
+        "known_component_top_m": 0.20465,
+        "nominal_portal_clearance_m": 0.04535,
+        "practice_z_max_m": 0.22,
+        "z_max_above_known_component_top_m": 0.01535,
+        "manufacturer_source": "https://www.livoxtech.com/mid-360/specs",
+        "recorded_cloud_validation": "records/analysis_20261010/height_220_replay.json; route and exit connector pass offline, no physical motion performed"
+      },
+      "lidar_observation": "Central entrance returns begin near ground z=0.23065 m using current mount; reconcile with reported 0.25 m opening before choosing an exclusion height"
+    },
+    "source": "User: 스위치나 피지컬적으로 준비 다 됐으니 내가 실행만 하게 해줘",
+    "physical_preparations_complete_per_user": true,
+    "configuration_change": "Removed manual physical_setup flags; retained tunnel runtime parameters and live sensor/TF/input/recording checks",
+    "sensor_mount_source": "launch/nuc_sensors.launch, unchanged transforms from records/mount_diagnostics_20261009.json",
+    "assistant_physical_drive_performed_at_initial_preparation": false,
+    "later_authorized_suspended_wheel_test": {
+      "authorization": "User: 바퀴 공중에 띄워놨으니 이동명령 보내봐도 돼 결과 내가 알려줄게",
+      "actual_motor_commands_sent": true,
+      "both_wheels_rotated_confirmed_by_user": true,
+      "final_user_observation": "잘 돌아가",
+      "final_torque_false_acknowledged": true,
+      "ground_driving_performed_by_assistant": false,
+      "ground_distance_scale_and_braking_verified": false,
+      "report": "records/analysis_20261010_motion/wheel_test_summary.json"
+    },
+    "active_firmware_watchdog_or_braking_independently_verified": false,
+    "switch_clarification": {
+      "source": "User: 스위치는 바로 피씨전원을 종료",
+      "pc_power_cut": true,
+      "motor_power_cut_confirmed": false,
+      "normal_end_requirement": "Keep PC and ROS on for controller stop / existing motor torque-off request and bag finalization; do not use PC cutoff as proof of motor stop"
+    }
+  }
+}

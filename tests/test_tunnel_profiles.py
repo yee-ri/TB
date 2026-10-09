@@ -176,16 +176,19 @@ class TunnelProfileTests(unittest.TestCase):
         self.assertLessEqual(abs(x-mission.goal.x), mission.config['goal']['position_tolerance'])
         self.assertGreater(tick, 1)
 
-    def test_outside_goal_checks_measured_and_commanded_stopping_sweeps(self):
-        for outcomes in ([False], [True, False]):
-            with self.subTest(sweep_results=outcomes):
-                mission = self.goal_mission()
-                with patch.object(mission, '_motion_safe', side_effect=outcomes) as check:
-                    self.assertEqual(mission.step(10.05), (0., 0., False))
-                self.assertEqual(check.call_count, len(outcomes))
-                self.assertEqual(mission.state, 'FOLLOWING')
-                self.assertIsNone(mission.completion_started)
-                self.assertIn('goal stopping region', mission.reason)
+    def test_outside_goal_current_footprint_conflict_still_blocks_motion(self):
+        mission = self.goal_mission()
+        # A measured point within the body stays a hard obstacle even when
+        # goal distance/orientation are already within completion tolerance.
+        for i in range(mission.config['grid']['mark_observations']):
+            stamp = 10.05 + i*.05
+            mission.update_odometry((.98, 0., 0.), .08, .6, stamp)
+            mission.update_scan([.055], 0., 1., .05, 40.,
+                                (0., 0., 0.), (.98, 0., 0.), stamp)
+        self.assertEqual(mission.step(stamp), (0., 0., False))
+        self.assertEqual(mission.state, 'FOLLOWING')
+        self.assertIsNone(mission.completion_started)
+        self.assertIn('localized footprint', mission.reason)
 
     def test_fast_curvature_profile_keeps_yaw_lateral_and_wheel_acceleration_bounds(self):
         config = load_config(CONFIG, 'fast')
