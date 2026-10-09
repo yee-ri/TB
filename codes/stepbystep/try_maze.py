@@ -42,7 +42,8 @@ class turtlebot():
         
 
 ############## 구간별 테스트 설정 ##############
-        self.step=int(rospy.get_param('~start_step',0))
+        # self.step=int(rospy.get_param('~start_step',0))
+        self.step = 3
         self.yaw = 0.0
         self.initial_yaw=None
 
@@ -213,11 +214,14 @@ class turtlebot():
         return cv2.countNonZero(white)>minimum and cv2.countNonZero(yellow)>minimum
 
     def lidar_transform(self,header):
-        if header.stamp.to_sec()<=0.0:
-            return None
         try:
-            return self.tf_buffer.lookup_transform(self.tunnel_config['sensors']['base_frame'],
-                                                   header.frame_id,header.stamp,rospy.Duration(0.1))
+            if self.step in (9,10):
+                if header.stamp.to_sec()<=0.0:
+                    return None
+                return self.tf_buffer.lookup_transform(self.tunnel_config['sensors']['base_frame'],
+                                                       header.frame_id,header.stamp,rospy.Duration(0.1))
+            return self.tf_buffer.lookup_transform('base_footprint',header.frame_id,
+                                                   rospy.Time(0),rospy.Duration(0.1))
         except Exception as e:
             rospy.logwarn("TF ERROR: %s",e)
             return None
@@ -403,7 +407,13 @@ class turtlebot():
                 rospy.loginfo("@@@@@@ RIGHT SIGN DETECTED @@@@@@")
 
 
-        if self.turn_detect is not None and self.front_distance<0.8 and self.step<=2: #0.35:
+        if self.turn_detect == 'right' and self.front_distance<0.8 and self.step<=2: #0.35:
+            self.turn_direction=self.turn_detect
+            self.turn_detect=None
+            self.prev_error=0.0
+            self.prev_target_x=None
+
+        if self.turn_detect =='left' and self.front_distance<1.35 and self.step<=2: #0.35:
             self.turn_direction=self.turn_detect
             self.turn_detect=None
             self.prev_error=0.0
@@ -638,7 +648,7 @@ class turtlebot():
         else:
             self.obstacle_clear_count=0
 
-        if self.obstacle_clear_count>=20:
+        if self.obstacle_clear_count>=40:
             self.step=4
             self.obstacle_clear_count=0
             self.obstacle_direction=None
@@ -675,6 +685,10 @@ class turtlebot():
             white_mask[:3*height//4,:] = 0
             # white_mask[:,:width//2]=0
             white_mask[:,:width//2]=0
+
+        elif self.turn_direction == 'left_yellow':
+            yellow_mask[:,width//2:]=0
+
 
         else: 
             white_mask[:,:width//2]=0
@@ -885,9 +899,9 @@ class turtlebot():
     def set_yaw(self,num):
         if self.yaw is None:return
 
-        if num==1:target_yaw=1.565
-        elif num==2:target_yaw=-3.095
-        elif num==3:target_yaw=0.05
+        if num==1:target_yaw=1.57
+        elif num==2:target_yaw=-3.14
+        elif num==3:target_yaw=0.0
         else:return
 
         rate=rospy.Rate(30)
@@ -1046,12 +1060,14 @@ class turtlebot():
                 self.stop()
                 return
 
-            if self.set ==1 and (0.15<=self.right_distance<=0.21): #오른ㅉ고에 뭐있음
+            # if self.set ==1 and (0.15<=self.right_distance<=0.21): #오른ㅉ고에 뭐있음
+            if self.set ==1 and (0.15<=self.right_distance<=0.31):
                 self.set = 2
-            if self.set ==1 and 0.15<=self.left_distance<=0.21: #왼쪽에뭐있음
+            # if self.set ==1 and 0.15<=self.left_distance<=0.21: #왼쪽에뭐있음
+            if self.set ==1 and 0.15<=self.left_distance<=0.31:
                 self.set = 3
 
-            if (self.set==2 and 0.5<=self.right_distance )or (self.set==3 and self.left_distance>=0.5):
+            if (self.set==2 and 0.6<=self.right_distance )or (self.set==3 and self.left_distance>=0.6):
                 self.parking(image)
                 return
 
@@ -1062,7 +1078,7 @@ class turtlebot():
             hsv=cv2.cvtColor(crop_img,cv2.COLOR_BGR2HSV)
             yellow_mask=cv2.inRange(hsv,np.array([15,100,100]),np.array([50,255,255]))
             yellow_mask[:1*height//2,:]=0
-            yellow_mask[:,3*width//3:]=0
+            yellow_mask[:,1*width//3:]=0
             self.yellow_area=cv2.countNonZero(yellow_mask)
 
             rospy.loginfo("Yellow is: %d",self.yellow_area)
@@ -1082,16 +1098,16 @@ class turtlebot():
                 return
                 
         elif self.step == 7: # 지그재그 전, 흰/노란선 다 보이기 시작 ~ gatebar
+
             hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV)
-            # red_mask = cv2.inRange(hsv, np.array([0, 180, 100]), np.array([10, 255, 160]))        # mask=cv2.bitwise_or(red_mask)
-            # red_mask=cv2.inRange(hsv,np.array([0,180,158]),np.array([5,255,191]))
+            self.turn_direction = 'left_yellow'
             red_mask=cv2.inRange(hsv,np.array([0,180,107]),np.array([5,255,194]))
             self.red_area=cv2.countNonZero(red_mask)   
             rospy.loginfo("Red is: %3f",self.red_area)
             self.turn_direction=None
 
             if self.gate_state == 0:
-                if self.depth <= 0.65 and self.red_area>3000:
+                if (self.depth <= 0.75 and self.red_area>7000) or self.red_area >=12000:
                     self.gate_close_count += 1
                     rospy.loginfo("GATE CLOSE COUNT: %d / 5",self.gate_close_count)
                 else:
@@ -1109,7 +1125,7 @@ class turtlebot():
             elif self.gate_state == 1:
                 self.stop()
 
-                if  self.red_area<=1000:
+                if  self.red_area<=2200:
                     self.gate_open_count += 1
                     rospy.loginfo("GATE OPEN COUNT: %d / 10",self.gate_open_count)
                 else:
@@ -1117,35 +1133,67 @@ class turtlebot():
 
                 if self.gate_open_count >= 20:
                     rospy.loginfo("@@@ GATE OPEN -> STEP 8 @@@")
-                    rospy.sleep(3.0)
+                    rospy.sleep(1.0)
                     self.gate_state=2
                     self.gate_open_count=0
+                    self.turn_direction = None
                     self.step=8
 
                 return  
 
-        elif self.step ==8: 
+        # elif self.step ==8: 
+        #     crop_img=image[300:,:]
+        #     height,width=crop_img.shape[:2]
+        #     hsv=cv2.cvtColor(crop_img,cv2.COLOR_BGR2HSV)
+        #     white_mask=cv2.inRange(hsv,np.array([0,0,210]),np.array([179, 55, 255]))
+        #     yellow_mask=cv2.inRange(hsv,np.array([15,100,100]),np.array([50,255,255]))
+        #     yellow_area=cv2.countNonZero(yellow_mask)
+        #     white_area=cv2.countNonZero(white_mask)
+
+        #     rospy.loginfo("Y: %.3f. W: %.3f",yellow_area,white_area)
+        #     if yellow_area<=30 and white_area <=30:
+        #         self.maze_count +=1
+        #     else: self.maze_count =0
+            
+        #     if self.maze_count == 10:
+        #         with self.command_lock:
+        #             self.step=9
+        #             self.tunnel_generation+=1
+        #             self.tunnel_active=False
+        #         return
+                
+        #     else: pass
+
+        elif self.step==8:
             crop_img=image[300:,:]
             height,width=crop_img.shape[:2]
             hsv=cv2.cvtColor(crop_img,cv2.COLOR_BGR2HSV)
-            white_mask=cv2.inRange(hsv,np.array([0,0,210]),np.array([179, 55, 255]))
+            white_mask=cv2.inRange(hsv,np.array([0,0,210]),np.array([179,55,255]))
             yellow_mask=cv2.inRange(hsv,np.array([15,100,100]),np.array([50,255,255]))
             yellow_area=cv2.countNonZero(yellow_mask)
             white_area=cv2.countNonZero(white_mask)
 
-            rospy.loginfo("Y: %.3f. W: %.3f",yellow_area,white_area)
-            if yellow_area<=30 and white_area <=30:
-                self.maze_count +=1
-            else: self.maze_count =0
-            
-            if self.maze_count == 10:
-                with self.command_lock:
-                    self.step=9
-                    self.tunnel_generation+=1
-                    self.tunnel_active=False
+            rospy.loginfo("Y: %.3f W: %.3f",yellow_area,white_area)
+
+            if yellow_area<=30 and white_area<=30:
+                self.maze_count+=1
+            else:
+                self.maze_count=0
+
+            if self.maze_count>=10:
+                self.step=8.5
                 return
-                
-            else: pass
+
+        elif self.step==8.5:
+            self.move_time_yaw_hold(0.06,-1.565,2.5)
+            self.move(0,0)
+
+            with self.command_lock:
+                self.step=9
+                self.tunnel_generation+=1
+                self.tunnel_active=False
+            return
+
 
         self.lane_tracking(image)
 
