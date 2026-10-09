@@ -1,0 +1,342 @@
+{
+  "date": "2026-10-09",
+  "scope": "Fixed tunnel-entry Gazebo tests of existing layouts B and C; not official-start integrated-course or physical validation",
+  "checkout": "/home/sj/TB_tunnel_gazebo",
+  "branch": "codex/tunnel-gazebo",
+  "profile": "fast",
+  "evidence_directory": "/tmp/tb-layout-video-RqjfI3UY",
+  "video_directory": "/home/sj/Downloads/AutoRace_Tunnel_BC_Gazebo_20261009",
+  "setup": {
+    "configured_world_start": [
+      -1.7475895,
+      0.14,
+      -1.5707963267948966
+    ],
+    "first_step": 9,
+    "prior_missions_enabled": false,
+    "fresh_ros_gazebo_each_trial": true,
+    "cmd_vel_owner": "/tb_controller",
+    "layouts": {
+      "layout_b": "Original three-cylinder group rotated 90 degrees",
+      "layout_c": "Original three-cylinder group rotated 180 degrees"
+    },
+    "controller_parameters_changed_since_A_FAST": false,
+    "source_files_matching_prior_A_FAST_sha256": [
+      "mission.py",
+      "planner.py",
+      "costmap.py",
+      "tracking.py",
+      "tunnel.yaml",
+      "try_maze.py"
+    ],
+    "changes": "Only selectable layout launch/Compose wiring, its tests, and command documentation; no driving Python or tuning changes",
+    "capture": "Real gzclient stationary overhead GUI screen captured by ffmpeg x11grab at original wall-clock rate, no reconstruction",
+    "view_only_override": "Temporary source world copy differs solely in GUI camera pose; temporary GUI window size 1600x900. Host original source files unchanged.",
+    "startup": "Recorder/world/sensors/GUI start first. Controller process starts only once camera framing is checked and capture is running. No commands, gates, pose resets or other intervention during motion.",
+    "stopping": "Passive observer ends test 4 simulated seconds after camera STEP11. 120-s observation cap never reached; it is not a mission-controller timeout.",
+    "render_environment": "Xephyr :90; all six use the same GUI/capture arrangement"
+  },
+  "summary": {
+    "layout_b": {
+      "successes": 3,
+      "trials": 3,
+      "times_sim_s": [
+        21.099,
+        21.979,
+        23.176
+      ],
+      "mean_sim_s": 22.084666666666674
+    },
+    "layout_c": {
+      "successes": 3,
+      "trials": 3,
+      "times_sim_s": [
+        21.197,
+        20.386,
+        20.02
+      ],
+      "mean_sim_s": 20.534333333333336
+    },
+    "minimum_nominal_body_wall_clearance_m": 0.018955060546193225,
+    "minimum_nominal_body_obstacle_clearance_m": 0.051743269704371236,
+    "overlap_samples_tunnel_and_recorded_handoff": 0,
+    "important_observation": "B trial 3 had one observed midcourse replanning episode and about 1.111 s additional zero-command hold, then completed autonomously. Not six uninterrupted drives.",
+    "additional_stop_observations": "B2 and C3 each logged one measured-stopping-region collision decision; B3 logged one checked-input-expired decision. Successful runs are not evidence of zero transient safety stops. Do not infer a particular obstacle or cause from the throttled log alone."
+  },
+  "runs": [
+    {
+      "id": "layout_b_run1",
+      "layout": "layout_b",
+      "trial": 1,
+      "completed": true,
+      "elapsed_first_motion_to_lane_handoff_sim_s": 21.099000000000018,
+      "first_rest_and_planning_stop_sim_s": 3.350999999999999,
+      "requested_stop_total_sim_s": 3.8020000000000493,
+      "observed_planning_episodes": 1,
+      "cmd_publishers": [
+        "/tb_controller"
+      ],
+      "max_commanded_velocity_mps": 0.32,
+      "max_actual_gazebo_velocity_mps": 0.32233961791888965,
+      "min_wall_clearance_m": 0.02545587991737903,
+      "min_obstacle_clearance_m": 0.05511089342643391,
+      "wall_contact_samples": 0,
+      "obstacle_contact_samples": 0,
+      "world_pose_samples": 47456,
+      "world_sha256": "a7ac26411e8348af102a3eae6d11ffbf9988a8392cc624bc2f64b3107d1db604",
+      "bag_sha256": "d7f458de509f38331eb1e7d80a797c0db96b3de32a4d3be30a6f9fa400cab98c",
+      "actual_link_state_messages_checked": 51497,
+      "maximum_geometry_position_error_m": 0,
+      "lane_continuation_sim_s": 4.040999999999997,
+      "lane_continuation_distance_m": 0.284194867305601,
+      "lane_wall_contact_samples": 0,
+      "lane_obstacle_contact_samples": 0,
+      "first_world_pose": [
+        -1.74759,
+        0.14,
+        -1.5708000000000002
+      ],
+      "video": {
+        "file": "layout_b_run1_gazebo.mp4",
+        "duration_s": 28.5,
+        "sha256": "23385babbc1508caee4b2a137927f7cf3f1051dd16fd9e7cbea3f57db3b8d6d8",
+        "removed_frozen_tail_s": 13.2,
+        "full_decode_passed": true
+      },
+      "sampled_nonroutine_reasons": {}
+    },
+    {
+      "id": "layout_b_run2",
+      "layout": "layout_b",
+      "trial": 2,
+      "completed": true,
+      "elapsed_first_motion_to_lane_handoff_sim_s": 21.978999999999985,
+      "first_rest_and_planning_stop_sim_s": 4.411999999999978,
+      "requested_stop_total_sim_s": 4.8709999999999525,
+      "observed_planning_episodes": 1,
+      "cmd_publishers": [
+        "/tb_controller"
+      ],
+      "max_commanded_velocity_mps": 0.32,
+      "max_actual_gazebo_velocity_mps": 0.3242011506865549,
+      "min_wall_clearance_m": 0.025680954132657804,
+      "min_obstacle_clearance_m": 0.05588527281054753,
+      "wall_contact_samples": 0,
+      "obstacle_contact_samples": 0,
+      "world_pose_samples": 40649,
+      "world_sha256": "a7ac26411e8348af102a3eae6d11ffbf9988a8392cc624bc2f64b3107d1db604",
+      "bag_sha256": "52b019079c45e7847e196173d39c3385d5fda90e610b06ca7a8747bc0bfd5539",
+      "actual_link_state_messages_checked": 44741,
+      "maximum_geometry_position_error_m": 0,
+      "lane_continuation_sim_s": 4.060000000000002,
+      "lane_continuation_distance_m": 0.287228385478693,
+      "lane_wall_contact_samples": 0,
+      "lane_obstacle_contact_samples": 0,
+      "first_world_pose": [
+        -1.74759,
+        0.14,
+        -1.5708000000000002
+      ],
+      "video": {
+        "file": "layout_b_run2_gazebo.mp4",
+        "duration_s": 29.5,
+        "sha256": "754d2597bbc4cf5b531d4411e33a5facd7e6753aa2c03adb63e58a9831e9d205",
+        "removed_frozen_tail_s": 21.466667,
+        "full_decode_passed": true
+      },
+      "sampled_nonroutine_reasons": {
+        "FOLLOWING measured stopping region intersects an obstacle": 1
+      }
+    },
+    {
+      "id": "layout_b_run3",
+      "layout": "layout_b",
+      "trial": 3,
+      "completed": true,
+      "elapsed_first_motion_to_lane_handoff_sim_s": 23.176000000000016,
+      "first_rest_and_planning_stop_sim_s": 4.587999999999994,
+      "requested_stop_total_sim_s": 6.090000000000003,
+      "observed_planning_episodes": 2,
+      "cmd_publishers": [
+        "/tb_controller"
+      ],
+      "max_commanded_velocity_mps": 0.32,
+      "max_actual_gazebo_velocity_mps": 0.3220435630904494,
+      "min_wall_clearance_m": 0.025116420852385322,
+      "min_obstacle_clearance_m": 0.051743269704371236,
+      "wall_contact_samples": 0,
+      "obstacle_contact_samples": 0,
+      "world_pose_samples": 48854,
+      "world_sha256": "a7ac26411e8348af102a3eae6d11ffbf9988a8392cc624bc2f64b3107d1db604",
+      "bag_sha256": "02069a2470e153ddef163865a8f25277c4e2055f6b0f9433471901461b306836",
+      "actual_link_state_messages_checked": 52888,
+      "maximum_geometry_position_error_m": 0,
+      "lane_continuation_sim_s": 4.009999999999991,
+      "lane_continuation_distance_m": 0.2840375315064534,
+      "lane_wall_contact_samples": 0,
+      "lane_obstacle_contact_samples": 0,
+      "first_world_pose": [
+        -1.74759,
+        0.14,
+        -1.5708000000000002
+      ],
+      "video": {
+        "file": "layout_b_run3_gazebo.mp4",
+        "duration_s": 30.2,
+        "sha256": "6cf44503d270b52f55363054a1b9dc0f0406c1325c0d71ee98033dbfe169a718",
+        "removed_frozen_tail_s": 0,
+        "full_decode_passed": true
+      },
+      "midcourse_replan_stop_sim_s": 1.111,
+      "sampled_nonroutine_reasons": {
+        "FOLLOWING checked inputs expired during control calculation": 1,
+        "PLANNING waiting for measured rest before planning": 1
+      }
+    },
+    {
+      "id": "layout_c_run1",
+      "layout": "layout_c",
+      "trial": 1,
+      "completed": true,
+      "elapsed_first_motion_to_lane_handoff_sim_s": 21.197000000000003,
+      "first_rest_and_planning_stop_sim_s": 4.98599999999999,
+      "requested_stop_total_sim_s": 5.310000000000002,
+      "observed_planning_episodes": 1,
+      "cmd_publishers": [
+        "/tb_controller"
+      ],
+      "max_commanded_velocity_mps": 0.32,
+      "max_actual_gazebo_velocity_mps": 0.3241343562195106,
+      "min_wall_clearance_m": 0.02714025570957812,
+      "min_obstacle_clearance_m": 0.06752317328885407,
+      "wall_contact_samples": 0,
+      "obstacle_contact_samples": 0,
+      "world_pose_samples": 41502,
+      "world_sha256": "43b9ea9c5ca5e30c64fcf045d71c365b06508b5acf613d7365443c7ba2895d91",
+      "bag_sha256": "cf7978cc8f6b18b98616bffd0d4697f8405f564dd65ddf88ed5b7d1f14e811c9",
+      "actual_link_state_messages_checked": 45551,
+      "maximum_geometry_position_error_m": 0,
+      "lane_continuation_sim_s": 4.025000000000006,
+      "lane_continuation_distance_m": 0.2763784627644184,
+      "lane_wall_contact_samples": 0,
+      "lane_obstacle_contact_samples": 0,
+      "first_world_pose": [
+        -1.74759,
+        0.14,
+        -1.5708000000000002
+      ],
+      "video": {
+        "file": "layout_c_run1_gazebo.mp4",
+        "duration_s": 27.966667,
+        "sha256": "ebbf24b615e19b194267af7e99d67cd5fc01f8500dfd8111b3eeec966b4fad97",
+        "removed_frozen_tail_s": 0,
+        "full_decode_passed": true
+      },
+      "sampled_nonroutine_reasons": {}
+    },
+    {
+      "id": "layout_c_run2",
+      "layout": "layout_c",
+      "trial": 2,
+      "completed": true,
+      "elapsed_first_motion_to_lane_handoff_sim_s": 20.385999999999996,
+      "first_rest_and_planning_stop_sim_s": 3.8640000000000043,
+      "requested_stop_total_sim_s": 4.038999999999987,
+      "observed_planning_episodes": 1,
+      "cmd_publishers": [
+        "/tb_controller"
+      ],
+      "max_commanded_velocity_mps": 0.32,
+      "max_actual_gazebo_velocity_mps": 0.3218668963607521,
+      "min_wall_clearance_m": 0.018955060546193225,
+      "min_obstacle_clearance_m": 0.06933006435468311,
+      "wall_contact_samples": 0,
+      "obstacle_contact_samples": 0,
+      "world_pose_samples": 46496,
+      "world_sha256": "43b9ea9c5ca5e30c64fcf045d71c365b06508b5acf613d7365443c7ba2895d91",
+      "bag_sha256": "1bd5c9e02a043b11d8fa6d5ef77a1393af93cda095d06c6b8c00bd1dcb05e2f7",
+      "actual_link_state_messages_checked": 50546,
+      "maximum_geometry_position_error_m": 0,
+      "lane_continuation_sim_s": 4.046999999999997,
+      "lane_continuation_distance_m": 0.278586001213981,
+      "lane_wall_contact_samples": 0,
+      "lane_obstacle_contact_samples": 0,
+      "first_world_pose": [
+        -1.74759,
+        0.14,
+        -1.5708000000000002
+      ],
+      "video": {
+        "file": "layout_c_run2_gazebo.mp4",
+        "duration_s": 26.833333,
+        "sha256": "247685493aa213fef842b98b0ad9f72b617a185bc2a860edb242b57d2db297ad",
+        "removed_frozen_tail_s": 0,
+        "full_decode_passed": true
+      },
+      "sampled_nonroutine_reasons": {}
+    },
+    {
+      "id": "layout_c_run3",
+      "layout": "layout_c",
+      "trial": 3,
+      "completed": true,
+      "elapsed_first_motion_to_lane_handoff_sim_s": 20.02000000000001,
+      "first_rest_and_planning_stop_sim_s": 3.515999999999991,
+      "requested_stop_total_sim_s": 3.6750000000000114,
+      "observed_planning_episodes": 1,
+      "cmd_publishers": [
+        "/tb_controller"
+      ],
+      "max_commanded_velocity_mps": 0.32,
+      "max_actual_gazebo_velocity_mps": 0.3236067156613798,
+      "min_wall_clearance_m": 0.027709708646837417,
+      "min_obstacle_clearance_m": 0.06769312934327107,
+      "wall_contact_samples": 0,
+      "obstacle_contact_samples": 0,
+      "world_pose_samples": 41406,
+      "world_sha256": "43b9ea9c5ca5e30c64fcf045d71c365b06508b5acf613d7365443c7ba2895d91",
+      "bag_sha256": "45b3bcb31b74add84c6706fcc1a10900f333e74c908962feee76fcf8e68f811f",
+      "actual_link_state_messages_checked": 45423,
+      "maximum_geometry_position_error_m": 0,
+      "lane_continuation_sim_s": 4.005000000000024,
+      "lane_continuation_distance_m": 0.2746046609362964,
+      "lane_wall_contact_samples": 0,
+      "lane_obstacle_contact_samples": 0,
+      "first_world_pose": [
+        -1.74759,
+        0.14,
+        -1.5708000000000002
+      ],
+      "video": {
+        "file": "layout_c_run3_gazebo.mp4",
+        "duration_s": 26.333333,
+        "sha256": "1d1a74789c07002420275f0752b6bd5a4fb959276e898526eff2e2fb054ab7a1",
+        "removed_frozen_tail_s": 0,
+        "full_decode_passed": true
+      },
+      "sampled_nonroutine_reasons": {
+        "PLANNING straight entry complete": 1,
+        "FOLLOWING measured stopping region intersects an obstacle": 1
+      }
+    }
+  ],
+  "validation": {
+    "unit_tests_passed": 110,
+    "unit_tests_failed": 0,
+    "unit_duration_s": 28.5,
+    "ros_smoke": "normal and fast actual nodes: one cmd_vel publisher and stopped sensorless wait",
+    "log": "/tmp/tb-layout-video-RqjfI3UY/unit_and_ros_final.log",
+    "geometry": "Actual per-trial staged-world SHA and layout manifest verified; every recorded static wall/cylinder link checked against staged poses. Nominal asymmetric rectangle versus all recorded world poses plus distance/angle interpolation.",
+    "videos": "All six full H264 decodes passed; actual whole Gazebo views inspected. B1/B2 only frozen post-shutdown tail trimmed. Other four exact original-file copies.",
+    "cleanup": "Only test containers/capture processes and owned Xephyr terminated; original custom-autorace-noetic container retained."
+  },
+  "limitations": [
+    "Mission time is first positive cmd_vel to first STEP11, using recorded simulated ROS time. Video duration is wall-clock capture and includes prestart plus about four seconds after handoff.",
+    "Twist has no header; command timing uses latest recorded clock, not the separate observer's callback timing.",
+    "Body-clearance audit is planar recorded-geometry evidence, not a contact-sensor or physical-robot test.",
+    "Mission reason logs are throttled to 1 Hz; observed planning episodes are lower bounds, not exact planner call counts. B3's exact triggering obstacle was not captured as a full runtime grid.",
+    "The existing small MASK VIEW debug window briefly appears outside the tunnel after lane handoff; the tunnel and robot remain visible.",
+    "Previous A timings were headless; B/C use GUI screen recording, so this is not a controlled performance comparison against A.",
+    "No claim for arbitrary obstacle layouts, blocked passages, physical calibration, official-start preceding missions, or complete-course finish."
+  ]
+}

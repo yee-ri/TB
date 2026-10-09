@@ -34,5 +34,5 @@ services:
         source /opt/ros/noetic/setup.bash
         source /workspace/devel/setup.bash
         export ROS_PACKAGE_PATH=/target:$$ROS_PACKAGE_PATH
-        exec roslaunch tb_tunnel_sim tunnel_gazebo.launch gui:=${TB_GAZEBO_GUI:-true}
+        exec roslaunch tb_tunnel_sim tunnel_gazebo.launch gui:=${TB_GAZEBO_GUI:-true} tunnel_profile:=${TB_TUNNEL_PROFILE:-normal} tunnel_obstacle_layout:=${TB_TUNNEL_LAYOUT:-layout_a}
     stop_grace_period: 20s

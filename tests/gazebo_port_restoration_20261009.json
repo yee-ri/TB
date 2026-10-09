@@ -1,0 +1,102 @@
+{
+  "date": "2026-10-09",
+  "branch": "codex/tunnel-gazebo",
+  "scope": "Fresh isolated Gazebo layout_a from tunnel staging pose; TB steps 9 to 11, no manual gate, teleport or driving intervention. Not an official-start integrated course.",
+  "source_restored": [
+    "Static walls, duplicate wall-hit exclusion, supported 5mm LiDAR surfaces and original map confirmation settings",
+    "Original hard-footprint geometry and soft clearance path costs",
+    "Current footprint checked before remaining path; transient overlap holds the same path",
+    "One no-path result retains PLANNING and retries at the original 0.5s interval instead of permanent FAILED",
+    "Change-based grid invalidation, stopped-start drift rejection and fine-grid stopping-sweep sampling",
+    "Original planner tolerances and core vehicle control settings",
+    "Original inside-exit goal followed by a prevalidated quintic outside connector; one continuous speed profile"
+  ],
+  "intentional_tb_boundaries": [
+    "User-requested straight entry and frozen surveyed Gazebo start, not source LiDAR portal registration",
+    "TB single command publisher and camera-confirmed step 11 return, not source lane-controller services",
+    "Outside endpoint stop retained; no intermediate exit stop",
+    "No mission-failure deadline or replan caused only by increased soft cost"
+  ],
+  "configuration": {
+    "start_world": [-1.7475895, 0.140, -1.5707963267948966],
+    "cruise_velocity_mps": 0.075,
+    "entry_velocity_mps": 0.04,
+    "outside_endpoint_velocity_mps": 0.025,
+    "footprint_padding_m": 0.01,
+    "mission_sha256": "b29728b3528581b2b2ff5fb78d4dffa96d11534f4334c21614a27b7f2015fa2a",
+    "tracking_sha256": "448cd03d2daa9569d85fbcf524c225d01d05346901a0be5d0ae5c806feb13573",
+    "yaml_sha256": "1f408cae7bca4f5d4ae41b7917bb4dde29a004c561b943f6f0b5a66532581b0f"
+  },
+  "unit_tests": {"passed": 96, "failed": 0, "wall_seconds": 23.033},
+  "ros_smoke": "PASS: actual TB node, one cmd_vel publisher, sensorless waiting stopped",
+  "intermediate_candidate": {
+    "recording": "faithful_run1.bag",
+    "change": "Source core settings and failure handling restored, but outside-goal shortcut still present",
+    "result": "Stopped at exit without STEP11",
+    "minimum_wall_clearance_m": 0.000344,
+    "finding": "Static wall cell overlap near exit, not an isolated noisy LiDAR return; source internal goal and exit connector then restored"
+  },
+  "final_configuration_trials": [
+    {
+      "recording": "faithful_run2.bag",
+      "result": "Tunnel exit and TB lane-control return",
+      "first_motion_to_step11_sim_seconds": 72.495,
+      "zero_command_hold_sim_seconds": 1.874,
+      "minimum_wall_clearance_m": 0.026976,
+      "minimum_cylinder_clearance_m": 0.067321,
+      "body_overlap_samples": 0,
+      "tunnel_pose_samples": 72909,
+      "lane_continuation_sim_seconds": 33.116,
+      "lane_continuation_distance_m": 2.31754
+    },
+    {
+      "recording": "faithful_run3.bag",
+      "result": "Tunnel exit and TB lane-control return; subsequent observation limited",
+      "first_motion_to_step11_sim_seconds": 75.429,
+      "zero_command_hold_sim_seconds": 1.860,
+      "minimum_wall_clearance_m": 0.021272,
+      "minimum_cylinder_clearance_m": 0.049610,
+      "body_overlap_samples": 0,
+      "tunnel_pose_samples": 75746,
+      "lane_continuation_sim_seconds": 0.091,
+      "lane_positive_commands": 3,
+      "observation_limitation": "Test observer initialized before ROS simulation-time parameter and ended shortly after return; passive observer clock handling fixed for run4, production code unchanged"
+    },
+    {
+      "recording": "faithful_run4.bag",
+      "result": "Tunnel exit and TB lane-control return",
+      "first_motion_to_step11_sim_seconds": 71.351,
+      "zero_command_hold_sim_seconds": 2.676,
+      "minimum_wall_clearance_m": 0.026998,
+      "minimum_cylinder_clearance_m": 0.071341,
+      "body_overlap_samples": 0,
+      "tunnel_pose_samples": 71665,
+      "lane_continuation_sim_seconds": 4.048,
+      "lane_continuation_distance_m": 0.277150
+    }
+  ],
+  "all_final_trials_cmd_vel_publisher": "/tb_controller",
+  "replanning": "Each final trial logged one initial planning episode, no later replan observed; 1Hz state logs do not prove exact planner call count",
+  "comparison": {
+    "previous_port_report": "gazebo_simple_entry_result.json",
+    "previous_first_motion_to_step11_sim_seconds": 148.693,
+    "previous_zero_command_hold_sim_seconds": 71.962,
+    "limitations": "Same world/robot/staging, but restoration also changes cruise from 0.06 to source 0.075m/s, map handling, route and rendering environment. Not a single-variable speed benchmark or a run of the complete original controller."
+  },
+  "runtime_environment": "Original custom robot, world odometry plus EKF, camera and LiDAR settings; isolated Xephyr display with llvmpipe allowed Gazebo to start when host Xwayland exposed no screen modes. Original workspace read-only.",
+  "geometry_method": "Recorded world poses and nominal asymmetric body rectangle against source tunnel wall boxes and cylinders; no contact-sensor evidence, whole-course lane-boundary check or continuous collision proof",
+  "code_lines_including_comments_and_blanks": {
+    "mission.py": 441,
+    "planner.py": 1603,
+    "costmap.py": 1137,
+    "tracking.py": 454,
+    "__init__.py": 1,
+    "tunnel.yaml": 107,
+    "total": 3743,
+    "tb_adapter_entire_file_separate": 1164,
+    "tb_adapter_diff_from_original_tb": {"added": 213, "deleted": 218}
+  },
+  "evidence_directory": "/tmp/tb-faithful-port-vfj1HfrT",
+  "not_verified": ["official-start ordered integrated course", "physical robot", "automatic portal alignment from arbitrary entry positions", "long-run reliability beyond these three trials"],
+  "preservation": "Original tunnel source file hashes unchanged; clean codex/tunnel-port baseline preserved. Changes only in codex/tunnel-gazebo; no commit, push or merge. Trial containers and nested display stopped."
+}

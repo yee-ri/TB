@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-08",
+  "branch": "codex/tunnel-gazebo",
+  "scope": "Fresh Gazebo layout_a, tunnel staging start, TB steps 9 to 11 only; previous missions disabled",
+  "implementation": "Simple heading-hold entry, native LaserScan preservation, measured-obstacle grid, original 8-degree planner goal tolerance",
+  "unit_tests": {"passed": 76, "failed": 0},
+  "ros_smoke": "PASS: actual TB node, one cmd_vel owner, sensorless wait stopped",
+  "gazebo": {
+    "fresh_runs_with_final_settings": 1,
+    "entry_and_exit_lane_handoff": true,
+    "first_motion_to_step_11_sim_seconds": 148.693,
+    "zero_command_hold_sim_seconds": 71.962,
+    "replanning_episodes_observed_lower_bound": 7,
+    "replanning_count_limitation": "State logs are throttled; exact planner call count was not recorded",
+    "cmd_vel_publisher": "/tb_controller",
+    "geometry_audit": {
+      "method": "Recorded world poses and nominal asymmetric body rectangle versus source walls and cylinders; not contact-sensor evidence",
+      "tunnel_pose_samples": 148979,
+      "body_overlap_samples": 0,
+      "minimum_wall_clearance_m": 0.048854,
+      "minimum_cylinder_clearance_m": 0.061845
+    },
+    "remaining_issue": "Repeated stops and replanning during following; smooth or fast operation not established",
+    "evidence_directory": "/tmp/tb-simple-entry-XTbmWCjq",
+    "recording": "run2.bag",
+    "geometry_reports": ["run2_tunnel_clearance.json", "run2_handoff_clearance.json"],
+    "control_timing_report": "run2.control_timing.json"
+  },
+  "not_verified": ["repeatability", "official-start ordered integrated course", "physical robot"],
+  "original_workspace_and_port_baseline": "Preserved; edits only in isolated Gazebo worktree"
+}

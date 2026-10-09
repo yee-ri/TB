@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-08",
+  "branch": "codex/tunnel-gazebo",
+  "scope": "Fresh Gazebo layout_a, identical tunnel staging start, TB steps 9 to 11 only; not an official-start integrated course",
+  "unchanged": ["entry and following speeds", "body footprint and padding", "driving stop conditions", "single cmd_vel publisher"],
+  "baseline": {
+    "report": "gazebo_simple_entry_result.json",
+    "lane_handoff": true,
+    "first_motion_to_handoff_sim_seconds": 148.693,
+    "zero_command_hold_sim_seconds": 71.962
+  },
+  "driving_trials": [
+    {
+      "configuration": "5mm supported LiDAR surfaces only",
+      "recording": "refined_run1.bag",
+      "result": "FAILED no feasible path",
+      "lane_handoff": false,
+      "first_motion_to_first_failed_log_sim_seconds": 72.818,
+      "body_overlap_samples": 0,
+      "minimum_wall_clearance_m": 0.038226,
+      "minimum_cylinder_clearance_m": 0.030772
+    },
+    {
+      "configuration": "Fixed wall map, duplicate wall-hit exclusion and 5mm supported LiDAR surfaces; soft-obstacle path cost still disabled",
+      "recording": "static_refined_run1.bag",
+      "result": "FAILED no feasible path",
+      "lane_handoff": false,
+      "first_motion_to_first_failed_log_sim_seconds": 51.453,
+      "body_overlap_samples": 0,
+      "minimum_wall_clearance_m": 0.036409,
+      "minimum_cylinder_clearance_m": 0.042612
+    }
+  ],
+  "replay_finding": "Near both failures, a reconstructed grid rejected the planning start against a 20mm dynamic cell. Isolated returns intentionally retain coarse cells; supported surfaces alone use 5mm rectangles.",
+  "replay_limitation": "Bag replay uses an approximate entry anchor and is not the exact asynchronous live failure snapshot; sensor-noise and pose-error contributions are not quantified.",
+  "final_configuration": {
+    "change": "Also restored original obstacle-distance and soft-obstacle path costs, 60mm soft band with value 64 and occupied threshold 65; no additional hard obstacle or stop rule",
+    "unit_tests": {"passed": 86, "failed": 0, "wall_seconds": 62.731},
+    "test_harness_change": "Ideal turning test wall-clock allowance raised from 45 to 90 seconds; simulated tick limit and completion assertions unchanged; no runtime timeout change",
+    "ros_smoke": "PASS: actual TB node with one cmd_vel publisher",
+    "gazebo_driving": "NOT RUN: two GUI starts and one headless start ended with gzserver exit 139 before clock and sensors",
+    "startup_failure_logs": [
+      "source_cost_boot_failure.log",
+      "source_cost_boot_failure2.log",
+      "source_cost_headless_boot_failure.log"
+    ],
+    "startup_failure_root_cause": "Unresolved; observed during graphics initialization, before mission driving. Excluded from driving trial counts."
+  },
+  "geometry_method": "Recorded world poses and nominal asymmetric body rectangle versus source wall boxes and cylinders; not contact-sensor evidence or continuous collision proof",
+  "evidence_directory": "/tmp/tb-refined-map-mHKg71BI",
+  "not_verified": ["final configuration Gazebo driving", "repeatability", "official-start ordered integrated course", "physical robot"],
+  "preservation": "Original workspace and clean tunnel-port baseline preserved; trial container stopped and removed"
+}

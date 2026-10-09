@@ -4,8 +4,16 @@
 # A camera step transition alone does not verify this surveyed entry pose.
 goal:
   pose: [1.888373, 1.9475895, 90.0]
+  # Source Hybrid A* target is inside the portal; append its original
+  # zero-end-curvature connector to the outside goal before any movement.
+  planning_pose: [1.888373, 1.5675895, 90.0]
   position_tolerance: 0.035
   heading_tolerance_deg: 10.0
+exit_connector:
+  tangent_ratio: 0.20
+  minimum_tangent_length: 0.008
+  maximum_tangent_length: 0.055
+  sample_step: 0.010
 footprint:
   # Copied from the source custom robot, not inferred from TB wheel dimensions.
   front: 0.067645
@@ -17,7 +25,7 @@ sensors:
   z_min: 0.03
   z_max: 0.30
   range_min: 0.05
-  range_max: 4.0
+  range_max: 3.0
   angular_bins: 720
   maximum_age: 0.30
   maximum_future_stamp: 0.06
@@ -27,16 +35,25 @@ sensors:
 grid:
   bounds: [-1.0, -1.5, 3.0, 2.5]
   resolution: 0.02
-  mark_observations: 1
+  # Gazebo only: exact source occupancy cells, rotated about the fixed entry
+  # (-1.7475895, 0.140, -90deg). This is not TB hardware wall calibration.
+  static_map:
+    image: maps/autorace_gazebo.pgm
+    origin: [-2.36, -0.7524105]
+    quarter_turns: -1
+  static_hit_exclusion_radius: 0.100
+  static_occupied_threshold: 65
+  dynamic_cell_size: 0.005
+  mark_observations: 2
   clear_observations: 2
-  endpoint_clear_guard_radius: 0.02
-  dynamic_inflation_radius: 0.04
-  dynamic_inflation_value: 40
+  endpoint_clear_guard_radius: 0.030
+  dynamic_inflation_radius: 0.06
+  dynamic_inflation_value: 64
 entry:
-  minimum_distance: 0.42
-  maximum_distance: 0.92
-  sample_step: 0.02
-  turn_angle_deg: 90.0
+  distance: 0.92
+  obstacle_clearance: 0.30
+  # Keep the previous normal run's full-leg cap for a stable comparison.
+  cruise_velocity: 0.04
 planner:
   # Source Gazebo base-centre regions rotated into the frozen entry frame.
   # Keep the search inside the tunnel, not around its exterior walls.
@@ -49,33 +66,73 @@ planner:
   steering_samples: 5
   heading_bins: 36
   state_xy_resolution: 0.05
-  goal_position_tolerance: 0.025
-  goal_heading_tolerance: 0.0872664626
+  goal_position_tolerance: 0.035
+  goal_heading_tolerance: 0.1396263402
   collision_check_step: 0.01
   collision_check_angle: 0.0523598776
   path_sample_step: 0.02
+  # Match the source planner: clearance bands prefer a wider route, not a stop.
+  obstacle_cost_weight: 0.12
+  obstacle_cost_distance: 0.30
+  soft_obstacle_cost_weight: 1.0
+  soft_cost_check_step: 0.020
+  heading_heuristic_weight: 0.25
   heuristic_weight: 1.25
   maximum_iterations: 60000
 control:
   period: 0.05
-  cruise_velocity: 0.06
-  minimum_velocity: 0.02
+  cruise_velocity: 0.075
+  minimum_velocity: 0.035
+  # TB retains the requested straight entry and stops at the outside goal.
+  # The source instead uses an entry path and moving camera-lane handoff.
   entry_velocity: 0.04
   exit_velocity: 0.025
-  maximum_angular_velocity: 0.45
+  maximum_angular_velocity: 0.55
   maximum_lateral_acceleration: 0.03
   linear_acceleration: 0.15
   linear_deceleration: 0.40
   angular_acceleration: 0.55
   safety_linear_deceleration: 0.15
   safety_angular_deceleration: 0.55
-  safety_reaction_time: 0.15
+  safety_reaction_time: 0.10
   safety_distance_margin: 0.01
   planning_stopped_linear: 0.008
   planning_stopped_angular: 0.03
+  plan_retry_period: 0.50
+  planning_start_position_tolerance: 0.015
+  planning_start_heading_tolerance_deg: 3.0
   lookahead_distance: 0.065
   heading_gain: 0.30
   path_curvature_weight: 0.20
   nearest_search_ahead: 0.40
-  tracking_position_tolerance: 0.06
+  tracking_position_tolerance: 0.030
   tracking_heading_tolerance_deg: 20.0
+
+# Explicit Gazebo experiments; normal remains the default. Overrides reuse
+# the same map, planner, footprint, tracking and stopping checks above.
+profiles:
+  normal: {}
+  fast:
+    grid:
+      # Original fast_gazebo.yaml: two free rays may clear adjacent hit noise.
+      endpoint_clear_guard_radius: 0.0
+    planner:
+      goal_heading_tolerance: 0.1745329252
+      # Source FAST's known-free exit apron, transformed to the entry frame.
+      keep_in_rectangles:
+        - [-0.42, -0.2724105, 0.34, 0.2075895]
+        - [0.12, -0.1524105, 2.08, 1.7675895]
+        - [1.64, 1.5875895, 2.16, 2.1975895]
+    entry:
+      cruise_velocity: 0.32
+    control:
+      cruise_velocity: 0.32
+      minimum_velocity: 0.035
+      entry_velocity: 0.035
+      exit_velocity: 0.32
+      maximum_angular_velocity: 1.4
+      maximum_lateral_acceleration: 0.30
+      linear_acceleration: 0.35
+      angular_acceleration: 8.0
+      safety_linear_deceleration: 0.40
+      safety_reaction_time: 0.15

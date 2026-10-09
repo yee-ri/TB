@@ -1,12 +1,14 @@
 <launch>
   <arg name="gui" default="true"/>
+  <arg name="tunnel_profile" default="normal"/>
+  <arg name="tunnel_obstacle_layout" default="layout_a"/>
   <!-- Diagnostic tunnel-only start; this is NOT the official course start. -->
   <include file="$(find custom_autorace_description)/launch/gazebo_autorace.launch">
     <arg name="x_pos" value="-1.7475895"/>
     <arg name="y_pos" value="0.140"/>
     <arg name="yaw_pos" value="-1.5707963267948966"/>
     <arg name="gui" value="$(arg gui)"/>
-    <arg name="tunnel_obstacle_layout" value="layout_a"/>
+    <arg name="tunnel_obstacle_layout" value="$(arg tunnel_obstacle_layout)"/>
     <!-- Match the source integrated simulator: signed world odometry + EKF.
          These are simulation inputs, not physical localization evidence. -->
     <arg name="odometry_source" value="world"/>
@@ -19,6 +21,7 @@
     <param name="lidar_type" value="laserscan"/>
     <param name="lidar_topic" value="/scan_mid360_raw"/>
     <param name="tunnel_config" value="$(find tb_tunnel_sim)/codes/stepbystep/tunnel.yaml"/>
+    <param name="tunnel_profile" value="$(arg tunnel_profile)"/>
     <remap from="/odom" to="/odometry/filtered"/>
   </node>
 </launch>
