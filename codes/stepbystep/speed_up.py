@@ -43,7 +43,7 @@ class turtlebot():
 
 ############## 구간별 테스트 설정 ##############
         # self.step=int(rospy.get_param('~start_step',0))
-        self.step = 3
+        self.step = 1
         self.yaw = 0.0
         self.initial_yaw=None
 
@@ -105,6 +105,7 @@ class turtlebot():
         self.gate_close_count=0
         self.red_area = 0
         self.depth = 0
+        self.speed = 0
 
 ############## 터널 관련 변수 ##############        
         self.maze_count = 0
@@ -788,18 +789,26 @@ class turtlebot():
             if self.step==2:
                 Kp=0.25
                 Kd=0.012
-                linear=15.0
-                max_angular=65.0
+                linear=17.0
+                max_angular=85.0
+
+            elif self.speed==1:
+                Kp=0.15
+                Kd=0.008
+                linear=13.0
+                max_angular=45.0
+
+                # Kp 증가: 차선 중심에서 벗어났을 때 더 강하게 회전함.
+                # Kd 증가: 오차가 빠르게 변할 때 반응을 더 크게 만듦. 급격한 흔들림이 생길 수도 있음.
             else:
                 # Kp=0.15
                 # Kd=0.008
                 # linear=15.0
                 # max_angular=50.0
-                
-                Kp=0.15
+                Kp=0.2
                 Kd=0.008
-                linear=15.0
-                max_angular=50.0
+                linear=20.0
+                max_angular=75.0
 
             angular=-(Kp*err_x+Kd*diff_x)
             angular=np.clip(angular,-max_angular,max_angular)
@@ -898,7 +907,7 @@ class turtlebot():
     def set_yaw(self,num):
         if self.yaw is None:return
 
-        if num==1:target_yaw=1.57
+        if num==1:target_yaw=1.567
         elif num==2:target_yaw=-3.14
         elif num==3:target_yaw=0.0
         else:return
@@ -1003,7 +1012,7 @@ class turtlebot():
         
         elif self.step == 2: # straight find --> turn detect reset for obstacle !!~!~!~
             # self.turn_detect='left'
-            self.straight = self.is_straight(image,300) #6
+            self.straight = self.is_straight(image,250) #6
             if self.straight:
                 self.turn_detect = 'straight'#None
                 self.turn_direction = 'straight'
@@ -1106,6 +1115,9 @@ class turtlebot():
             self.turn_direction=None
 
             if self.gate_state == 0:
+                if 500<self.red_area<12000:
+                    self.speed = 1
+                    
                 if (self.depth <= 0.75 and self.red_area>7000) or self.red_area >=12000:
                     self.gate_close_count += 1
                     rospy.loginfo("GATE CLOSE COUNT: %d / 5",self.gate_close_count)
@@ -1137,31 +1149,9 @@ class turtlebot():
                     self.gate_open_count=0
                     self.turn_direction = None
                     self.step=8
+                    self.speed = 0
 
                 return  
-
-        # elif self.step ==8: 
-        #     crop_img=image[300:,:]
-        #     height,width=crop_img.shape[:2]
-        #     hsv=cv2.cvtColor(crop_img,cv2.COLOR_BGR2HSV)
-        #     white_mask=cv2.inRange(hsv,np.array([0,0,210]),np.array([179, 55, 255]))
-        #     yellow_mask=cv2.inRange(hsv,np.array([15,100,100]),np.array([50,255,255]))
-        #     yellow_area=cv2.countNonZero(yellow_mask)
-        #     white_area=cv2.countNonZero(white_mask)
-
-        #     rospy.loginfo("Y: %.3f. W: %.3f",yellow_area,white_area)
-        #     if yellow_area<=30 and white_area <=30:
-        #         self.maze_count +=1
-        #     else: self.maze_count =0
-            
-        #     if self.maze_count == 10:
-        #         with self.command_lock:
-        #             self.step=9
-        #             self.tunnel_generation+=1
-        #             self.tunnel_active=False
-        #         return
-                
-        #     else: pass
 
         elif self.step==8:
             crop_img=image[300:,:]
