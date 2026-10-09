@@ -41,18 +41,6 @@ def relative_pose(pose, anchor):
                   normalize_angle(pose[2] - anchor[2]))
 
 
-def propagate_twist(pose, linear, angular, duration):
-    # Exact integration from the source tunnel controller, without ROS.
-    angle = angular * duration
-    if abs(angular) <= 1e-9:
-        return Pose2D(pose.x + linear * duration * math.cos(pose.yaw),
-                      pose.y + linear * duration * math.sin(pose.yaw), pose.yaw)
-    radius, yaw = linear / angular, pose.yaw + angle
-    return Pose2D(pose.x + radius * (math.sin(yaw) - math.sin(pose.yaw)),
-                  pose.y - radius * (math.cos(yaw) - math.cos(pose.yaw)),
-                  normalize_angle(yaw))
-
-
 class TunnelMission:
     def __init__(self, config, clock=None):
         self.config = config
@@ -69,6 +57,33 @@ class TunnelMission:
                 or not 0 <= self.sensors['range_min'] < self.sensors['range_max']):
             raise ValueError('invalid LiDAR angular bins or range limits')
         self.footprint = RectangularFootprint(**config['footprint'])
+        entry_half_width = config['entry'].get(
+            'obstacle_half_width', self.footprint.half_width + self.footprint.padding)
+        if (isinstance(entry_half_width, (bool, np.bool_))
+                or not isinstance(entry_half_width, (int, float, np.integer, np.floating))):
+            raise ValueError('entry/obstacle_half_width must be a finite number within the footprint margin')
+        try:
+            entry_half_width = float(entry_half_width)
+        except (ValueError, OverflowError) as error:
+            raise ValueError('entry/obstacle_half_width is out of range') from error
+        if (not math.isfinite(entry_half_width)
+                or not self.footprint.half_width <= entry_half_width
+                <= self.footprint.half_width + self.footprint.padding):
+            raise ValueError('entry/obstacle_half_width must cover the body and stay within its padding')
+        self.entry_obstacle_half_width = entry_half_width
+        entry_right_width = config['entry'].get('obstacle_right_width', entry_half_width)
+        if (isinstance(entry_right_width, (bool, np.bool_))
+                or not isinstance(entry_right_width, (int, float, np.integer, np.floating))):
+            raise ValueError('entry/obstacle_right_width must be a finite positive number')
+        try:
+            entry_right_width = float(entry_right_width)
+        except (ValueError, OverflowError) as error:
+            raise ValueError('entry/obstacle_right_width is out of range') from error
+        if not math.isfinite(entry_right_width) or entry_right_width <= 0.:
+            raise ValueError('entry/obstacle_right_width must be a finite positive number')
+        # Explicit right-side override may be inside the physical body edge;
+        # it affects only the entry trigger, never the mapped scan/footprint.
+        self.entry_obstacle_right_width = entry_right_width
         self.planner = HybridAStarPlanner(self.footprint, **config['planner'])
         goal = config['goal']['pose']
         self.goal = Pose2D(float(goal[0]), float(goal[1]), math.radians(goal[2]))
@@ -159,7 +174,10 @@ class TunnelMission:
         angles = angle_min + np.flatnonzero(hits) * angle_increment + sensor_pose[2]
         x = sensor_pose[0] + ranges[hits] * np.cos(angles)
         y = sensor_pose[1] + ranges[hits] * np.sin(angles)
-        ahead = (x >= 0) & (np.abs(y) <= self.footprint.half_width + self.footprint.padding)
+        # Only the straight-entry clearance corridor uses this optional width.
+        # Keep all measured rays for mapping and the full padded planner body.
+        ahead = ((x >= 0) & (y <= self.entry_obstacle_half_width)
+                 & (y >= -self.entry_obstacle_right_width))
         clearance = float(np.min(x[ahead])) - self.footprint.front if np.any(ahead) else math.inf
         with self.lock:
             if self.scan is not None and stamp <= self.scan[-1]:
@@ -278,14 +296,17 @@ class TunnelMission:
 
     def _enter(self, pose, elapsed, now):
         cfg, entry = self.control, self.config['entry']
-        remaining = min(entry['distance'] - pose.x,
-                        self.front_clearance - entry['obstacle_clearance'])
+        distance_remaining = entry['distance'] - pose.x
+        clearance_remaining = self.front_clearance - entry['obstacle_clearance']
+        remaining = min(distance_remaining, clearance_remaining)
         if remaining <= cfg['safety_distance_margin']:
             command = self._stop_command(elapsed)
             if command.linear_velocity > 1e-9 or abs(command.angular_velocity) > 1e-9:
                 return self._command(command, now, 'stopping at straight entry target')
             self.state = 'PLANNING'
-            return self._zero('straight entry complete')
+            cause = 'distance target' if distance_remaining <= clearance_remaining else 'front clearance'
+            return self._zero('straight entry complete: %s; traveled=%.3fm, front_clearance=%.3fm, required_gap=%.3fm'
+                              % (cause, pose.x, self.front_clearance, entry['obstacle_clearance']))
         # Entry velocity is the initial profile speed, not a whole-leg cap.
         # Match the source's distance ramp and reaction + braking limit while
         # retaining this port's requested straight entry and stopping target.
@@ -319,39 +340,16 @@ class TunnelMission:
                 return False
         return self.planner.pose_is_collision_free(grid, Pose2D(path.x[-1], path.y[-1], path.heading[-1]))
 
-    def _motion_safe(self, grid, pose, linear, angular):
-        # Source controller's measured/requested reaction + braking sweep.
-        if not self.planner.pose_is_collision_free(grid, pose):
-            return False
-        reaction = self.control['safety_reaction_time']
-        while reaction > 1e-9 or abs(linear) > 1e-6 or abs(angular) > 1e-6:
-            dt = min(.02, self.planner.collision_check_step / max(abs(linear), 1e-9),
-                     self.planner.collision_check_angle / max(abs(angular), 1e-9))
-            if grid.collision_resolution < grid.resolution - 1e-12:
-                radius = math.hypot(max(self.footprint.front, self.footprint.rear)
-                                    + self.footprint.padding,
-                                    self.footprint.half_width + self.footprint.padding)
-                corner_speed = abs(linear) + radius * abs(angular)
-                if corner_speed > 1e-9:
-                    dt = min(dt, .5 * grid.collision_resolution / corner_speed)
-            if reaction > 1e-9:
-                dt = min(dt, reaction)
-            pose = propagate_twist(pose, linear, angular, dt)
-            if not self.planner.pose_is_collision_free(grid, pose):
-                return False
-            if reaction > 1e-9:
-                reaction = max(0., reaction-dt)
-            else:
-                linear = math.copysign(max(0., abs(linear)-self.control['safety_linear_deceleration']*dt), linear)
-                angular = math.copysign(max(0., abs(angular)-self.control['safety_angular_deceleration']*dt), angular)
-        return self.planner.primitive_is_collision_free(grid, pose, 0., self.control['safety_distance_margin'])
-
-    def _begin_plan(self, grid, pose, now):
+    def _begin_plan(self, pose, now):
         if self.worker is not None and self.worker.is_alive():
             return
         if (self.last_plan_attempt is not None
                 and now - self.last_plan_attempt < self.control['plan_retry_period']):
             return
+        # step still holds the mission lock: build the current immutable
+        # snapshot only when a search will consume it. A pending search or
+        # retry delay needs no new grid, although incoming scans keep mapping.
+        grid = self._grid()
         self.last_plan_attempt = now
         generation = self.generation
         self.plan_result = None
@@ -398,13 +396,12 @@ class TunnelMission:
                 return self._zero(self.reason)
             if self.state == 'ENTRY':
                 return self._enter(pose, elapsed, now)
-            grid = self._grid()
             if self.state == 'PLANNING':
                 if (abs(measured_linear) > self.control['planning_stopped_linear']
                         or abs(measured_angular) > self.control['planning_stopped_angular']):
                     return self._zero('waiting for measured rest before planning')
                 if self.plan_result is None:
-                    self._begin_plan(grid, pose, now)
+                    self._begin_plan(pose, now)
                     return self._zero(self.reason)
                 result, error, start = self.plan_result
                 self.plan_result = None
@@ -421,6 +418,9 @@ class TunnelMission:
                 self.path = result
                 self.index, self.path_version = 0, -1
                 self.state = 'FOLLOWING'
+            # A completed plan is checked against the latest scan snapshot,
+            # including all updates received while its search was running.
+            grid = self._grid()
             # Match the source's decision order. A transient endpoint under
             # the robot holds the same path until later free rays clear it;
             # it must not first erase the path and force a colliding-start plan.
@@ -437,9 +437,6 @@ class TunnelMission:
             at_goal = distance <= tolerance and abs(normalize_angle(target.yaw-pose.yaw)) <= math.radians(self.config['goal']['heading_tolerance_deg'])
             if at_goal:
                 command = self._stop_command(elapsed)
-                if (not self._motion_safe(grid, pose, measured_linear, measured_angular)
-                        or not self._motion_safe(grid, pose, command.linear_velocity, command.angular_velocity)):
-                    return self._zero('goal stopping region intersects an obstacle')
                 if command.linear_velocity > 1e-9 or abs(command.angular_velocity) > 1e-9:
                     return self._command(command, now, 'stopping at outside goal')
                 self.state, self.completion_started = 'WAIT_LANE', now
@@ -455,17 +452,15 @@ class TunnelMission:
                     self.last_plan_attempt = None
                     return self._zero('remaining route intersects an obstacle')
                 self.path_version = self.version
-            if not self._motion_safe(grid, pose, measured_linear, measured_angular):
-                return self._zero('measured stopping region intersects an obstacle')
             decel = min(cfg['linear_deceleration'], cfg['safety_linear_deceleration'])
             reaction = cfg['safety_reaction_time'] + cfg['period']
             cap = math.sqrt((decel*reaction)**2 + 2*decel*max(0., distance-.5*tolerance)) - decel*reaction
-            for scale in (1., .875, .75, .625, .5, .375, .25, .125, 0.):
-                command = limit_tracking_command(
-                    min(cap, tracking.target_speed*scale), tracking.target_speed, tracking.angular_velocity,
-                    self.last_linear, self.last_angular, min(elapsed, cfg['period']),
-                    cfg['linear_acceleration'], cfg['linear_deceleration'], cfg['angular_acceleration'],
-                    cfg['maximum_angular_velocity'], cfg['maximum_lateral_acceleration'])
-                if self._motion_safe(grid, pose, command.linear_velocity, command.angular_velocity):
-                    return self._command(command, now, 'tracking path')
-            return self._zero('requested stopping region intersects an obstacle')
+            # Obstacle decisions use the current padded body and remaining
+            # path geometry above. Apply the existing speed/acceleration limits
+            # once; no velocity-dependent projected stopping sweep is added.
+            command = limit_tracking_command(
+                min(cap, tracking.target_speed), tracking.target_speed, tracking.angular_velocity,
+                self.last_linear, self.last_angular, min(elapsed, cfg['period']),
+                cfg['linear_acceleration'], cfg['linear_deceleration'], cfg['angular_acceleration'],
+                cfg['maximum_angular_velocity'], cfg['maximum_lateral_acceleration'])
+            return self._command(command, now, 'tracking path')

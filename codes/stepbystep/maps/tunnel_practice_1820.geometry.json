@@ -1,0 +1,146 @@
+{
+  "source": "User confirmation in this chat, 2026-10-09 Asia/Seoul",
+  "status": "Dimensions user-confirmed; start placement is the documented setup convention, not an observed robot pose.",
+  "user_dimensions_m": {
+    "outer_square": 1.82,
+    "wall_thickness": 0.002,
+    "entry_clear_width": 0.3,
+    "exit_clear_width": 0.3
+  },
+  "topology": "Entry near the right corner; exit on the perpendicular left side near the far corner, matching the existing tunnel topology.",
+  "coordinate_frame": "Frozen activation base_footprint: +x initial forward, +y left, yaw degrees counterclockwise.",
+  "outer_square_bounds": [
+    0.14,
+    -0.152,
+    1.96,
+    1.668
+  ],
+  "inner_clear_bounds": [
+    0.142,
+    -0.15,
+    1.958,
+    1.666
+  ],
+  "inner_clear_square_m": 1.816,
+  "wall_rectangles": {
+    "entry_wall": [
+      0.14,
+      0.15,
+      0.142,
+      1.668
+    ],
+    "far_wall": [
+      1.958,
+      -0.152,
+      1.96,
+      1.668
+    ],
+    "right_side_wall": [
+      0.14,
+      -0.152,
+      1.96,
+      -0.15
+    ],
+    "exit_wall": [
+      0.14,
+      1.666,
+      1.658,
+      1.668
+    ]
+  },
+  "entry_clear_segment": [
+    [
+      0.14,
+      -0.15
+    ],
+    [
+      0.14,
+      0.15
+    ]
+  ],
+  "exit_clear_segment": [
+    [
+      1.658,
+      1.668
+    ],
+    [
+      1.958,
+      1.668
+    ]
+  ],
+  "start_pose_local": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "placement": {
+    "wheel_axis_before_outer_entry_wall_m": 0.14,
+    "wheel_axis_left_of_right_inner_side_wall_m": 0.15,
+    "heading": "Perpendicular inward through the entry, aligned with its centre."
+  },
+  "goal": {
+    "planning_pose": [
+      1.808,
+      1.488,
+      90.0
+    ],
+    "pose": [
+      1.808,
+      1.868,
+      90.0
+    ]
+  },
+  "entry": {
+    "distance": 0.92,
+    "obstacle_clearance": 0.3,
+    "source": "Preserved original normal straight-entry distance and body-front obstacle gap."
+  },
+  "keep_in_rectangles": [
+    [
+      -0.42,
+      -0.15,
+      0.34,
+      0.15
+    ],
+    [
+      0.142,
+      -0.15,
+      1.958,
+      1.666
+    ],
+    [
+      1.658,
+      1.488,
+      1.958,
+      2.068
+    ]
+  ],
+  "raster": {
+    "image": "tunnel_practice_1820.pgm",
+    "resolution": 0.02,
+    "origin": [
+      -0.5,
+      -0.4
+    ],
+    "quarter_turns": 0,
+    "grid_bounds": [
+      -0.5,
+      -0.4,
+      2.4,
+      2.2
+    ],
+    "width": 145,
+    "height": 130,
+    "occupied_cells": 334,
+    "sha256": "bc96c2d3de1ad8e2b97dbf999a7042e27e5928077a3409431fd6b3f9880848db",
+    "method": "Conservative positive-area cell/wall overlap; black=occupied, 254=free. No cylinders or full-course obstacles are baked in.",
+    "limit": "20 mm cells enlarge 2 mm walls and may narrow each opening; exact dimensions are the continuous rectangles above."
+  },
+  "not_verified": [
+    "Actual robot placement",
+    "On-site competition dimensions",
+    "Dynamic obstacles",
+    "Physical odometry scale and braking",
+    "Hardware stop switch operation"
+  ]
+}

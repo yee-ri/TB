@@ -342,6 +342,7 @@ class OccupancyGrid:
             (1, -1, diagonal),
             (1, 1, diagonal),
         )
+        width, height = self.width, self.height
         while queue:
             distance, grid_x, grid_y = heapq.heappop(queue)
             if distance > distances[grid_y, grid_x] + 1e-12:
@@ -349,7 +350,7 @@ class OccupancyGrid:
             for offset_x, offset_y, edge_cost in neighbours:
                 next_x = grid_x + offset_x
                 next_y = grid_y + offset_y
-                if not self.contains_cell(next_x, next_y):
+                if not (0 <= next_x < width and 0 <= next_y < height):
                     continue
                 candidate = distance + edge_cost
                 if candidate + 1e-12 < distances[next_y, next_x]:
@@ -457,6 +458,7 @@ class OccupancyGrid:
             (1, -1, diagonal),
             (1, 1, diagonal),
         )
+        width, height = self.width, self.height
         while queue:
             distance, grid_x, grid_y = heapq.heappop(queue)
             if distance > distances[grid_y, grid_x] + 1e-12:
@@ -465,7 +467,7 @@ class OccupancyGrid:
                 next_x = grid_x + offset_x
                 next_y = grid_y + offset_y
                 if (
-                    not self.contains_cell(next_x, next_y)
+                    not (0 <= next_x < width and 0 <= next_y < height)
                     or self._occupied[next_y, next_x]
                 ):
                     continue

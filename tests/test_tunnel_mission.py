@@ -561,6 +561,33 @@ class TunnelMissionPortTest(unittest.TestCase):
         self.assertEqual(mission.plans, 0)
         self.assertIn('route intersects', mission.reason)
 
+    def test_clear_current_body_and_exit_route_do_not_hold_for_a_straight_projection(self):
+        mission = self.make_mission(goal=(1.808, 1.868, 90.))
+        self.feed(mission, 10.)
+        mission.step(10.)
+        # Right wall near the exit: a safe northbound path has room, while
+        # the measured heading still points a little toward the wall.
+        cells = np.zeros((60, 40), dtype=np.int8)
+        cells[:34, 22] = 100  # x=1.94..1.96, y=1.00..1.68.
+        grid = OccupancyGrid(cells, .02, 1.50, 1.00)
+        pose = Pose2D(1.819096419, 1.320098529, 1.281917749)
+        y = np.linspace(pose.y, mission.goal.y, 60)
+        mission.path = mission._tracking_path(np.full_like(y, 1.808), y,
+                                              np.full_like(y, math.pi/2), np.zeros_like(y))
+        mission.grid, mission.state = grid, 'FOLLOWING'
+        mission.path_version = -1
+        mission.update_odometry((pose.x, pose.y, pose.yaw), 0., 0., 10.05)
+        mission.scan = mission.scan[:-2] + ((pose.x, pose.y, pose.yaw), 10.05)
+        self.assertTrue(mission.planner.pose_is_collision_free(grid, pose))
+        self.assertTrue(mission._route_safe(grid, 0))
+        self.assertFalse(mission.planner.primitive_is_collision_free(grid, pose, 0., .01))
+        linear, angular, finished = mission.step(10.05)
+        self.assertGreater(linear, 0.)
+        self.assertGreater(angular, 0.)
+        self.assertFalse(finished)
+        self.assertEqual(mission.state, 'FOLLOWING')
+        self.assertEqual(mission.reason, 'tracking path')
+
     def test_entry_does_not_require_grid_based_turning_room_selection(self):
         mission = self.make_mission()
         self.feed(mission, 10.)
@@ -605,6 +632,142 @@ class TunnelMissionPortTest(unittest.TestCase):
         mission.update_cloud([[.2, .3], [.2, -.3]], (0., 0., 0.), (0., 0., 0.), 10.)
         self.assertGreater(mission.step(10.)[0], 0.)
         self.assertEqual(mission.state, 'ENTRY')
+
+    def test_entry_obstacle_width_defaults_to_the_full_padded_body(self):
+        mission = self.make_mission()
+        expected = mission.footprint.half_width + mission.footprint.padding
+        self.assertEqual(mission.entry_obstacle_half_width, expected)
+        self.assertEqual(mission.entry_obstacle_right_width, expected)
+        mission.update_odometry((0., 0., 0.), 0., 0., 10.)
+        point = [.2, mission.footprint.half_width + .5 * mission.footprint.padding]
+        mission.update_cloud([point], (0., 0., 0.), (0., 0., 0.), 10.)
+        self.assertLess(mission.front_clearance, mission.config['entry']['obstacle_clearance'])
+        self.assertEqual(mission.step(10.), (0., 0., False))
+        self.assertEqual(mission.state, 'PLANNING')
+
+    def test_entry_narrower_corridor_keeps_both_margin_returns_in_scan_and_costmap(self):
+        original = self.make_mission()
+        config = configuration()
+        config['entry']['obstacle_half_width'] = config['footprint']['half_width']
+        narrower = TunnelMission(config)
+        self.addCleanup(narrower.close)
+        lateral = original.footprint.half_width + .5 * original.footprint.padding
+        points = [[.2, lateral], [.2, -lateral]]
+        for mission in (original, narrower):
+            for i in range(mission.config['grid']['mark_observations']):
+                stamp = 10. + i * .05
+                mission.update_odometry((0., 0., 0.), 0., 0., stamp)
+                mission.update_cloud(points, (0., 0., 0.), (0., 0., 0.), stamp)
+                if mission.anchor is None:
+                    mission.step(stamp)
+        self.assertEqual(original.state, 'PLANNING')
+        self.assertEqual(narrower.state, 'ENTRY')
+        self.assertTrue(math.isinf(narrower.front_clearance))
+        self.assertGreater(narrower.last_linear, 0.)
+        np.testing.assert_array_equal(narrower.scan[0], original.scan[0])
+        self.assertEqual(np.count_nonzero(np.isfinite(narrower.scan[0])), 2)
+        self.assertTrue(any(narrower.costmap._dynamic_occupied))
+        np.testing.assert_array_equal(narrower.costmap._dynamic_occupied,
+                                      original.costmap._dynamic_occupied)
+        np.testing.assert_array_equal(narrower.costmap.to_occupancy_data(),
+                                      original.costmap.to_occupancy_data())
+        self.assertEqual(narrower.footprint, original.footprint)
+        self.assertEqual(narrower.planner.footprint, original.planner.footprint)
+
+    def test_entry_narrower_corridor_still_stops_for_body_width_and_front_gap(self):
+        config = configuration()
+        config['entry']['obstacle_half_width'] = config['footprint']['half_width']
+        half_width = config['footprint']['half_width']
+        front = config['footprint']['front']
+        points = [[.055, .01], [.2, half_width - .003], [.2, -half_width + .003],
+                  [front + config['entry']['obstacle_clearance'], 0.]]
+        for point in points:
+            with self.subTest(point=point):
+                mission = TunnelMission(copy.deepcopy(config))
+                self.addCleanup(mission.close)
+                mission.update_odometry((0., 0., 0.), 0., 0., 10.)
+                mission.update_cloud([point], (-.033073, 0., 0.), (0., 0., 0.), 10.)
+                self.assertEqual(mission.step(10.), (0., 0., False))
+                self.assertEqual(mission.state, 'PLANNING')
+                self.assertIn('front clearance', mission.reason)
+
+    def test_entry_obstacle_width_rejects_invalid_or_outside_body_margin_values(self):
+        config = configuration()
+        lower = config['footprint']['half_width']
+        upper = lower + config['footprint']['padding']
+        for value in (True, False, np.bool_(True), None, '0.09', float('nan'),
+                      float('inf'), -float('inf'), lower - .0001, upper + .0001):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                candidate = copy.deepcopy(config)
+                candidate['entry']['obstacle_half_width'] = value
+                TunnelMission(candidate)
+        for value in (lower, .5 * (lower + upper), upper):
+            candidate = copy.deepcopy(config)
+            candidate['entry']['obstacle_half_width'] = value
+            mission = TunnelMission(candidate)
+            self.addCleanup(mission.close)
+            self.assertEqual(mission.entry_obstacle_half_width, value)
+            self.assertEqual(mission.entry_obstacle_right_width, value)
+
+    def test_entry_right_width_changes_only_right_strip_and_keeps_its_scan_and_map(self):
+        config = configuration()
+        config['entry']['obstacle_half_width'] = .0903
+        for lateral in (-.08755, .08755):
+            with self.subTest(lateral=lateral):
+                original = TunnelMission(copy.deepcopy(config))
+                changed = copy.deepcopy(config)
+                changed['entry']['obstacle_right_width'] = .085
+                narrower = TunnelMission(changed)
+                self.addCleanup(original.close)
+                self.addCleanup(narrower.close)
+                for mission in (original, narrower):
+                    for i in range(mission.config['grid']['mark_observations']):
+                        stamp = 10. + i * .05
+                        mission.update_odometry((0., 0., 0.), 0., 0., stamp)
+                        mission.update_cloud([[.16, lateral]], (-.033073, 0., 0.),
+                                             (0., 0., 0.), stamp)
+                        if mission.anchor is None:
+                            mission.step(stamp)
+                self.assertEqual(original.state, 'PLANNING')
+                self.assertEqual(narrower.state, 'ENTRY' if lateral < 0. else 'PLANNING')
+                if lateral < 0.:
+                    self.assertTrue(math.isinf(narrower.front_clearance))
+                    self.assertGreater(narrower.last_linear, 0.)
+                else:
+                    self.assertEqual(narrower.front_clearance, original.front_clearance)
+                self.assertEqual(narrower.entry_obstacle_half_width, .0903)
+                np.testing.assert_array_equal(narrower.scan[0], original.scan[0])
+                self.assertEqual(np.count_nonzero(np.isfinite(narrower.scan[0])), 1)
+                self.assertTrue(any(narrower.costmap._dynamic_occupied))
+                np.testing.assert_array_equal(narrower.costmap.to_occupancy_data(),
+                                              original.costmap.to_occupancy_data())
+                self.assertEqual(narrower.footprint, original.footprint)
+                self.assertEqual(narrower.planner.footprint, original.planner.footprint)
+
+    def test_entry_right_width_keeps_inner_right_and_straight_ahead_stopping(self):
+        config = configuration()
+        config['entry']['obstacle_half_width'] = .0903
+        config['entry']['obstacle_right_width'] = .085
+        front = config['footprint']['front']
+        for point in ([.16, -.084], [.055, 0.],
+                      [front + config['entry']['obstacle_clearance'], 0.]):
+            with self.subTest(point=point):
+                mission = TunnelMission(copy.deepcopy(config))
+                self.addCleanup(mission.close)
+                mission.update_odometry((0., 0., 0.), 0., 0., 10.)
+                mission.update_cloud([point], (-.033073, 0., 0.), (0., 0., 0.), 10.)
+                self.assertEqual(mission.step(10.), (0., 0., False))
+                self.assertEqual(mission.state, 'PLANNING')
+                self.assertIn('front clearance', mission.reason)
+
+    def test_entry_right_width_rejects_non_numeric_nonfinite_or_nonpositive_values(self):
+        config = configuration()
+        for value in (True, False, np.bool_(True), None, '0.085', 0., -.001,
+                      float('nan'), float('inf'), -float('inf')):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                candidate = copy.deepcopy(config)
+                candidate['entry']['obstacle_right_width'] = value
+                TunnelMission(candidate)
 
     def test_return_inside_front_of_body_is_not_ignored(self):
         mission = self.make_mission()
@@ -677,6 +840,39 @@ class TunnelMissionPortTest(unittest.TestCase):
                 self.assertEqual(search.call_count, attempt+1)
                 self.assertEqual(mission.state, 'PLANNING')
                 self.assertIsNone(mission.path)
+
+    def test_pending_search_and_retry_delay_do_not_build_unused_grid(self):
+        mission = self.make_mission()
+        self.feed(mission, 10.)
+        mission.step(10.)
+        mission.state, mission.reason = 'PLANNING', 'planning from measured rest'
+        mission.worker = SimpleNamespace(is_alive=lambda: True)
+        with patch.object(mission, '_grid', side_effect=AssertionError('unused snapshot')):
+            self.assertEqual(mission.step(10.05), (0., 0., False))
+            self.assertEqual(mission.reason, 'planning from measured rest')
+            mission.worker = None
+            mission.last_plan_attempt = 10.
+            mission.reason = 'no feasible path'
+            self.assertEqual(mission.step(10.1), (0., 0., False))
+            self.assertEqual(mission.reason, 'no feasible path')
+
+    def test_completed_plan_checks_obstacle_received_during_search(self):
+        mission = self.make_mission()
+        self.prepare_following(mission)
+        result = mission.path
+        mission.state, mission.path = 'PLANNING', None
+        mission.plan_result = (result, '', Pose2D(0., 0., 0.))
+        cloud = np.concatenate((wall_returns((0., 0., 0.)), [[.35, 0.]]))
+        for i in range(mission.config['grid']['mark_observations']):
+            stamp = 10.05 + i*.05
+            mission.update_cloud(cloud, (-.033073, 0., 0.), (0., 0., 0.), stamp)
+            mission.update_odometry((0., 0., 0.), 0., 0., stamp)
+        with patch.object(mission, '_grid', wraps=mission._grid) as latest_grid:
+            self.assertEqual(mission.step(stamp), (0., 0., False))
+            latest_grid.assert_called_once()
+        self.assertEqual(mission.state, 'PLANNING')
+        self.assertIsNone(mission.path)
+        self.assertEqual(mission.reason, 'remaining route intersects an obstacle')
 
     def test_planning_waits_for_measured_rest_not_only_zero_last_command(self):
         mission = self.make_mission()

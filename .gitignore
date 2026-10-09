@@ -2,3 +2,7 @@
 librealsense/
 __pycache__/
 *.py[cod]
+# NUC-local builds, downloaded dependencies, and real sensor/trial records.
+nuc_ws/
+deps/
+records/

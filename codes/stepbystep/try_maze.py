@@ -15,12 +15,20 @@ from std_msgs.msg import UInt8
 import tf2_ros
 import tf2_sensor_msgs.tf2_sensor_msgs
 from tunnel.mission import TunnelMission, load_config
+from tunnel.cloud import tunnel_cloud_xy
+from tunnel.motor import arm_motor_torque
 
 class turtlebot():
     def __init__(self):
         rospy.init_node('controller',anonymous=True)
         self.command_lock=RLock()
         self.shutting_down=False
+        self.enable_motor_torque=rospy.get_param('~enable_motor_torque',False)
+        if type(self.enable_motor_torque) is not bool:
+            raise ValueError('~enable_motor_torque must be a boolean')
+        self.drive_ready=not self.enable_motor_torque
+        self.arming_cancelled=False
+        self.tunnel_timer=None
         self.tunnel_generation=0
         self.tunnel_active=False
         config_path=rospy.get_param('~tunnel_config',str(Path(__file__).with_name('tunnel.yaml')))
@@ -42,8 +50,7 @@ class turtlebot():
         
 
 ############## 구간별 테스트 설정 ##############
-        # self.step=int(rospy.get_param('~start_step',0))
-        self.step = 3
+        self.step=int(rospy.get_param('~start_step',0))
         self.yaw = 0.0
         self.initial_yaw=None
 
@@ -120,25 +127,50 @@ class turtlebot():
         self.step_sub=rospy.Subscriber('/step',UInt8,self.step_callback)
         self.image_sub=rospy.Subscriber('/camera/color/image_raw',Image,self.img_callback,queue_size=1,buff_size=2**24)
         scan_type,scan_callback=(PointCloud2,self.scan_callback) if self.lidar_type=='pointcloud2' else (LaserScan,self.laser_callback)
-        self.scan_sub=rospy.Subscriber(self.lidar_topic,scan_type,scan_callback,queue_size=1)
+        scan_options={'queue_size':1}
+        if self.lidar_type=='pointcloud2':
+            # A Mid-360 cloud is ~522 kB. Read multiple complete messages so
+            # queue_size=1 can discard old clouds after a processing stall.
+            scan_options['buff_size']=4*1024*1024
+        self.scan_sub=rospy.Subscriber(self.lidar_topic,scan_type,scan_callback,**scan_options)
         self.odom_sub=rospy.Subscriber('/odom',Odometry,self.odom_callback,queue_size=1)
         self.depth_sub=rospy.Subscriber('/camera/depth/image_rect_raw',Image,self.depth_callback,queue_size=1,buff_size=2**24)
-        self.tunnel_timer=rospy.Timer(rospy.Duration(self.tunnel_config['control']['period']),self.tunnel_tick)
         rospy.on_shutdown(self.shutdown)
+        if self.enable_motor_torque:
+            if self.step not in (9,10):
+                raise ValueError('Physical torque startup requires a tunnel start step')
+            with arm_motor_torque(self.cmd_pub,Twist,
+                                  lambda:self.shutting_down or self.arming_cancelled,
+                                  self.shutdown,self.command_lock):
+                try:
+                    with self.command_lock:
+                        if self.shutting_down or self.arming_cancelled:
+                            raise RuntimeError('Motor startup cancelled')
+                        self.drive_ready=True
+                        self.tunnel_timer=rospy.Timer(rospy.Duration(self.tunnel_config['control']['period']),self.tunnel_tick)
+                except BaseException:
+                    self.shutdown()
+                    raise
+        else:
+            self.tunnel_timer=rospy.Timer(rospy.Duration(self.tunnel_config['control']['period']),self.tunnel_tick)
 
     def shutdown(self):
         with self.command_lock:
             if self.shutting_down:
                 return
             self.shutting_down=True
+            self.drive_ready=False
             self.tunnel_generation+=1
-            self.tunnel_timer.shutdown()
+            if self.tunnel_timer is not None:
+                self.tunnel_timer.shutdown()
             self.cmd_pub.publish(Twist())
         self.tunnel.close()
 
 
     def step_callback(self,data): # 그냥 rostopic pub으로 구간별 테스트하려고 만든거
         with self.command_lock:
+            if not self.drive_ready:
+                self.arming_cancelled=True
             was_tunnel=self.step in (9,10)
             self.step=data.data
             self.tunnel_generation+=1
@@ -182,7 +214,7 @@ class turtlebot():
 
     def tunnel_tick(self,_event):
         with self.command_lock:
-            if self.shutting_down or self.step not in (9,10):
+            if self.shutting_down or not self.drive_ready or self.step not in (9,10):
                 return
             if not self.tunnel_active:
                 self.tunnel.reset()
@@ -201,7 +233,12 @@ class turtlebot():
                 self.prev_v_l=self.prev_v_r=0.0
             else:
                 self.step=9 if self.tunnel.state=='ENTRY' else 10
-            rospy.loginfo_throttle(1.0,"TUNNEL: %s %s",self.tunnel.state,self.tunnel.reason)
+            status=(self.tunnel.state,self.tunnel.reason)
+            if status!=getattr(self,'tunnel_logged_status',None):
+                rospy.loginfo("TUNNEL: %s %s",*status)
+                self.tunnel_logged_status=status
+            else:
+                rospy.loginfo_throttle(1.0,"TUNNEL: %s %s",*status)
 
     def lane_detect(self,image):
         crop=image[300:,:]
@@ -231,11 +268,48 @@ class turtlebot():
         if transform is None:
             return
         try:
+            if self.step in (9,10):
+                p,q=transform.transform.translation,transform.transform.rotation
+                # Use the same KDL rotation coefficients as do_transform_cloud,
+                # including its treatment of non-normalized quaternions.
+                kdl_rotation=tf2_sensor_msgs.tf2_sensor_msgs.transform_to_kdl(transform).M
+                rotation=np.array([[kdl_rotation[i,j] for j in range(3)] for i in range(3)])
+                points=tunnel_cloud_xy(data,rotation,np.array([p.x,p.y,p.z]),
+                                       self.tunnel_config['sensors'],point_cloud2.read_points,
+                                       motion_poses=self.tunnel_motion_poses)
+                if points is not None and self.step in (9,10):
+                    self.obstacle_points=[]
+                    pose_timeout=0. if self.tunnel_config['sensors'].get('livox_motion_compensation',False) else .1
+                    poses=self.tunnel_lidar_pose(transform,data.header,timeout=pose_timeout)
+                    if poses is not None:
+                        sensor_pose,scan_pose=poses
+                        self.tunnel.update_cloud(points,sensor_pose,scan_pose,data.header.stamp.to_sec())
+                    return
             cloud=tf2_sensor_msgs.tf2_sensor_msgs.do_transform_cloud(data,transform)
         except Exception as e:
             rospy.logwarn("PointCloud transform failed: %s",e)
             return
         self.lidar_points(point_cloud2.read_points(cloud,field_names=('x','y','z'),skip_nans=True),transform,data.header)
+
+    def tunnel_motion_poses(self,stamps):
+        if not self.odom_received or not self.odom_frame:
+            raise ValueError('Tunnel motion compensation needs odometry')
+        odom_frame=self.odom_frame
+        base_frame=self.tunnel_config['sensors']['base_frame']
+        poses=np.empty((len(stamps),3),dtype=float)
+        # Cloud points extend beyond header.stamp. Wait for the last point's
+        # TF once using the existing bound, then read earlier samples without
+        # waiting. Never substitute the latest transform for a missing sample.
+        order=[len(stamps)-1]+list(range(len(stamps)-1))
+        for index in order:
+            timeout=.1 if index==len(stamps)-1 else 0.
+            odom_tf=self.tf_buffer.lookup_transform(odom_frame,base_frame,
+                         rospy.Time.from_sec(float(stamps[index])),rospy.Duration(timeout))
+            p,q=odom_tf.transform.translation,odom_tf.transform.rotation
+            poses[index]=(p.x,p.y,euler_from_quaternion([q.x,q.y,q.z,q.w])[2])
+        if self.odom_frame!=odom_frame:
+            raise ValueError('Odometry frame changed during cloud acquisition')
+        return poses
 
     def laser_callback(self,data):
         # Preserve real LaserScan no-return rays; missing cloud bins stay NaN.
@@ -309,12 +383,12 @@ class turtlebot():
 
         rospy.loginfo("LEFT: %.2f FRONT: %.2f RIGHT: %.2f DIR: %s",self.left_distance,self.front_distance,self.right_distance,str(self.obstacle_direction))
 
-    def tunnel_lidar_pose(self,transform,header):
+    def tunnel_lidar_pose(self,transform,header,timeout=.1):
         if not self.odom_received or not self.odom_frame:
             return None
         try:
             odom_tf=self.tf_buffer.lookup_transform(self.odom_frame,self.tunnel_config['sensors']['base_frame'],
-                                                   header.stamp,rospy.Duration(0.1))
+                                                   header.stamp,rospy.Duration(timeout))
         except Exception as e:
             rospy.logwarn_throttle(1.0,"Tunnel acquisition TF unavailable: %s",e)
             return None
@@ -639,6 +713,8 @@ class turtlebot():
         with self.command_lock:
             if self.shutting_down or (self.step in (9,10))!=tunnel:
                 return
+            if not self.drive_ready:
+                msg=Twist()
             self.cmd_pub.publish(msg)
 
     def check_obstacle_end(self): # 장애물 구간 끝났는지 확인
@@ -1205,6 +1281,8 @@ class turtlebot():
 
         with self.command_lock:
             if not self.shutting_down and self.step not in (9,10):
+                if not self.drive_ready:
+                    msg=Twist()
                 self.cmd_pub.publish(msg)
 
 if __name__=='__main__':

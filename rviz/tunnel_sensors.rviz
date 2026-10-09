@@ -1,0 +1,141 @@
+# Sensor viewer only. No navigation goals, pose estimates, or drive controls.
+Panels:
+  - Class: rviz/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Global Options1
+        - /Livox cloud1
+        - /Camera image1
+      Splitter Ratio: 0.5
+  - Class: rviz/Views
+    Name: Views
+Preferences:
+  PromptSaveOnExit: false
+Toolbars:
+  toolButtonStyle: 2
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz/Grid
+      Name: Floor grid (0.25 m)
+      Enabled: true
+      Value: true
+      Alpha: 0.3
+      Cell Size: 0.25
+      Color: 120; 120; 120
+      Line Style:
+        Line Width: 0.01
+        Value: Lines
+      Normal Cell Count: 0
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Plane: XY
+      Plane Cell Count: 24
+      Reference Frame: <Fixed Frame>
+    - Class: rviz/PointCloud2
+      Name: Livox cloud
+      Enabled: true
+      Value: true
+      Alpha: 1
+      Autocompute Value Bounds:
+        Min Value: -0.2
+        Max Value: 0.6
+        Value: false
+      Axis: Z
+      Color Transformer: AxisColor
+      Decay Time: 0
+      Invert Rainbow: false
+      Position Transformer: XYZ
+      Queue Size: 2
+      Selectable: true
+      Size (Pixels): 2
+      Size (m): 0.01
+      Style: Points
+      Topic: /livox/lidar
+      Unreliable: false
+      Use Fixed Frame: true
+    - Class: rviz/Image
+      Name: Camera image
+      Enabled: true
+      Value: true
+      Image Topic: /camera/color/image_raw
+      Transport Hint: raw
+      Queue Size: 2
+      Normalize Range: true
+      Min Value: 0
+      Max Value: 1
+      Median window: 5
+    - Class: rviz/TF
+      Name: Sensor frames
+      Enabled: true
+      Value: true
+      Frame Timeout: 5
+      Frames:
+        All Enabled: false
+        odom:
+          Value: true
+        base_footprint:
+          Value: true
+        livox_frame:
+          Value: true
+        camera_link:
+          Value: true
+      Marker Scale: 0.25
+      Show Arrows: false
+      Show Axes: true
+      Show Names: true
+      Update Interval: 0.1
+    - Class: rviz/Odometry
+      Name: Robot odometry
+      Enabled: true
+      Value: true
+      Topic: /odom
+      Unreliable: false
+      Keep: 1
+      Position Tolerance: 0.01
+      Angle Tolerance: 0.01
+      Covariance:
+        Value: false
+      Shape:
+        Value: Arrow
+        Alpha: 1
+        Color: 255; 255; 255
+        Head Length: 0.08
+        Head Radius: 0.04
+        Shaft Length: 0.16
+        Shaft Radius: 0.015
+  Enabled: true
+  Global Options:
+    Background Color: 28; 30; 34
+    Default Light: true
+    Fixed Frame: odom
+    Frame Rate: 10
+  Name: root
+  Tools:
+    - Class: rviz/MoveCamera
+    - Class: rviz/Select
+    - Class: rviz/FocusCamera
+    - Class: rviz/Measure
+  Value: true
+  Views:
+    Current:
+      Class: rviz/TopDownOrtho
+      Angle: 0
+      Name: Current View
+      Near Clip Distance: 0.01
+      Scale: 100
+      Target Frame: base_footprint
+      Value: TopDownOrtho (rviz)
+      X: 0
+      Y: 0
+    Saved: ~
+Window Geometry:
+  Height: 800
+  Width: 1200
+  X: 40
+  Y: 40
+  Hide Left Dock: false
+  Hide Right Dock: false

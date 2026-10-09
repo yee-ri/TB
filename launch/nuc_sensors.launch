@@ -1,0 +1,39 @@
+<launch>
+  <!-- Existing NUC sensor drivers only. This launch has no cmd_vel publisher. -->
+  <arg name="opencr_port" default="/dev/serial/by-id/usb-ROBOTIS_OpenCR_Virtual_ComPort_in_FS_Mode_FFFFFFFEFFFF-if00"/>
+  <arg name="publish_measured_mounts" default="false"/>
+  <param name="use_sim_time" value="false"/>
+  <include file="$(find realsense2_camera)/launch/rs_camera.launch">
+    <arg name="enable_depth" value="false"/>
+    <arg name="enable_infra1" value="false"/>
+    <arg name="enable_infra2" value="false"/>
+    <arg name="infra_rgb" value="true"/>
+    <arg name="color_width" value="640"/>
+    <arg name="color_height" value="480"/>
+    <arg name="color_fps" value="30"/>
+    <arg name="publish_tf" value="true"/>
+    <arg name="tf_publish_rate" value="0"/>
+  </include>
+  <include file="$(find livox_ros_driver2)/launch_ROS1/msg_MID360.launch">
+    <arg name="xfer_format" value="0"/>
+    <arg name="multi_topic" value="0"/>
+    <arg name="publish_freq" value="10.0"/>
+    <arg name="msg_frame_id" value="livox_frame"/>
+    <arg name="rviz_enable" value="false"/>
+    <arg name="rosbag_enable" value="false"/>
+  </include>
+  <node pkg="rosserial_python" type="serial_node.py" name="turtlebot3_core" output="screen">
+    <param name="port" value="$(arg opencr_port)"/>
+    <param name="baud" value="115200"/>
+    <param name="tf_prefix" value=""/>
+  </node>
+  <!-- Sheet dimensions + user confirmation; base_footprint is the axle ground projection.
+       Identical to the mounts verified with real sensor timestamps on 2026-10-09.
+       RealSense retains the factory camera_link-to-color-optical calibration. -->
+  <group if="$(arg publish_measured_mounts)">
+    <node pkg="tf2_ros" type="static_transform_publisher" name="nuc_lidar_mount"
+          args="-0.033073 0.0 0.19165 0.0 0.0 0.0 1.0 base_footprint livox_frame" output="screen"/>
+    <node pkg="tf2_ros" type="static_transform_publisher" name="nuc_camera_mount"
+          args="0.058026 0.009 0.131384 0.0 0.14780941112961063 0.0 0.9890158633619168 base_footprint camera_link" output="screen"/>
+  </group>
+</launch>
