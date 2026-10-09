@@ -1,0 +1,175 @@
+{
+  "date": "2026-10-09",
+  "scope": "Fresh Gazebo layout_a tunnel-only starts; not official-start integrated-course or physical validation",
+  "checkout": "/home/sj/TB_tunnel_gazebo",
+  "branch": "codex/tunnel-gazebo",
+  "profile": "fast",
+  "evidence_directory": "/tmp/tb-fast-port-uQrCCsPE",
+  "setup": {
+    "start_world_pose": [
+      -1.7475895,
+      0.14,
+      -1.5707963267948966
+    ],
+    "start_step": 9,
+    "prior_missions_enabled": false,
+    "world_sha256": "c9e975c97b377f02a534359ac37a32a361b154c9c4a86c7fe0784de31fa9ed94",
+    "fresh_ros_and_gazebo_each_trial": true,
+    "odometry": "source world odometry velocity + EKF and relative IMU yaw; not direct world position fusion",
+    "cmd_vel_owner": "/tb_controller",
+    "renderer": "isolated Xephyr :90 with llvmpipe; original robot/world/sensor configuration unchanged",
+    "user_intervention_during_driving": false,
+    "observer": "Passive observer ends test four simulated seconds after first camera STEP11 handoff"
+  },
+  "changes": [
+    "Single YAML normal/fast profile; normal default speed settings preserved",
+    "Source FAST cruise and entry cap .32 m/s; maximum angular speed 1.4 rad/s and source acceleration/lateral limits",
+    "Straight entry accelerates from .035 m/s using distance profile and remaining-distance braking cap",
+    "Normal entry/end-goal stop uses existing rate limiter; emergency stops unchanged",
+    "Source FAST endpoint clearing guard 0, planner heading tolerance 10 degrees and known-free exit apron",
+    "Footprint .067645 front/.118073 rear/.0903 half-width with .010 planning padding and collision checks preserved",
+    "No added command publishers or bridge nodes"
+  ],
+  "validation": {
+    "unit_tests_passed": 109,
+    "unit_tests_failed": 0,
+    "unit_duration_s": 27.82,
+    "actual_ros_smoke": [
+      "normal: one publisher, waiting stopped",
+      "fast: one publisher, waiting stopped"
+    ],
+    "unit_log": "/tmp/tb-fast-port-uQrCCsPE/unit_and_ros_smoke_final.log",
+    "source_original_tunnel_files_unchanged": true,
+    "baseline_TB_tunnel_port_checkout_clean": true,
+    "isolated_runtime_and_display_cleaned_up": true
+  },
+  "runs": [
+    {
+      "trial": 1,
+      "bag": "/tmp/tb-fast-port-uQrCCsPE/fast_run1.bag",
+      "elapsed_first_motion_to_lane_handoff_sim_s": 18.777,
+      "entry_first_motion_to_planning_stop_sim_s": 3.9879999999999995,
+      "first_planning_and_rest_stop_sim_s": 2.653000000000006,
+      "after_initial_stop_to_handoff_sim_s": 12.135999999999996,
+      "total_zero_twist_sim_s": 2.786999999999992,
+      "commanded_max_velocity_mps": 0.32,
+      "measured_gazebo_max_velocity_mps": 0.32261668331305504,
+      "measured_gazebo_p95_velocity_mps": 0.320396084640991,
+      "measured_gazebo_seconds_above_0_30": 2.911999999999992,
+      "measured_odom_max_velocity_mps": 0.32197672072212125,
+      "minimum_wall_clearance_m": 0.022887988417758864,
+      "minimum_obstacle_clearance_m": 0.07950739630793394,
+      "wall_contact_samples": 0,
+      "obstacle_contact_samples": 0,
+      "world_pose_samples": 19055,
+      "maximum_pose_interval_s": 0.0040000000000048885,
+      "handoff_observed_s": 4.0800000000000125,
+      "handoff_positive_lane_commands": 122,
+      "handoff_distance_m": 0.2878860535026354,
+      "handoff_wall_contact_samples": 0,
+      "handoff_obstacle_contact_samples": 0,
+      "cmd_publishers": [
+        "/tb_controller"
+      ],
+      "observed_planning_episodes": 1
+    },
+    {
+      "trial": 2,
+      "bag": "/tmp/tb-fast-port-uQrCCsPE/fast_run2.bag",
+      "elapsed_first_motion_to_lane_handoff_sim_s": 19.078999999999994,
+      "entry_first_motion_to_planning_stop_sim_s": 3.9869999999999948,
+      "first_planning_and_rest_stop_sim_s": 2.9150000000000063,
+      "after_initial_stop_to_handoff_sim_s": 12.176999999999992,
+      "total_zero_twist_sim_s": 3.042999999999992,
+      "commanded_max_velocity_mps": 0.32,
+      "measured_gazebo_max_velocity_mps": 0.3214325443558802,
+      "measured_gazebo_p95_velocity_mps": 0.32039173915590985,
+      "measured_gazebo_seconds_above_0_30": 2.9779999999999376,
+      "measured_odom_max_velocity_mps": 0.3224866241315966,
+      "minimum_wall_clearance_m": 0.029150575704027133,
+      "minimum_obstacle_clearance_m": 0.058855851549967364,
+      "wall_contact_samples": 0,
+      "obstacle_contact_samples": 0,
+      "world_pose_samples": 19475,
+      "maximum_pose_interval_s": 0.018000000000000682,
+      "handoff_observed_s": 4.088999999999999,
+      "handoff_positive_lane_commands": 123,
+      "handoff_distance_m": 0.27957927870375676,
+      "handoff_wall_contact_samples": 0,
+      "handoff_obstacle_contact_samples": 0,
+      "cmd_publishers": [
+        "/tb_controller"
+      ],
+      "observed_planning_episodes": 1
+    },
+    {
+      "trial": 3,
+      "bag": "/tmp/tb-fast-port-uQrCCsPE/fast_run3.bag",
+      "elapsed_first_motion_to_lane_handoff_sim_s": 20.139999999999986,
+      "entry_first_motion_to_planning_stop_sim_s": 3.9740000000000038,
+      "first_planning_and_rest_stop_sim_s": 3.134999999999991,
+      "after_initial_stop_to_handoff_sim_s": 13.030999999999992,
+      "total_zero_twist_sim_s": 3.298999999999978,
+      "commanded_max_velocity_mps": 0.32,
+      "measured_gazebo_max_velocity_mps": 0.3216712232355855,
+      "measured_gazebo_p95_velocity_mps": 0.32103377534191563,
+      "measured_gazebo_seconds_above_0_30": 3.1320000000000334,
+      "measured_odom_max_velocity_mps": 0.32345629998938186,
+      "minimum_wall_clearance_m": 0.027182331008123284,
+      "minimum_obstacle_clearance_m": 0.08504281458520369,
+      "wall_contact_samples": 0,
+      "obstacle_contact_samples": 0,
+      "world_pose_samples": 20557,
+      "maximum_pose_interval_s": 0.018000000000000682,
+      "handoff_observed_s": 4.0800000000000125,
+      "handoff_positive_lane_commands": 123,
+      "handoff_distance_m": 0.2799115164043239,
+      "handoff_wall_contact_samples": 0,
+      "handoff_obstacle_contact_samples": 0,
+      "cmd_publishers": [
+        "/tb_controller"
+      ],
+      "observed_planning_episodes": 1
+    }
+  ],
+  "historical_same_staging_baseline": {
+    "summary": "tests/gazebo_port_restoration_20261009.json",
+    "first_motion_to_handoff_sim_s": [
+      72.495,
+      75.429,
+      71.351
+    ],
+    "cruise_mps": 0.075,
+    "entry_cap_mps": 0.04,
+    "limitation": "Previous-turn measurements, not rerun after this change; FAST changes speed, acceleration, entry ramp, normal terminal stopping and source FAST map/planner options together."
+  },
+  "limitations": [
+    "All times are simulated ROS time, not startup or wall-clock duration.",
+    "Geometry checks use recorded actual world poses and nominal asymmetric body rectangle, not contact sensors or physical collision tests.",
+    "Each trial returned to camera lane control and drove about 0.28 m during the next four seconds; no full-course lane-boundary claim.",
+    "Mission logs are throttled to 1 Hz; one observed planning episode each does not prove exact planner-call count.",
+    "First trial observer launch path was rejected; recorder/controller started normally and passive observer was attached before handoff. Subsequent trial observers started before launch.",
+    "Second trial parent observer ended the container after recorded handoff+4 s; roslaunch exec returned 137 during cleanup, not a driving failure; finalized bag inspected.",
+    "Isolated port still assumes surveyed staging; physical entry registration and TB other-mission sensor integration remain outside this validation.",
+    "Official start through preceding missions and full-course finish remain unverified; no final project-completion claim."
+  ],
+  "current_tunnel_lines_including_comments_and_blanks": {
+    "mission": 471,
+    "planner": 1603,
+    "costmap": 1137,
+    "tracking": 454,
+    "init": 1,
+    "yaml": 138,
+    "total": 3804
+  },
+  "production_sha256": {
+    "mission": "f213114cb4bf31a7ab4215261eaef68a69a24fa5c454e0f7d162e2d943ca48f7",
+    "tracking": "448cd03d2daa9569d85fbcf524c225d01d05346901a0be5d0ae5c806feb13573",
+    "planner": "43c903847564206299e9ba3f180492cea6dea6ad093aa2a3903617d9cf350f14",
+    "costmap": "6e2a20cba60b7b56fbb667d67273d33f786c102d2ee7304305ed892b42cc0cc9",
+    "yaml": "fda04c0b1059ccc26b588251aa23b44693a136f51c05dad74a2b61b4bb61b231",
+    "tb_controller": "16c02f792e668c4f7e8bf65e411a9b183b6a01309e6c0f97b7a88880204f879c",
+    "launch": "4bc48c913a411570e51cc0d23b472e7fc971aeb0fb391f2663b5c24bdd51c95f",
+    "compose": "f050c4615b86be87504b09c4c2e164180643e72f383a7e139bc8ddc1b15d030f"
+  }
+}

@@ -7,6 +7,24 @@ cd /home/sj/TB_tunnel_gazebo
 docker compose -f compose.gazebo.yaml up
 ```
 
+원본 FAST 속도 설정으로 터널 단독 시험한다. 기본값은 `normal`이다.
+
+```bash
+TB_TUNNEL_PROFILE=fast docker compose -f compose.gazebo.yaml up
+```
+
+B 배치에서 FAST 터널 단독 시험을 실행한다. 기본 배치는 `layout_a`이다.
+
+```bash
+TB_TUNNEL_PROFILE=fast TB_TUNNEL_LAYOUT=layout_b docker compose -f compose.gazebo.yaml up
+```
+
+C 배치에서 FAST 터널 단독 시험을 실행한다.
+
+```bash
+TB_TUNNEL_PROFILE=fast TB_TUNNEL_LAYOUT=layout_c docker compose -f compose.gazebo.yaml up
+```
+
 화면 없이 실행한다.
 
 ```bash

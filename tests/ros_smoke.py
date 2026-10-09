@@ -37,19 +37,29 @@ def main():
         rospy.init_node('tunnel_port_smoke', disable_signals=True)
         commands = []
         subscriber = rospy.Subscriber('/cmd_vel', Twist, commands.append, queue_size=20)
-        processes.append(subprocess.Popen(
-            ['python3', str(root / 'codes/stepbystep/try_maze.py'), '_start_step:=9'],
-            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, start_new_session=True))
-        deadline = time.monotonic() + 10.
-        while len(commands) < 10 and time.monotonic() < deadline:
-            if processes[-1].poll() is not None:
-                raise RuntimeError(processes[-1].stderr.read().decode())
-            time.sleep(.05)
-        assert len(commands) >= 10, 'actual node did not publish waiting commands'
-        publishers = dict(master.getSystemState()[0]).get('/cmd_vel', [])
-        assert len(publishers) == 1, publishers
-        assert all(m.linear.x == 0. and m.angular.z == 0. for m in commands)
-        print('ROS_SMOKE_PASS: actual TB node, one cmd_vel owner, sensorless wait is stopped')
+        for profile in ('normal', 'fast'):
+            commands.clear()
+            process = subprocess.Popen(
+                ['python3', str(root / 'codes/stepbystep/try_maze.py'),
+                 '_start_step:=9', '_tunnel_profile:='+profile],
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, start_new_session=True)
+            processes.append(process)
+            deadline = time.monotonic() + 10.
+            while len(commands) < 10 and time.monotonic() < deadline:
+                if process.poll() is not None:
+                    raise RuntimeError(process.stderr.read().decode())
+                time.sleep(.05)
+            assert len(commands) >= 10, 'actual node did not publish waiting commands'
+            publishers = dict(master.getSystemState()[0]).get('/cmd_vel', [])
+            assert len(publishers) == 1, publishers
+            assert all(m.linear.x == 0. and m.angular.z == 0. for m in commands)
+            print('ROS_SMOKE_PASS: '+profile+' actual TB node, one cmd_vel owner, sensorless wait is stopped')
+            os.killpg(process.pid, signal.SIGINT)
+            process.wait(timeout=8.)
+            deadline = time.monotonic()+5.
+            while dict(master.getSystemState()[0]).get('/cmd_vel', []) and time.monotonic() < deadline:
+                time.sleep(.05)
+            assert not dict(master.getSystemState()[0]).get('/cmd_vel', []), 'publisher did not shut down'
         subscriber.unregister()
     finally:
         for process in reversed(processes):

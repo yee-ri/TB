@@ -24,7 +24,7 @@ class turtlebot():
         self.tunnel_generation=0
         self.tunnel_active=False
         config_path=rospy.get_param('~tunnel_config',str(Path(__file__).with_name('tunnel.yaml')))
-        self.tunnel_config=load_config(config_path)
+        self.tunnel_config=load_config(config_path,rospy.get_param('~tunnel_profile','normal'))
         self.lidar_type=rospy.get_param('~lidar_type','pointcloud2')
         if self.lidar_type not in ('pointcloud2','laserscan'):
             raise ValueError('~lidar_type must be pointcloud2 or laserscan')
@@ -234,7 +234,7 @@ class turtlebot():
         self.lidar_points(point_cloud2.read_points(cloud,field_names=('x','y','z'),skip_nans=True),transform,data.header)
 
     def laser_callback(self,data):
-        # No-return beams stay unobserved; never turn infinity into a fake hit.
+        # Preserve real LaserScan no-return rays; missing cloud bins stay NaN.
         if not (math.isfinite(data.angle_min) and math.isfinite(data.angle_increment)
                 and data.angle_increment!=0.0 and math.isfinite(data.range_min)
                 and math.isfinite(data.range_max) and 0.0<=data.range_min<data.range_max):
@@ -242,10 +242,20 @@ class turtlebot():
         ranges=np.asarray(data.ranges,dtype=float)
         valid=np.flatnonzero(np.isfinite(ranges))
         valid=valid[(ranges[valid]>=data.range_min)&(ranges[valid]<=data.range_max)]
-        if not len(valid):
+        if not len(valid) and not np.any(np.isposinf(ranges)):
             return
         transform=self.lidar_transform(data.header)
         if transform is None:
+            return
+        if self.step in (9,10):
+            poses=self.tunnel_lidar_pose(transform,data.header)
+            if poses is not None:
+                sensor_pose,scan_pose=poses
+                self.tunnel.update_scan(ranges,data.angle_min,data.angle_increment,
+                                        data.range_min,data.range_max,sensor_pose,scan_pose,
+                                        data.header.stamp.to_sec())
+            return
+        if not len(valid):
             return
         angles=data.angle_min+valid*data.angle_increment
         r=ranges[valid]
@@ -257,7 +267,6 @@ class turtlebot():
 
     def lidar_points(self,points,transform,header):
         settings=self.tunnel_config['sensors']
-        base_frame=settings['base_frame']
 
         self.obstacle_points=[]
         left_ranges=[]
@@ -285,25 +294,32 @@ class turtlebot():
             elif -side_limit<y<=-safe_width:right_ranges.append(math.hypot(x,y))
 
         if tunnel_mode:
-            if not self.odom_received or not self.odom_frame:
-                return
-            try:
-                odom_tf=self.tf_buffer.lookup_transform(self.odom_frame,base_frame,header.stamp,rospy.Duration(0.1))
-            except Exception as e:
-                rospy.logwarn_throttle(1.0,"Tunnel acquisition TF unavailable: %s",e)
-                return
-            p,q=odom_tf.transform.translation,odom_tf.transform.rotation
-            yaw=euler_from_quaternion([q.x,q.y,q.z,q.w])[2]
-            scan_pose=self.local_pose(p.x,p.y,yaw)
-            p,q=transform.transform.translation,transform.transform.rotation
-            sensor_pose=(p.x,p.y,euler_from_quaternion([q.x,q.y,q.z,q.w])[2])
-            self.tunnel.update_cloud(tunnel_points,sensor_pose,scan_pose,header.stamp.to_sec())
+            poses=self.tunnel_lidar_pose(transform,header)
+            if poses is not None:
+                sensor_pose,scan_pose=poses
+                self.tunnel.update_cloud(tunnel_points,sensor_pose,scan_pose,header.stamp.to_sec())
             return
         self.left_distance=np.percentile(left_ranges,10) if left_ranges else float('inf')
         self.front_distance=np.percentile(front_ranges,10) if front_ranges else float('inf')
         self.right_distance=np.percentile(right_ranges,10) if right_ranges else float('inf')
 
         rospy.loginfo("LEFT: %.2f FRONT: %.2f RIGHT: %.2f DIR: %s",self.left_distance,self.front_distance,self.right_distance,str(self.obstacle_direction))
+
+    def tunnel_lidar_pose(self,transform,header):
+        if not self.odom_received or not self.odom_frame:
+            return None
+        try:
+            odom_tf=self.tf_buffer.lookup_transform(self.odom_frame,self.tunnel_config['sensors']['base_frame'],
+                                                   header.stamp,rospy.Duration(0.1))
+        except Exception as e:
+            rospy.logwarn_throttle(1.0,"Tunnel acquisition TF unavailable: %s",e)
+            return None
+        p,q=odom_tf.transform.translation,odom_tf.transform.rotation
+        yaw=euler_from_quaternion([q.x,q.y,q.z,q.w])[2]
+        scan_pose=self.local_pose(p.x,p.y,yaw)
+        p,q=transform.transform.translation,transform.transform.rotation
+        sensor_pose=(p.x,p.y,euler_from_quaternion([q.x,q.y,q.z,q.w])[2])
+        return sensor_pose,scan_pose
 
     def stop(self): # 초록불 감지 전 정지상태
         self.move(0.0,0.0)

@@ -64,6 +64,7 @@ class Mission:
         self.step = Mock(return_value=(0.06, 0.02, False))
         self.update_odometry = Mock()
         self.update_cloud = Mock()
+        self.update_scan = Mock()
         self.update_lane = Mock()
 
 
@@ -111,7 +112,8 @@ class TunnelWiringTests(unittest.TestCase):
                          (0.0, 0.0, 2.0 * math.atan2(q[2], q[3])), quaternion_matrix=quaternion_matrix)
         cloud_reader = module("sensor_msgs.point_cloud2", read_points=lambda cloud, **kwargs: cloud.points)
         cloud_tf = module("tf2_sensor_msgs.tf2_sensor_msgs", do_transform_cloud=lambda cloud, tf: cloud)
-        mission = module("tunnel.mission", TunnelMission=Mission, load_config=lambda path: self.config)
+        self.load_config = Mock(return_value=self.config)
+        mission = module("tunnel.mission", TunnelMission=Mission, load_config=self.load_config)
         modules = {
             "rospy": rospy,
             "tf": module("tf", transformations=tf_math), "tf.transformations": tf_math,
@@ -176,6 +178,28 @@ class TunnelWiringTests(unittest.TestCase):
     def test_explicit_start_step_is_configurable(self):
         self.params["~start_step"] = 9
         self.assertEqual(self.target.turtlebot().step, 9)
+
+    def test_normal_profile_is_default_and_fast_uses_same_single_publisher(self):
+        self.assertEqual(self.load_config.call_args.args[1], 'normal')
+        for profile in ('normal', 'fast'):
+            with self.subTest(profile=profile):
+                self.params['~tunnel_profile'] = profile
+                before = len(self.publishers)
+                node = self.target.turtlebot()
+                self.assertEqual(self.load_config.call_args.args[1], profile)
+                self.assertEqual([p.topic for p in self.publishers[before:]], ['/cmd_vel'])
+                node.step = 9
+                node.tunnel_tick(None)
+                node.tunnel.step.assert_called_once_with(42.0)
+                self.assertEqual(node.cmd_pub.publish.call_count, 1)
+
+    def test_invalid_profile_raises_before_creating_a_command_publisher(self):
+        self.params['~tunnel_profile'] = 'typo-fast'
+        self.load_config.side_effect = ValueError('unknown tunnel profile')
+        before = len(self.publishers)
+        with self.assertRaisesRegex(ValueError, 'profile'):
+            self.target.turtlebot()
+        self.assertEqual(len(self.publishers), before)
 
     def test_laserscan_input_selects_one_subscriber_with_topic_override(self):
         self.params.update({"~lidar_type": "laserscan", "~lidar_topic": "/sim/scan"})
@@ -339,7 +363,7 @@ class TunnelWiringTests(unittest.TestCase):
             self.node.scan_callback(self.cloud([(0.5, 0.0, 0.1)]))
         self.node.tunnel.update_cloud.assert_not_called()
 
-    def test_laserscan_transforms_finite_returns_at_acquisition_stamp(self):
+    def test_laserscan_preserves_raw_ranges_and_acquisition_pose(self):
         self.node.step = 9
         self.node.odom_callback(self.odometry())
         self.tf_buffer.lookup_transform.side_effect = [
@@ -349,20 +373,30 @@ class TunnelWiringTests(unittest.TestCase):
         calls = self.tf_buffer.lookup_transform.call_args_list
         self.assertEqual(calls[0].args[:3], ("base_footprint", "base_scan", scan.header.stamp))
         self.assertEqual(calls[1].args[:3], ("odom", "base_footprint", scan.header.stamp))
-        points, sensor, pose, stamp = self.node.tunnel.update_cloud.call_args.args
-        np.testing.assert_allclose(points, [(-0.033, 0.52), (-0.633, 0.02),
-                                           (-0.033, -0.68), (0.767, 0.02)], atol=1e-12)
+        ranges, angle_min, increment, range_min, range_max, sensor, pose, stamp = self.node.tunnel.update_scan.call_args.args
+        np.testing.assert_allclose(ranges, scan.ranges, equal_nan=True)
+        self.assertEqual((angle_min, increment, range_min, range_max), (0.0, math.pi / 2, 0.05, 4.0))
         np.testing.assert_allclose(sensor, (-0.033, 0.02, math.pi / 2), atol=1e-12)
         np.testing.assert_allclose(pose, (1.0, 0.0, 0.0), atol=1e-12)
         self.assertEqual(stamp, 41.7)
+        self.node.tunnel.update_cloud.assert_not_called()
         self.node.cmd_pub.publish.assert_not_called()
 
-    def test_laserscan_no_returns_never_invents_observations(self):
+    def test_laserscan_invalid_returns_never_invent_observations(self):
         self.node.step = 10
-        for ranges in ([], [float("inf"), float("nan"), -float("inf")], [0.01, 4.1]):
+        for ranges in ([], [float("nan"), -float("inf")], [0.01, 4.1]):
             self.node.laser_callback(self.laser(ranges))
+        self.node.tunnel.update_scan.assert_not_called()
         self.node.tunnel.update_cloud.assert_not_called()
         self.tf_buffer.lookup_transform.assert_not_called()
+
+    def test_laserscan_all_infinity_keeps_real_clearing_evidence(self):
+        self.node.step = 10
+        self.node.odom_callback(self.odometry())
+        self.node.laser_callback(self.laser([float("inf"), float("inf")]))
+        self.node.tunnel.update_scan.assert_called_once()
+        self.assertTrue(np.all(np.isposinf(self.node.tunnel.update_scan.call_args.args[0])))
+        self.node.tunnel.update_cloud.assert_not_called()
 
     def test_laserscan_invalid_geometry_and_missing_tf_do_not_refresh_cloud(self):
         self.node.step = 10
@@ -371,6 +405,7 @@ class TunnelWiringTests(unittest.TestCase):
         self.tf_buffer.lookup_transform.side_effect = RuntimeError("missing acquisition TF")
         self.node.laser_callback(self.laser([0.5]))
         self.node.tunnel.update_cloud.assert_not_called()
+        self.node.tunnel.update_scan.assert_not_called()
 
     def test_laserscan_uses_full_sensor_rotation_before_height_filter(self):
         sensor = transform(z=0.4)

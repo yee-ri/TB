@@ -1,12 +1,14 @@
 """ROS-independent forward tracking helpers for a sampled tunnel path.
 
-Functions are extracted unchanged from custom_autorace_bringup/zigzag_path.py,
-/home/sj/tb3_autorace_noetic_ws working tree, 2026-10-08. The broad common-path
-and surveyed-track modules are deliberately not dependencies of this port.
+Tracking functions come from custom_autorace_bringup/zigzag_path.py;
+the moving-exit quintic and sampled geometry come from parking_geometry.py
+and path_following.py in the same source workspace. Only the used helpers
+are copied; complete parking and other mission modules are not dependencies.
 """
 
 from dataclasses import dataclass
 import math
+import operator
 
 import numpy as np
 
@@ -19,6 +21,141 @@ class TrackingPath:
     curvature: np.ndarray
     station: np.ndarray
     speed: np.ndarray
+
+
+
+
+# Extracted from source parking_geometry.py and path_following.py. Keep the
+# same quintic geometry and sampled heading-gradient curvature at the exit.
+def quintic_pose_path(
+    start_pose,
+    end_pose,
+    start_tangent_length,
+    end_tangent_length,
+    sample_count,
+):
+    """Sample a zero-end-curvature quintic between two planar poses.
+
+    The first and last three control points are equally spaced and collinear
+    with their respective pose headings.  Position, heading and curvature are
+    therefore continuous when this path is joined to another path with the
+    same endpoint pose and zero endpoint curvature.
+    """
+    try:
+        start = np.asarray(start_pose, dtype=np.float64)
+        end = np.asarray(end_pose, dtype=np.float64)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "start_pose and end_pose must contain three finite values"
+        ) from error
+    if (
+        start.shape != (3,)
+        or end.shape != (3,)
+        or not np.all(np.isfinite(start))
+        or not np.all(np.isfinite(end))
+    ):
+        raise ValueError(
+            "start_pose and end_pose must contain three finite values"
+        )
+
+    try:
+        start_tangent_length = float(start_tangent_length)
+        end_tangent_length = float(end_tangent_length)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError("tangent lengths must be finite and positive") from error
+    if not (
+        math.isfinite(start_tangent_length)
+        and math.isfinite(end_tangent_length)
+        and start_tangent_length > 0.0
+        and end_tangent_length > 0.0
+    ):
+        raise ValueError("tangent lengths must be finite and positive")
+
+    if isinstance(sample_count, (bool, np.bool_)):
+        raise ValueError("sample_count must be an integer of at least three")
+    try:
+        sample_count = operator.index(sample_count)
+    except TypeError as error:
+        raise ValueError(
+            "sample_count must be an integer of at least three"
+        ) from error
+    if sample_count < 3:
+        raise ValueError("sample_count must be an integer of at least three")
+
+    start_direction = np.asarray(
+        [math.cos(start[2]), math.sin(start[2])], dtype=np.float64
+    )
+    end_direction = np.asarray(
+        [math.cos(end[2]), math.sin(end[2])], dtype=np.float64
+    )
+    with np.errstate(over="ignore", invalid="ignore"):
+        control_points = np.asarray(
+            [
+                start[:2],
+                start[:2] + start_tangent_length * start_direction,
+                start[:2] + 2.0 * start_tangent_length * start_direction,
+                end[:2] - 2.0 * end_tangent_length * end_direction,
+                end[:2] - end_tangent_length * end_direction,
+                end[:2],
+            ],
+            dtype=np.float64,
+        )
+    if not np.all(np.isfinite(control_points)):
+        raise ValueError("path dimensions produce non-finite control points")
+
+    parameter = np.linspace(0.0, 1.0, sample_count, dtype=np.float64)
+    complement = 1.0 - parameter
+    positions = np.zeros((sample_count, 2), dtype=np.float64)
+    derivatives = np.zeros((sample_count, 2), dtype=np.float64)
+    derivative_controls = 5.0 * np.diff(control_points, axis=0)
+    for index in range(6):
+        weight = (
+            math.comb(5, index)
+            * complement ** (5 - index)
+            * parameter ** index
+        )
+        positions += weight[:, None] * control_points[index]
+    for index in range(5):
+        weight = (
+            math.comb(4, index)
+            * complement ** (4 - index)
+            * parameter ** index
+        )
+        derivatives += weight[:, None] * derivative_controls[index]
+
+    derivative_norm = np.linalg.norm(derivatives, axis=1)
+    if not np.all(np.isfinite(derivative_norm)) or np.any(
+        derivative_norm <= np.finfo(np.float64).tiny
+    ):
+        raise ValueError("path dimensions produce a degenerate path")
+    headings = np.arctan2(derivatives[:, 1], derivatives[:, 0])
+    headings[0] = normalize_angle(start[2])
+    headings[-1] = normalize_angle(end[2])
+    return np.column_stack((positions, headings))
+
+
+def geometry_from_poses(poses):
+    """Return body heading, curvature, and station for explicit SE(2) poses.
+
+    Unlike :func:`geometry_from_xy`, this keeps the supplied body heading.
+    That distinction is required for reverse paths, whose body heading is
+    opposite their direction of travel.
+    """
+    poses = np.asarray(poses, dtype=np.float64)
+    if poses.ndim != 2 or poses.shape[1] != 3 or poses.shape[0] < 2:
+        raise ValueError("path poses must be an Nx3 array with N >= 2")
+    if not np.all(np.isfinite(poses)):
+        raise ValueError("path poses must be finite")
+    segment = np.hypot(np.diff(poses[:, 0]), np.diff(poses[:, 1]))
+    if np.any(segment <= 1e-9):
+        raise ValueError("path contains duplicate consecutive points")
+    station = np.concatenate(([0.0], np.cumsum(segment)))
+    unwrapped_heading = np.unwrap(poses[:, 2])
+    curvature = np.gradient(unwrapped_heading, station, edge_order=1)
+    heading = np.asarray(
+        [normalize_angle(value) for value in poses[:, 2]], dtype=np.float64
+    )
+    return heading, curvature, station
 
 
 def clamp(value, minimum, maximum):

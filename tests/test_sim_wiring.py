@@ -39,12 +39,25 @@ class SimulationWiringTests(unittest.TestCase):
         self.assertEqual(params['start_step'], '9')
         self.assertEqual(params['lidar_type'], 'laserscan')
         self.assertEqual(params['lidar_topic'], '/scan_mid360_raw')
+        self.assertEqual(params['tunnel_profile'], '$(arg tunnel_profile)')
+        self.assertEqual(launch.find("arg[@name='tunnel_profile']").get('default'), 'normal')
         self.assertEqual(nodes[0].find('remap').attrib,
                          {'from': '/odom', 'to': '/odometry/filtered'})
         args = {a.get('name'): a.get('value') for a in includes[0].findall('arg')}
         self.assertEqual(args['fuse_imu'], 'true')
         self.assertEqual(args['odometry_source'], 'world')
-        self.assertEqual(args['tunnel_obstacle_layout'], 'layout_a')
+        self.assertEqual(args['tunnel_obstacle_layout'], '$(arg tunnel_obstacle_layout)')
+        self.assertEqual(launch.find("arg[@name='tunnel_obstacle_layout']").get('default'),
+                         'layout_a')
+
+    def test_compose_exposes_fast_as_an_opt_in_profile_not_another_node(self):
+        service = yaml.safe_load((ROOT / 'compose.gazebo.yaml').read_text())['services']['gazebo']
+        self.assertIn('tunnel_profile:=${TB_TUNNEL_PROFILE:-normal}', service['command'][-1])
+
+    def test_compose_selects_existing_layouts_without_changing_the_default(self):
+        service = yaml.safe_load((ROOT / 'compose.gazebo.yaml').read_text())['services']['gazebo']
+        self.assertIn('tunnel_obstacle_layout:=${TB_TUNNEL_LAYOUT:-layout_a}',
+                      service['command'][-1])
 
 
 if __name__ == '__main__':

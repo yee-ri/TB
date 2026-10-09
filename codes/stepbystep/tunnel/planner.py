@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Ported unchanged from custom_autorace_bringup/tunnel_planner.py
+# Ported from custom_autorace_bringup/tunnel_planner.py; unused entry selector removed.
 # Source: /home/sj/tb3_autorace_noetic_ws working tree, 2026-10-08.
 """ROS-independent forward Hybrid A* planner for the tunnel mission.
 
@@ -1190,60 +1190,6 @@ class HybridAStarPlanner:
             distance,
             check_start=True,
         )
-
-    def select_entry_stop(
-        self, grid, start, minimum_distance, maximum_distance, sample_step,
-        turn_angle,
-    ):
-        """Return the farthest observed straight-entry stop with turning room.
-
-        The caller supplies an observed-only grid: unobserved cells must be
-        unknown and occupied. Check the straight corridor in increasing order
-        and never consider a point beyond its first blocked interval. From
-        the remaining candidates, one complete left or right forward arc at
-        the configured minimum turning radius must fit. This is geometric
-        entry selection, not a route to the final goal or permission to drive;
-        the controller still owns speed, braking and fresh-input checks.
-        """
-        if not isinstance(grid, OccupancyGrid):
-            raise TypeError("grid must be an OccupancyGrid")
-        if not grid.unknown_is_occupied:
-            raise ValueError("entry selection requires occupied unknown cells")
-        start = self._coerce_pose(start)
-        minimum_distance, maximum_distance, sample_step, turn_angle = (
-            float(value) for value in
-            (minimum_distance, maximum_distance, sample_step, turn_angle)
-        )
-        if not all(math.isfinite(value) for value in (
-            start.x, start.y, start.yaw, minimum_distance, maximum_distance,
-            sample_step, turn_angle,
-        )):
-            raise ValueError("entry selection inputs must be finite")
-        if not (0.0 < minimum_distance <= maximum_distance and sample_step > 0.0
-                and 0.0 < turn_angle <= math.pi):
-            raise ValueError("invalid entry distance, sample step or turn angle")
-
-        candidates = []
-        previous_distance = 0.0
-        count = int(math.ceil((maximum_distance - minimum_distance) / sample_step))
-        for index in range(count + 1):
-            distance = min(maximum_distance, minimum_distance + index * sample_step)
-            previous_pose = self._propagate(start, 0.0, previous_distance)
-            if not self.primitive_is_collision_free(
-                    grid, previous_pose, 0.0, distance - previous_distance):
-                break
-            candidates.append(distance)
-            previous_distance = distance
-
-        turn_distance = self.minimum_turning_radius * turn_angle
-        for distance in reversed(candidates):
-            stop = self._propagate(start, 0.0, distance)
-            for curvature in (1.0 / self.minimum_turning_radius,
-                              -1.0 / self.minimum_turning_radius):
-                if self.primitive_is_collision_free(
-                        grid, stop, curvature, turn_distance):
-                    return distance
-        return None
 
     def _state_key(self, grid, pose, curvature_index):
         resolution = (
