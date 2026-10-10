@@ -39,8 +39,6 @@ class turtlebot():
         self.rturn_template=cv2.imread(str(image_dir/'rturn1.png'),cv2.IMREAD_GRAYSCALE)
         self.rturn_template=cv2.resize(self.rturn_template,(100,100))
 
-        
-
 ############## 구간별 테스트 설정 ##############
         # self.step=int(rospy.get_param('~start_step',0))
         self.step = 1
@@ -369,9 +367,9 @@ class turtlebot():
         rospy.loginfo("LEFT: %.1f%% RIGHT: %.1f%%",max_val_l*100,max_val_r*100)
 
         if 1.2<=self.front_distance<=2.2:
-            if max_val_r>=max_val_l and max_val_r>0.29:
+            if max_val_r>=max_val_l and max_val_r>0.27:
                 self.right_count+=1
-            elif max_val_l>=max_val_r and max_val_l>0.29:
+            elif max_val_l>=max_val_r and max_val_l>0.27:
                 self.left_count+=1
 
             if self.right_count>=5:
@@ -648,7 +646,7 @@ class turtlebot():
         else:
             self.obstacle_clear_count=0
 
-        if self.obstacle_clear_count>=40:
+        if self.obstacle_clear_count>=60:
             self.step=4
             self.obstacle_clear_count=0
             self.obstacle_direction=None
@@ -786,13 +784,17 @@ class turtlebot():
             err_x=target_x-center_x
             diff_x=err_x-self.prev_error
 
-            if self.step==2:
+            if self.step==2 :
                 Kp=0.25
                 Kd=0.012
                 linear=17.0
                 max_angular=85.0
-
-            elif self.speed==1:
+            elif self.step ==3:
+                Kp=0.2
+                Kd=0.01
+                linear=19.0
+                max_angular=80.0
+            elif self.speed==1: #gate bar 포착되면 속도 늦추는 거임
                 Kp=0.15
                 Kd=0.008
                 linear=13.0
@@ -805,10 +807,10 @@ class turtlebot():
                 # Kd=0.008
                 # linear=15.0
                 # max_angular=50.0
-                Kp=0.2
+                Kp=0.23
                 Kd=0.008
-                linear=20.0
-                max_angular=75.0
+                linear=22.0
+                max_angular=80.0
 
             angular=-(Kp*err_x+Kd*diff_x)
             angular=np.clip(angular,-max_angular,max_angular)
@@ -1037,7 +1039,7 @@ class turtlebot():
 
 
         elif self.step==4: # 장애물 후 straight 발견 --> 주차구간 시작 직전임
-            self.straight = self.is_straight(image,100) #25
+            self.straight = self.is_straight(image,70) #25
             if self.straight:
                 self.step = 5
                 # self.straight_count = 0
@@ -1101,7 +1103,7 @@ class turtlebot():
                 self.yellow_zero_count=0
                 self.turn_time('straight',0.8,0.06,0)
                 rospy.loginfo("@@@@@@ TURN LEFT @@@@@@")
-                self.turn_time('left',0.8,0.03,0.45)
+                self.turn_time('left',0.8,0.04,0.45) #0.8,0.03,0.45)
                 self.step=7
                 return
                 
@@ -1118,7 +1120,7 @@ class turtlebot():
                 if 500<self.red_area<12000:
                     self.speed = 1
                     
-                if (self.depth <= 0.75 and self.red_area>7000) or self.red_area >=12000:
+                if (self.depth <= 0.75 and self.red_area>1200) or self.red_area >=1600:
                     self.gate_close_count += 1
                     rospy.loginfo("GATE CLOSE COUNT: %d / 5",self.gate_close_count)
                 else:
@@ -1136,7 +1138,7 @@ class turtlebot():
             elif self.gate_state == 1:
                 self.stop()
 
-                if  self.red_area<=2200:
+                if  self.red_area<=950:
                     self.gate_open_count += 1
                     rospy.loginfo("GATE OPEN COUNT: %d / 10",self.gate_open_count)
                 else:
