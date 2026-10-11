@@ -889,7 +889,7 @@ class turtlebot():
                 Kp=0.23
                 Kd=0.008
                 linear=22.0
-                max_angular=80.0
+                max_angular=85.0
 
             angular=-(Kp*err_x+Kd*diff_x)
             angular=np.clip(angular,-max_angular,max_angular)
@@ -1252,13 +1252,13 @@ class turtlebot():
             else:
                 self.maze_count=0
 
-            if self.maze_count>=10:
+            if self.maze_count>=5:
                 self.step=8.5
                 return
 
         elif self.step==8.5:
-            self.move_time_yaw_hold(0.06,-1.565,2.5)
-            self.move(0,0)
+            # self.move_time_yaw_hold(0.06,-1.565,2.5)
+            # self.move(0,0)
 
             with self.command_lock:
                 self.step=9
