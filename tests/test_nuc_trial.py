@@ -35,6 +35,8 @@ class NucTrialSafetyTests(unittest.TestCase):
         self.practice = self.cli.read_config(PRACTICE)
         self.practice['grid']['static_map']['image'] = str(
             (PRACTICE.parent / self.practice['grid']['static_map']['image']).resolve())
+        self.practice['localization']['geometry'] = str(
+            (PRACTICE.parent / self.practice['localization']['geometry']).resolve())
 
     def config_file(self, config):
         path = self.directory / 'tunnel.yaml'
@@ -124,6 +126,7 @@ class NucTrialSafetyTests(unittest.TestCase):
         (self.directory / 'source_sha256.json').write_text('{}')
         return {'recording_active': True,
                 'config_sha256': self.cli.digest(path),
+                'wall_geometry_sha256': self.cli.digest(Path(self.practice['localization']['geometry'])),
                 'wall_map_sha256': self.cli.digest(Path(self.practice['grid']['static_map']['image']))}
 
     def test_live_sensor_failure_blocks_controller(self):
@@ -139,6 +142,21 @@ class NucTrialSafetyTests(unittest.TestCase):
                 self.cli.start(path)
             remote.assert_called_once_with(self.directory)
             graph.assert_not_called()
+            process.assert_not_called()
+
+    def test_changed_alignment_geometry_blocks_before_sensor_or_motor_access(self):
+        path = self.config_file(self.practice)
+        metadata = self.start_metadata(path)
+        metadata['wall_geometry_sha256'] = 'outdated-geometry'
+        with patch.object(self.cli, 'current_trial', return_value=(self.directory, metadata)), \
+                patch.object(self.cli, 'owned_process', return_value=123), \
+                patch.object(self.cli, 'check_remote') as remote, \
+                patch.object(self.cli.subprocess, 'run') as diagnostic, \
+                patch.object(self.cli.subprocess, 'Popen') as process:
+            with self.assertRaisesRegex(RuntimeError, 'Alignment wall geometry changed'):
+                self.cli.start(path)
+            remote.assert_not_called()
+            diagnostic.assert_not_called()
             process.assert_not_called()
 
     def test_other_cmd_vel_publisher_blocks_controller(self):
@@ -158,6 +176,11 @@ class NucTrialSafetyTests(unittest.TestCase):
             process.assert_not_called()
 
     def test_physical_start_enables_torque_only_in_controller_after_preflight(self):
+        for start_step in (8, 9):
+            with self.subTest(start_step=start_step):
+                self.assert_physical_start(start_step)
+
+    def assert_physical_start(self, start_step):
         path = self.config_file(self.practice)
         metadata = self.start_metadata(path)
         report = {'topics': {'/odom': {'age_at_receipt_seconds': {'max': 0.01},
@@ -169,7 +192,7 @@ class NucTrialSafetyTests(unittest.TestCase):
         def launch(command, **kwargs):
             events.append('controller')
             self.assertIn('_enable_motor_torque:=true', command)
-            self.assertIn('_start_step:=9', command)
+            self.assertIn('_start_step:=' + str(start_step), command)
             self.assertIn('_tunnel_profile:=normal', command)
             return process
         def diagnostics(*args, **kwargs):
@@ -184,11 +207,98 @@ class NucTrialSafetyTests(unittest.TestCase):
                 patch.object(self.cli.subprocess, 'Popen', side_effect=launch), \
                 patch.object(self.cli, 'process_identity', return_value={'pid': 234}), \
                 patch.object(self.cli.signal, 'signal'), patch('builtins.print'):
-            self.cli.start(path)
+            self.cli.start(path, start_step=start_step)
         self.assertEqual(events, ['remote', 'diagnostics', 'controller'])
         saved = json.loads((self.directory / 'trial.json').read_text())
         self.assertEqual(saved['controller_status'], 'exited')
         self.assertIn('_enable_motor_torque:=true', saved['controller_command'])
+        self.assertEqual(saved['start_step'], start_step)
+        self.assertEqual(saved['lane_controller'], 'upstream_speedup_e0b970f')
+        self.assertEqual(saved['start_condition'], 'gate_already_open' if start_step == 8 else 'tunnel_entry')
+        log = (self.directory / 'controller.log').read_text()
+        self.assertIn('normal step{}.'.format(start_step), log)
+        self.assertIn('Lane tracking: upstream speedup e0b970f', log)
+        if start_step == 8:
+            self.assertIn('step8 does not check the gate', log)
+
+    def test_invalid_start_step_rejected_before_configuration_or_runtime(self):
+        for start_step in (0, 7, 8.5, 10, 11, '8', 8.0, True, None):
+            with self.subTest(start_step=start_step), \
+                    patch.object(self.cli, 'check_config') as config, \
+                    patch.object(self.cli, 'current_trial') as trial, \
+                    patch.object(self.cli.subprocess, 'Popen') as process:
+                with self.assertRaisesRegex(ValueError, 'start_step must be 8 or 9'):
+                    self.cli.start(PRACTICE, start_step=start_step)
+                config.assert_not_called()
+                trial.assert_not_called()
+                process.assert_not_called()
+
+    def test_step8_keeps_runtime_preflight_failures(self):
+        path = self.config_file(self.practice)
+        cases = (
+            ('no_recording', 'active owned rosbag'),
+            ('yaml_changed', 'YAML changed'),
+            ('map_changed', 'Wall map changed'),
+            ('geometry_changed', 'Alignment wall geometry changed'),
+            ('source_changed', 'Runtime source changed'),
+            ('remote', 'remote blocked'),
+            ('sensors', 'Sensor/TF check failed'),
+            ('old_odom', 'odometry age exceeds'),
+            ('publisher', 'Existing /cmd_vel publisher'),
+            ('no_driver', 'drivetrain subscriber is absent'),
+            ('recording_stopped', 'Recording stopped during diagnostics'),
+        )
+        for failure, reason in cases:
+            with self.subTest(failure=failure):
+                metadata = self.start_metadata(path)
+                report = {'topics': {'/odom': {'age_at_receipt_seconds': {'max': 0.01},
+                                              'age_of_last_message_now_seconds': 0.01}}}
+                state = {'publishers': {}, 'subscribers': {'/cmd_vel': ['/turtlebot3_core']}}
+                if failure == 'no_recording':
+                    metadata['recording_active'] = False
+                elif failure in ('yaml_changed', 'map_changed', 'geometry_changed'):
+                    key = {'yaml_changed': 'config_sha256', 'map_changed': 'wall_map_sha256',
+                           'geometry_changed': 'wall_geometry_sha256'}[failure]
+                    metadata[key] = 'changed'
+                elif failure == 'source_changed':
+                    (self.directory / 'source_sha256.json').write_text(
+                        json.dumps({'codes/stepbystep/try_maze.py': 'changed'}))
+                elif failure == 'old_odom':
+                    report['topics']['/odom']['age_of_last_message_now_seconds'] = 5.0
+                elif failure == 'publisher':
+                    state['publishers']['/cmd_vel'] = ['/teleop']
+                elif failure == 'no_driver':
+                    state['subscribers']['/cmd_vel'] = []
+                (self.directory / 'prestart_diagnostics.json').write_text(json.dumps(report))
+                with patch.object(self.cli, 'current_trial', return_value=(self.directory, metadata)), \
+                        patch.object(self.cli, 'owned_process', side_effect=[123, None] if failure == 'recording_stopped' else None,
+                                     return_value=123), \
+                        patch.object(self.cli, 'check_remote', side_effect=RuntimeError('remote blocked') if failure == 'remote' else None), \
+                        patch.object(self.cli, 'graph', return_value=state), \
+                        patch.object(self.cli.subprocess, 'run', return_value=SimpleNamespace(returncode=1 if failure == 'sensors' else 0)), \
+                        patch.object(self.cli.subprocess, 'Popen') as process, patch('builtins.print'):
+                    with self.assertRaisesRegex(RuntimeError, reason):
+                        self.cli.start(path, start_step=8)
+                    process.assert_not_called()
+
+    def test_cli_start_modes_share_lock_and_dispatch(self):
+        for action, expected_step in (('start', 9), ('start8', 8)):
+            with self.subTest(action=action), \
+                    patch.object(self.cli, 'RECORDS', self.directory), \
+                    patch.object(self.cli, 'require_environment'), \
+                    patch.object(self.cli, 'start') as start, \
+                    patch.object(self.cli.sys, 'argv', ['nuc_trial.py', action]), \
+                    patch('builtins.print'):
+                with (self.directory / 'start.lock').open('a') as lock:
+                    self.cli.fcntl.flock(lock.fileno(), self.cli.fcntl.LOCK_EX | self.cli.fcntl.LOCK_NB)
+                    self.assertEqual(self.cli.main(), 1)
+                    start.assert_not_called()
+                self.assertEqual(self.cli.main(), 0)
+                if expected_step == 8:
+                    start.assert_called_once_with(self.cli.DEFAULT_CONFIG.resolve(), start_step=8)
+                else:
+                    start.assert_called_once_with(self.cli.DEFAULT_CONFIG.resolve())
+                self.assertFalse((self.directory / 'start8.lock').exists())
 
 
 class TorqueStopTests(unittest.TestCase):

@@ -3,9 +3,11 @@
 No ROS publishers, AMCL or other mission controllers.
 LiDAR inputs share one scan representation with an acquisition-time odom
 pose. One lock serializes mapping and the final collision/command decision;
-only the stopped Hybrid A* search runs asynchronously on an immutable grid.
+Stopped wall registration and Hybrid A* searches run asynchronously on
+immutable input snapshots.
 """
 
+import json
 import math
 import threading
 from pathlib import Path
@@ -14,6 +16,7 @@ import numpy as np
 import yaml
 
 from .costmap import TunnelCostmap
+from .localization import AlignmentResult, EntranceLocalizer
 from .planner import HybridAStarPlanner, OccupancyGrid, Pose2D, RectangularFootprint
 from .tracking import (TrackingPath, build_speed_profile, calculate_tracking,
                        geometry_from_poses, limit_tracking_command,
@@ -31,6 +34,12 @@ def load_config(path, profile='normal'):
     static_map = config['grid'].get('static_map')
     if static_map is not None:
         static_map['image'] = str((Path(path).resolve().parent / static_map['image']).resolve())
+    localization = config.get('localization')
+    if localization is not None:
+        geometry = (Path(path).resolve().parent / localization['geometry']).resolve()
+        localization['geometry'] = str(geometry)
+        with geometry.open(encoding='utf-8') as stream:
+            localization['wall_rectangles'] = json.load(stream)['wall_rectangles']
     return config
 
 
@@ -92,6 +101,19 @@ class TunnelMission:
                                    math.radians(planning_goal[2]))
         self.lock = threading.RLock()
         self.odom = self.scan = None
+        self.localization_scan = None
+        self.localizer = None
+        if 'localization' in config:
+            settings = config['localization']
+            confirmations = settings['confirmation_scans']
+            if isinstance(confirmations, bool) or not isinstance(confirmations, int) or confirmations < 2:
+                raise ValueError('localization/confirmation_scans must be an integer >= 2')
+            self.localizer = EntranceLocalizer(
+                settings['wall_rectangles'], search_bounds=settings['search_bounds'],
+                yaw_limit_deg=settings['yaw_limit_deg'])
+            window = settings.get('observation_window', 0.)
+            if isinstance(window, bool) or not isinstance(window, (int, float)) or not math.isfinite(window) or not 0 <= window <= 2.:
+                raise ValueError('localization/observation_window must be between 0 and 2 seconds')
         self.front_clearance = math.inf
         self.lane_stamp = None
         self.lane_count = 0
@@ -102,7 +124,8 @@ class TunnelMission:
     def reset(self):
         with self.lock:
             self.generation += 1
-            self.state, self.reason = 'ENTRY', 'waiting for sensors'
+            self.state = 'LOCALIZING' if self.localizer is not None else 'ENTRY'
+            self.reason = 'waiting for sensors'
             self.anchor = self.path = self.costmap = self.grid = None
             self.plan_result = None
             self.last_plan_attempt = None
@@ -111,6 +134,16 @@ class TunnelMission:
             self.last_linear = self.last_angular = 0.0
             self.lane_count = 0
             self.completion_started = None
+            self.localization_result = self.localization_candidate = None
+            self.localization_epoch = getattr(self, 'localization_epoch', 0) + 1
+            self.localization_anchors = []
+            self.localization_history = []
+            self.localization_attempt_stamp = None
+            self.localization_confirmations = 0
+            self.localization_report = ''
+            self.entry_start_x = 0.
+            self.entry_start_yaw = 0.
+            self.initial_map_updates = 0
 
     def close(self):
         self.reset()
@@ -134,7 +167,7 @@ class TunnelMission:
                                if visible else 0)
             self.lane_stamp = stamp
 
-    def update_cloud(self, points, sensor_pose, odom_pose, stamp):
+    def update_cloud(self, points, sensor_pose, odom_pose, stamp, localization_points=None):
         points = np.asarray(points, dtype=float).reshape((-1, 2))
         points = points[np.all(np.isfinite(points), axis=1)]
         if not len(points) or not all(math.isfinite(v) for v in (*sensor_pose, *odom_pose, stamp)):
@@ -150,12 +183,19 @@ class TunnelMission:
         scan = np.full(bins, np.inf)
         np.minimum.at(scan, indices[valid], ranges[valid])
         scan[~np.isfinite(scan)] = np.nan
+        wall_points = points[valid]
+        if localization_points is not None:
+            wall_points = np.asarray(localization_points, dtype=float).reshape((-1, 2))
+            wall_range = np.linalg.norm(wall_points - np.asarray(sensor_pose[:2]), axis=1)
+            wall_points = wall_points[np.isfinite(wall_points).all(axis=1)
+                                      & (wall_range >= self.sensors['range_min'])
+                                      & (wall_range <= self.sensors['range_max'])]
         return self.update_scan(scan, -math.pi + .5 * angle_step, angle_step,
                                 self.sensors['range_min'], self.sensors['range_max'],
-                                sensor_pose, odom_pose, stamp)
+                                sensor_pose, odom_pose, stamp, _points=wall_points)
 
     def update_scan(self, ranges, angle_min, angle_increment, range_min, range_max,
-                    sensor_pose, odom_pose, stamp):
+                    sensor_pose, odom_pose, stamp, _points=None):
         metadata = (angle_min, angle_increment, range_min, range_max, *sensor_pose, *odom_pose, stamp)
         if (len(sensor_pose) != 3 or len(odom_pose) != 3
                 or not all(math.isfinite(v) for v in metadata)
@@ -185,6 +225,14 @@ class TunnelMission:
             self.scan = (ranges, float(angle_min), float(angle_increment), float(range_min),
                          float(effective_max), tuple(sensor_pose), tuple(odom_pose), float(stamp))
             self.front_clearance = clearance
+            if self.localizer is not None and self.anchor is None:
+                # Preserve accepted raw XY for alignment: scan bin centres
+                # quantize the bearing and can shift distant walls by mm/cm.
+                points = np.column_stack((x, y))[ranges[hits] <= effective_max] if _points is None else _points.copy()
+                self.localization_scan = (points, tuple(odom_pose), float(stamp))
+                window = self.config['localization'].get('observation_window', 0.)
+                self.localization_history = [row for row in self.localization_history if stamp-row[2] <= window+.001]
+                self.localization_history.append(self.localization_scan)
             if self.anchor is not None:
                 self._map_scan()
         return True
@@ -199,13 +247,14 @@ class TunnelMission:
                         pose.y + s * sensor[0] + c * sensor[1], pose.yaw + sensor[2])
         update = self.costmap.update_scan(ranges, angle_min, increment, range_min, range_max, sensor_local)
         self.mapped_stamp = stamp
+        self.initial_map_updates += 1
         if (update.marked_cells or update.cleared_cells or update.decayed_cells
                 or update.refined_cells or update.newly_observed_cells):
             self.version += 1
             self.grid = None
 
-    def _initialize(self):
-        self.anchor = self.odom[:3]
+    def _initialize(self, anchor=None):
+        self.anchor = self.odom[:3] if anchor is None else anchor
         cfg = self.config['grid']
         x0, y0, x1, y1 = cfg['bounds']
         resolution = cfg['resolution']
@@ -226,6 +275,113 @@ class TunnelMission:
             static_data, width, height, resolution, x0, y0, planning_bounds=cfg['bounds'],
             **{k: v for k, v in cfg.items() if k not in ('bounds', 'resolution', 'static_map')})
         self._map_scan()
+
+    def _invalidate_localization(self):
+        self.localization_epoch += 1
+        self.localization_candidate = self.localization_result = None
+        self.localization_confirmations = 0
+        self.localization_anchors = []
+        self.localization_history = []
+
+    def _localize(self, now):
+        """Fit the stopped robot to the surveyed map, never move the map with it."""
+        if (abs(self.odom[3]) > self.control['planning_stopped_linear']
+                or abs(self.odom[4]) > self.control['planning_stopped_angular']):
+            self._invalidate_localization()
+            self.reason = 'waiting for measured rest before wall alignment'
+            return False
+        if self.localization_result is not None:
+            result, scan_odom, stamp = self.localization_result
+            self.localization_result = None
+            moved = (math.hypot(self.odom[0]-scan_odom[0], self.odom[1]-scan_odom[1]) > .005
+                     or abs(normalize_angle(self.odom[2]-scan_odom[2])) > math.radians(.5))
+            if now-stamp > self.sensors['maximum_age'] or moved or not result.accepted:
+                self._invalidate_localization()
+                self.reason = ('wall alignment input expired or robot moved' if moved or
+                               now-stamp > self.sensors['maximum_age'] else result.reason)
+                return False
+            else:
+                # odom_T_map = odom_T_base(at scan time) * inverse(map_T_base).
+                fitted = result.pose
+                yaw = normalize_angle(scan_odom[2]-fitted.yaw)
+                c, s = math.cos(yaw), math.sin(yaw)
+                anchor = (scan_odom[0]-c*fitted.x+s*fitted.y,
+                          scan_odom[1]-s*fitted.x-c*fitted.y, yaw)
+                previous = self.localization_candidate
+                previous_pose = relative_pose(scan_odom, previous) if previous is not None else None
+                consistent = (previous is not None
+                    and math.hypot(fitted.x-previous_pose.x, fitted.y-previous_pose.y) <= .015
+                    and abs(normalize_angle(fitted.yaw-previous_pose.yaw)) <= math.radians(.5))
+                self.localization_confirmations = self.localization_confirmations+1 if consistent else 1
+                if not consistent:
+                    self.localization_candidate = anchor
+                    self.localization_anchors = []
+                self.localization_anchors.append(anchor)
+                required = self.config['localization']['confirmation_scans']
+                self.reason = 'wall alignment confirmation %d/%d' % (self.localization_confirmations, required)
+                if self.localization_confirmations >= required:
+                    # Average observations at a common nearby base pose. Raw
+                    # odom_T_map translations exaggerate yaw noise when odom's
+                    # origin is many metres away after the preceding course.
+                    estimates = [relative_pose(scan_odom, a) for a in self.localization_anchors]
+                    mean_x = float(np.mean([p.x for p in estimates]))
+                    mean_y = float(np.mean([p.y for p in estimates]))
+                    mean_yaw = math.atan2(np.mean([math.sin(p.yaw) for p in estimates]),
+                                          np.mean([math.cos(p.yaw) for p in estimates]))
+                    yaw = normalize_angle(scan_odom[2]-mean_yaw)
+                    c, s = math.cos(yaw), math.sin(yaw)
+                    anchor = (scan_odom[0]-c*mean_x+s*mean_y,
+                              scan_odom[1]-s*mean_x-c*mean_y, yaw)
+                    self._initialize(anchor)
+                    pose = relative_pose(self.odom[:3], anchor)
+                    self.entry_start_x = pose.x
+                    self.entry_start_yaw = pose.yaw
+                    self.localization_report = 'wall alignment x=%.3fm y=%.3fm yaw=%.2fdeg rms=%.4fm' % (
+                        pose.x, pose.y, math.degrees(pose.yaw), result.rms)
+                    self.reason = self.localization_report
+                    # Preserve the user's straight-first sequence and heading
+                    # hold. Registration measures pose; it does not request
+                    # an alignment turn or bypass straight entry.
+                    self.state = 'ENTRY'
+                    return True
+        if self.worker is not None and self.worker.is_alive():
+            return False
+        if self.localization_scan is None:
+            self.reason = 'waiting for wall points for alignment'
+            return False
+        points, scan_odom, stamp = self.localization_scan
+        if stamp == self.localization_attempt_stamp:
+            return False
+        window = self.config['localization'].get('observation_window', 0.)
+        if window:
+            if (not self.localization_history
+                    or stamp-self.localization_history[0][2] < window-.11):
+                self.reason = 'collecting stopped wall observations'
+                return False
+            combined = []
+            for hits, acquired_pose, _ in self.localization_history:
+                relative = relative_pose(acquired_pose, scan_odom)
+                if math.hypot(relative.x, relative.y) > .005 or abs(relative.yaw) > math.radians(.5):
+                    self._invalidate_localization()
+                    self.reason = 'robot moved during wall observation'
+                    return False
+                c, s = math.cos(relative.yaw), math.sin(relative.yaw)
+                combined.append(hits @ np.array(((c, s), (-s, c))) + (relative.x, relative.y))
+            points = np.concatenate(combined)
+        self.localization_attempt_stamp = stamp
+        generation = self.generation
+        epoch = self.localization_epoch
+        def align():
+            try:
+                result = self.localizer.estimate(points)
+            except (ValueError, RuntimeError, np.linalg.LinAlgError) as error:
+                result = AlignmentResult(False, reason='wall alignment failed: '+str(error))
+            with self.lock:
+                if self.generation == generation and self.localization_epoch == epoch:
+                    self.localization_result = (result, scan_odom, stamp)
+        self.worker = threading.Thread(target=align, daemon=True)
+        self.worker.start()
+        return False
 
     def _grid(self):
         if self.grid is None:
@@ -296,6 +452,7 @@ class TunnelMission:
 
     def _enter(self, pose, elapsed, now):
         cfg, entry = self.control, self.config['entry']
+        traveled = max(0., (pose.x-self.entry_start_x)/math.cos(self.entry_start_yaw))
         distance_remaining = entry['distance'] - pose.x
         clearance_remaining = self.front_clearance - entry['obstacle_clearance']
         remaining = min(distance_remaining, clearance_remaining)
@@ -306,18 +463,19 @@ class TunnelMission:
             self.state = 'PLANNING'
             cause = 'distance target' if distance_remaining <= clearance_remaining else 'front clearance'
             return self._zero('straight entry complete: %s; traveled=%.3fm, front_clearance=%.3fm, required_gap=%.3fm'
-                              % (cause, pose.x, self.front_clearance, entry['obstacle_clearance']))
+                              % (cause, traveled, self.front_clearance, entry['obstacle_clearance']))
         # Entry velocity is the initial profile speed, not a whole-leg cap.
         # Match the source's distance ramp and reaction + braking limit while
         # retaining this port's requested straight entry and stopping target.
         reference = min(entry['cruise_velocity'], math.sqrt(
-            cfg['entry_velocity']**2 + 2 * cfg['linear_acceleration'] * max(0., pose.x)))
+            cfg['entry_velocity']**2 + 2 * cfg['linear_acceleration'] * traveled))
         decel = min(cfg['linear_deceleration'], cfg['safety_linear_deceleration'])
         reaction = cfg['safety_reaction_time'] + cfg['period']
         remaining = max(0., remaining - .5 * cfg['safety_distance_margin'])
         cap = math.sqrt((decel * reaction)**2 + 2 * decel * remaining) - decel * reaction
         command = limit_tracking_command(
-            min(reference, cap), reference, -cfg['heading_gain'] * pose.yaw,
+            min(reference, cap), reference,
+            -cfg['heading_gain'] * normalize_angle(pose.yaw-self.entry_start_yaw),
             self.last_linear, self.last_angular, min(elapsed, cfg['period']),
             cfg['linear_acceleration'], cfg['linear_deceleration'], cfg['angular_acceleration'],
             cfg['maximum_angular_velocity'], cfg['maximum_lateral_acceleration'])
@@ -383,17 +541,28 @@ class TunnelMission:
                 return self._zero('waiting for odometry and lidar')
             if any(not -self.sensors['maximum_future_stamp'] <= now-stamp <= self.sensors['maximum_age']
                    for stamp in (self.odom[-1], self.scan[-1])):
+                if self.localizer is not None and self.anchor is None:
+                    self._invalidate_localization()
                 return self._zero('waiting for fresh odometry and lidar')
             if self.anchor is None:
+                if self.localizer is not None:
+                    self._localize(now)
+                    return self._zero(self.reason)
                 self._initialize()
             pose = relative_pose(self.odom[:3], self.anchor)
             measured_linear, measured_angular = self.odom[3:5]
-            if self.state == 'WAIT_LANE':
-                if (self.lane_stamp is not None and self.lane_stamp > self.completion_started
-                        and 0 <= now-self.lane_stamp <= self.sensors['lane_maximum_age']
-                        and self.lane_count >= self.sensors['lane_confirmation_frames']):
-                    self.state, self.reason = 'COMPLETE', 'goal reached; exit lane observed'
-                return self._zero(self.reason)
+            if self.localizer is not None:
+                if self.initial_map_updates < self.config['grid']['mark_observations']:
+                    return self._zero('waiting for fresh mapped scans after wall alignment')
+                if not self.planner.pose_is_collision_free(self._grid(), pose):
+                    return self._zero('localized footprint overlaps an obstacle')
+            if self.state == 'WAIT_STOP':
+                if (self.odom[-1] > self.completion_started
+                        and abs(measured_linear) <= self.control['planning_stopped_linear']
+                        and abs(measured_angular) <= self.control['planning_stopped_angular']):
+                    self.state = 'COMPLETE'
+                    return self._zero('goal reached; measured stop confirmed')
+                return self._zero('waiting for measured stop at outside goal')
             if self.state == 'ENTRY':
                 return self._enter(pose, elapsed, now)
             if self.state == 'PLANNING':
@@ -439,9 +608,11 @@ class TunnelMission:
                 command = self._stop_command(elapsed)
                 if command.linear_velocity > 1e-9 or abs(command.angular_velocity) > 1e-9:
                     return self._command(command, now, 'stopping at outside goal')
-                self.state, self.completion_started = 'WAIT_LANE', now
-                self.lane_count = 0
-                return self._zero('waiting for exit lane at goal')
+                self.state = 'WAIT_STOP'
+                # Require a new odometry sample after requesting zero, even
+                # when the current sample has an allowed future timestamp.
+                self.completion_started = max(now, self.odom[-1])
+                return self._zero('waiting for measured stop at outside goal')
             if (tracking.position_error > cfg['tracking_position_tolerance']
                     or abs(tracking.heading_error) > math.radians(cfg['tracking_heading_tolerance_deg'])):
                 return self._zero('tracking tolerance exceeded')

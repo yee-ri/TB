@@ -197,7 +197,7 @@ class TunnelMissionPortTest(unittest.TestCase):
         self.assertIs(mission.path, path)
         self.feed(mission, 10.15, pose=(.65, 0., 0.))
         self.assertEqual(mission.step(10.15), (0., 0., False))
-        self.assertEqual(mission.state, 'WAIT_LANE')
+        self.assertEqual(mission.state, 'WAIT_STOP')
         self.assertEqual(mission.plans, 1)
 
     def test_blocked_exit_connector_is_rejected_before_committing_the_plan(self):
@@ -938,31 +938,49 @@ class TunnelMissionPortTest(unittest.TestCase):
                     self.assertIsNone(mission.path)
                     self.assertEqual(mission.plans, 1)
 
-    def test_lane_handoff_requires_new_consecutive_visible_frames_at_goal(self):
+    def test_exit_handoff_waits_for_new_measured_stop_without_lane_frames(self):
         mission = self.make_mission()
-        self.feed(mission, 10.)
-        mission.step(10.)
-        mission.state, mission.completion_started, mission.lane_count = 'WAIT_LANE', 10., 0
-        self.assertEqual(mission.step(10.), (0., 0., False))
-        mission.update_lane(True, 10.05)
-        mission.update_lane(False, 10.10)
-        mission.update_lane(True, 10.15)
-        mission.update_lane(True, 10.20)
-        self.assertEqual(mission.step(10.20), (0., 0., False))
-        mission.update_lane(True, 10.25)
-        self.assertEqual(mission.step(10.25), (0., 0., True))
+        self.prepare_following(mission)
+        goal_pose = (.65, 0., 0.)
+        self.feed(mission, 10.05, pose=goal_pose)
+        self.assertEqual(mission.step(10.05), (0., 0., False))
+        self.assertEqual(mission.state, 'WAIT_STOP')
+        # The rest sample used to request zero is not proof of a later stop.
+        self.assertEqual(mission.step(10.06), (0., 0., False))
+        for now, velocity in ((10.10, (.02, 0.)), (10.15, (0., -.10))):
+            self.feed(mission, now, pose=goal_pose, velocity=velocity)
+            self.assertEqual(mission.step(now), (0., 0., False))
+            self.assertEqual(mission.state, 'WAIT_STOP')
+        self.feed(mission, 10.20, pose=goal_pose)
+        self.assertEqual(mission.step(10.20), (0., 0., True))
         self.assertEqual(mission.state, 'COMPLETE')
+        self.assertIsNone(mission.lane_stamp)
+        self.assertIn('measured stop confirmed', mission.reason)
 
-    def test_stale_lane_confirmation_does_not_hand_off(self):
+    def test_exit_stop_does_not_reuse_future_dated_sample(self):
         mission = self.make_mission()
-        self.feed(mission, 10.)
-        mission.step(10.)
-        mission.state, mission.completion_started, mission.lane_count = 'WAIT_LANE', 10., 0
-        for stamp in (10.05, 10.1, 10.15):
+        self.prepare_following(mission)
+        self.feed(mission, 10.09, pose=(.65, 0., 0.))
+        self.assertEqual(mission.step(10.05), (0., 0., False))
+        self.assertEqual(mission.state, 'WAIT_STOP')
+        self.assertEqual(mission.completion_started, 10.09)
+        self.assertEqual(mission.step(10.10), (0., 0., False))
+        self.feed(mission, 10.15, pose=(.65, 0., 0.))
+        self.assertEqual(mission.step(10.15), (0., 0., True))
+
+    def test_exit_handoff_rejects_stale_sensors_even_with_visible_lanes(self):
+        mission = self.make_mission()
+        self.prepare_following(mission)
+        self.feed(mission, 10.05, pose=(.65, 0., 0.))
+        self.assertEqual(mission.step(10.05), (0., 0., False))
+        for stamp in (10.10, 10.15, 10.20):
             mission.update_lane(True, stamp)
-        self.feed(mission, 10.5)
-        self.assertEqual(mission.step(10.5), (0., 0., False))
-        self.assertEqual(mission.state, 'WAIT_LANE')
+        mission.update_odometry((.65, 0., 0.), 0., 0., 10.50)
+        self.assertEqual(mission.step(10.50), (0., 0., False))
+        self.assertEqual(mission.state, 'WAIT_STOP')
+        self.assertIn('fresh', mission.reason)
+        self.feed(mission, 10.55, pose=(.65, 0., 0.))
+        self.assertEqual(mission.step(10.55), (0., 0., True))
 
     def test_stale_input_stops_without_discarding_valid_route(self):
         mission = self.make_mission()
@@ -1037,18 +1055,12 @@ class TunnelMissionPortTest(unittest.TestCase):
         mission = self.make_mission(goal)
         pose, command, now = (0., 0., 0.), (0., 0.), 10.
         states = []
-        lane_frames = 0
         # CPU guard only: graded/refined map rebuilds may run below real time.
         # Keep the 1000-tick mission bound and all completion assertions below.
         deadline = time.monotonic() + 90.
         for _ in range(1000):
             self.assertLess(time.monotonic(), deadline, mission.reason)
             self.feed(mission, now, pose, command, origin)
-            if mission.state == 'WAIT_LANE':
-                if lane_frames == 0:
-                    self.assertFalse(mission.step(now)[2])
-                mission.update_lane(True, now)
-                lane_frames += 1
             linear, angular, finished = mission.step(now)
             if not states or states[-1] != mission.state:
                 states.append(mission.state)
@@ -1064,9 +1076,9 @@ class TunnelMissionPortTest(unittest.TestCase):
             pose = integrate(pose, linear, angular, .05)
             now += .05
         self.assertEqual(mission.state, 'COMPLETE', (mission.state, mission.reason, pose))
-        self.assertEqual(states, ['ENTRY', 'PLANNING', 'FOLLOWING', 'WAIT_LANE', 'COMPLETE'])
+        self.assertEqual(states, ['ENTRY', 'PLANNING', 'FOLLOWING', 'WAIT_STOP', 'COMPLETE'])
         self.assertEqual(mission.plans, 1)
-        self.assertGreaterEqual(lane_frames, mission.sensors['lane_confirmation_frames'])
+        self.assertIsNone(mission.lane_stamp)
         self.assertLessEqual(math.hypot(pose[0]-goal[0], pose[1]-goal[1]),
                              mission.config['goal']['position_tolerance'])
 

@@ -150,7 +150,7 @@ class TunnelProfileTests(unittest.TestCase):
         mission.update_odometry((.98, 0., 0.), .08, .6, 10.05)
         return mission
 
-    def test_outside_goal_decelerates_before_lane_confirmation_state(self):
+    def test_outside_goal_decelerates_then_confirms_rest_without_lane_frames(self):
         mission = self.goal_mission()
         dt, linear, angular, x = mission.control['period'], .08, .6, .98
         for tick in range(10):
@@ -158,23 +158,31 @@ class TunnelProfileTests(unittest.TestCase):
             mission.update_odometry((x, 0., 0.), linear, angular, now)
             mission.update_scan([math.inf], 0., 1., .05, 40.,
                                 (0., 0., 0.), (x, 0., 0.), now)
-            mission.update_lane(True, now)
             command, yaw, complete = mission.step(now)
             self.assertFalse(complete)
             self.assertLessEqual(linear-command, mission.control['linear_deceleration']*dt+1e-9)
             self.assertLessEqual(abs(angular-yaw), mission.control['angular_acceleration']*dt+1e-9)
-            if mission.state == 'WAIT_LANE':
+            if mission.state == 'WAIT_STOP':
                 self.assertEqual((command, yaw), (0., 0.))
-                self.assertEqual(mission.lane_count, 0)
                 self.assertEqual(mission.completion_started, now)
                 break
             self.assertEqual(mission.state, 'FOLLOWING')
             self.assertIn('stopping at outside goal', mission.reason)
             self.assertIsNone(mission.completion_started)
             linear, angular, x = command, yaw, x+command*dt
-        self.assertEqual(mission.state, 'WAIT_LANE')
+        self.assertEqual(mission.state, 'WAIT_STOP')
         self.assertLessEqual(abs(x-mission.goal.x), mission.config['goal']['position_tolerance'])
         self.assertGreater(tick, 1)
+        # A zero command is not evidence of measured rest. The same odometry
+        # cannot complete the handoff; a fresh stopped sample can, without
+        # any camera callbacks or lane confirmations.
+        self.assertEqual(mission.step(now), (0., 0., False))
+        now += dt
+        mission.update_odometry((x, 0., 0.), 0., 0., now)
+        mission.update_scan([math.inf], 0., 1., .05, 40.,
+                            (0., 0., 0.), (x, 0., 0.), now)
+        self.assertEqual(mission.step(now), (0., 0., True))
+        self.assertEqual(mission.state, 'COMPLETE')
 
     def test_outside_goal_current_footprint_conflict_still_blocks_motion(self):
         mission = self.goal_mission()

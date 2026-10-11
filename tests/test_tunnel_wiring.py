@@ -65,6 +65,7 @@ class Mission:
         self.config = config
         self.clock = clock
         self.state, self.reason = "ENTRY", "test"
+        self.anchor = None
         self.reset = Mock()
         self.close = Mock()
         self.step = Mock(return_value=(0.06, 0.02, False))
@@ -285,20 +286,219 @@ class TunnelWiringTests(unittest.TestCase):
         self.node.step, self.node.maze_count = 8, 9
         self.node.lane_tracking = Mock(side_effect=AssertionError("transition command"))
         self.node.img_callback(self.image(False))
+        self.assertEqual(self.node.step, 8.5)
+        self.assertEqual(self.node.tunnel_generation, 0)
+        self.node.cmd_pub.publish.assert_not_called()
+
+    def test_timed_approach_finishes_before_tunnel_activation(self):
+        self.node.step = 8.5
+        self.node.move_time_yaw_hold = Mock()
+        self.node.lane_tracking = Mock(side_effect=AssertionError('lane during handoff'))
+        self.node.img_callback(self.image(False))
+        self.node.move_time_yaw_hold.assert_called_once_with(.06, -1.565, 2.5)
         self.assertEqual(self.node.step, 9)
         self.assertEqual(self.node.tunnel_generation, 1)
-        self.node.cmd_pub.publish.assert_not_called()
+        self.assertFalse(self.node.tunnel_active)
+        command = self.node.cmd_pub.publish.call_args.args[0]
+        self.assertEqual((command.linear.x, command.angular.z), (0., 0.))
+
+    def test_fresh_step8_captures_lane_end_heading_in_rebased_odometry(self):
+        for raw_yaw, lane_turn in ((0., 0.), (1.2, 0.), (1.2, .3)):
+            with self.subTest(raw_yaw=raw_yaw, lane_turn=lane_turn):
+                self.params['~start_step'] = 8
+                node = self.target.turtlebot()
+                node.odom_callback(self.odometry(yaw=raw_yaw))
+                self.assertAlmostEqual(node.yaw, 0.)
+                node.lane_tracking = Mock()
+                node.move_time_yaw_hold = Mock()
+                node.img_callback(self.image(True))
+                node.odom_callback(self.odometry(yaw=raw_yaw + lane_turn))
+                for _ in range(9):
+                    node.img_callback(self.image(False))
+                self.assertEqual(node.step, 8)
+                node.img_callback(self.image(False))
+                self.assertEqual(node.step, 8.5)
+                self.assertAlmostEqual(node.gate_approach_yaw, lane_turn)
+                # A later pose update must not change the captured target.
+                node.odom_callback(self.odometry(yaw=raw_yaw + lane_turn + .1))
+                node.img_callback(self.image(False))
+                args = node.move_time_yaw_hold.call_args.args
+                self.assertEqual((args[0], args[2]), (.06, 2.5))
+                self.assertAlmostEqual(args[1], lane_turn)
+                self.assertEqual(node.step, 9)
+                self.assertFalse(node.tunnel_active)
+
+    def test_fresh_step8_waits_for_first_odometry_and_motor_startup(self):
+        for odom_received, drive_ready in ((False, True), (True, False)):
+            with self.subTest(odom_received=odom_received, drive_ready=drive_ready):
+                self.params['~start_step'] = 8
+                node = self.target.turtlebot()
+                if odom_received:
+                    node.odom_callback(self.odometry())
+                node.drive_ready = drive_ready
+                node.lane_tracking = Mock()
+                for _ in range(11):
+                    node.img_callback(self.image(False))
+                self.assertEqual(node.step, 8)
+                self.assertEqual(node.maze_count, 0)
+                node.lane_tracking.assert_not_called()
+                self.assertTrue(all(call.args[0].linear.x == call.args[0].angular.z == 0
+                                    for call in node.cmd_pub.publish.call_args_list))
+                node.odom_callback(self.odometry())
+                node.drive_ready = True
+                node.img_callback(self.image(True))
+                node.lane_tracking.assert_called_once()
+
+    def test_step8_lane_drives_over_headless_ssh_without_opening_debug_window(self):
+        self.params['~start_step'] = 8
+        node = self.target.turtlebot()
+        node.odom_callback(self.odometry())
+        with patch.dict(self.target.os.environ, {}, clear=True), \
+                patch.object(self.target.cv2, 'imshow') as show, \
+                patch.object(self.target.cv2, 'waitKey') as wait:
+            node.img_callback(self.image(True))
+        show.assert_not_called()
+        wait.assert_not_called()
+        command = node.cmd_pub.publish.call_args.args[0]
+        self.assertGreater(command.linear.x, 0.)
+        self.assertEqual(node.step, 8)
+
+    def test_lane_debug_window_is_explicit_opt_in(self):
+        self.params.update({'~start_step': 8, '~show_lane_debug': True})
+        node = self.target.turtlebot()
+        node.odom_callback(self.odometry())
+        with patch.object(self.target.cv2, 'imshow') as show, \
+                patch.object(self.target.cv2, 'waitKey') as wait:
+            node.img_callback(self.image(True))
+        show.assert_called_once()
+        wait.assert_called_once_with(1)
+
+    def test_upstream_lane_speeds_and_turn_limits_reach_existing_publisher(self):
+        centered = self.image()
+        centered.array[320:460, 96:105] = (0, 255, 255)
+        centered.array[320:460, 536:545] = (255, 255, 255)
+        far_right = self.image()
+        far_right.array[320:460, 620:630] = (0, 255, 255)
+        for step, speed, forward, turn_limit in ((8, 0, .1045, .629),
+                                                (11, 0, .1045, .629),
+                                                (7, 1, .06175, .333),
+                                                (3, 2, .09025, .592),
+                                                (2, 0, .08075, .629)):
+            with self.subTest(step=step, speed=speed):
+                node = self.target.turtlebot()
+                node.step, node.speed = step, speed
+                node.lane_tracking(centered.array)
+                cmd = node.cmd_pub.publish.call_args.args[0]
+                self.assertAlmostEqual(cmd.linear.x, forward)
+                self.assertAlmostEqual(cmd.angular.z, 0.)
+                node.prev_target_x = None
+                node.prev_error = 0.
+                node.lane_tracking(far_right.array)
+                cmd = node.cmd_pub.publish.call_args.args[0]
+                self.assertAlmostEqual(cmd.linear.x, forward)
+                self.assertAlmostEqual(cmd.angular.z, -turn_limit)
+
+    def test_gate_approach_slows_then_releases_speed_state_on_open(self):
+        node = self.node
+        node.step = 7
+        node.lane_tracking = Mock()
+        image = self.image()
+        image.array[0:20, 0:50] = (0, 0, 150)
+        node.img_callback(image)
+        self.assertEqual(node.speed, 1)
+        node.gate_state, node.gate_open_count = 1, 19
+        with patch.object(self.target.rospy, 'sleep', Mock(), create=True):
+            node.img_callback(self.image())
+        self.assertEqual(node.step, 8)
+        self.assertEqual(node.speed, 0)
+        node.speed = 1
+        node.step_callback(types.SimpleNamespace(data=8))
+        self.assertEqual(node.speed, 0)
+
+    def test_obstacle_lane_speed_state_resets_after_clearance(self):
+        node = self.node
+        node.step, node.obstacle_move_count = 3, 20
+        node.check_obstacle_start = Mock(return_value=False)
+        node.check_obstacle_end = Mock(return_value=False)
+        node.lane_tracking = Mock()
+        node.img_callback(self.image(True))
+        self.assertEqual(node.speed, 2)
+        node.check_obstacle_end.return_value = True
+        node.img_callback(self.image(True))
+        self.assertEqual(node.speed, 0)
+
+    def test_wall_alignment_stays_on_step_nine_with_zero_command(self):
+        self.node.step = 9
+        self.node.tunnel.state = 'LOCALIZING'
+        self.node.tunnel.step.return_value = (0., 0., False)
+        self.node.tunnel_tick(None)
+        self.assertEqual(self.node.step, 9)
+        command = self.node.cmd_pub.publish.call_args.args[0]
+        self.assertEqual((command.linear.x, command.angular.z), (0., 0.))
+
+    def test_physical_environment_config_is_used_for_full_course_too(self):
+        with patch.dict(self.target.os.environ, {'TB_TUNNEL_CONFIG': '/survey/tunnel.real.yaml'}):
+            self.target.turtlebot()
+        self.assertEqual(self.load_config.call_args.args[0], '/survey/tunnel.real.yaml')
+
+    def test_explicit_ros_config_overrides_environment(self):
+        self.params['~tunnel_config'] = '/simulation/tunnel.yaml'
+        with patch.dict(self.target.os.environ, {'TB_TUNNEL_CONFIG': '/survey/tunnel.real.yaml'}):
+            self.target.turtlebot()
+        self.assertEqual(self.load_config.call_args.args[0], '/simulation/tunnel.yaml')
 
     def test_completion_releases_to_lane_on_next_image(self):
         self.node.step = 10
+        self.node.prev_error = 100.0
+        self.node.prev_target_x = 480.0
+        self.node.prev_v_l, self.node.prev_v_r = 25.0, 19.0
         self.node.tunnel.step.return_value = (0.0, 0.0, True)
         self.node.tunnel.state = "COMPLETE"
         self.node.tunnel_tick(None)
         self.assertEqual(self.node.step, 11)
-        self.assertEqual(self.node.prev_v_l, 0.0)
-        self.node.lane_tracking = Mock()
-        self.node.img_callback(self.image(True))
-        self.node.lane_tracking.assert_called_once()
+        self.assertFalse(self.node.tunnel_active)
+        self.assertEqual(self.node.prev_error, 0.0)
+        self.assertIsNone(self.node.prev_target_x)
+        self.assertEqual((self.node.prev_v_l, self.node.prev_v_r), (0.0, 0.0))
+        self.node.tunnel.update_lane.assert_not_called()
+        self.node.cmd_pub.publish.assert_called_once()
+        command = self.node.cmd_pub.publish.call_args.args[0]
+        self.assertEqual((command.linear.x, command.angular.z), (0.0, 0.0))
+
+        # No image means no new lane command; a blank image must not replay
+        # the wheel command stored before entering the tunnel.
+        self.node.tunnel_tick(None)
+        self.node.cmd_pub.publish.assert_called_once()
+        for _ in range(4):
+            self.node.img_callback(self.image(False))
+            command = self.node.cmd_pub.publish.call_args.args[0]
+            self.assertEqual((command.linear.x, command.angular.z), (0.0, 0.0))
+        self.node.tunnel.update_lane.assert_not_called()
+
+    def test_first_single_line_image_drives_after_stopped_tunnel_handoff(self):
+        for color, removed_columns in (("yellow", slice(530, 540)),
+                                       ("white", slice(100, 110))):
+            with self.subTest(color=color):
+                node = self.target.turtlebot()
+                node.step = 10
+                node.tunnel.state = "COMPLETE"
+                node.tunnel.step.return_value = (0.0, 0.0, True)
+                node.tunnel_tick(None)
+                self.assertEqual(node.step, 11)
+                node.cmd_pub.publish.reset_mock()
+
+                image = self.image(True)
+                image.array[:, removed_columns] = 0
+                self.assertFalse(node.lane_detect(image.array))
+                node.img_callback(image)
+
+                # The ordinary lane controller can use either color alone
+                # immediately; there is no three-frame, two-line gate here.
+                node.cmd_pub.publish.assert_called_once()
+                command = node.cmd_pub.publish.call_args.args[0]
+                self.assertGreater(command.linear.x, 0.0)
+                self.assertEqual(node.step, 11)
+                node.tunnel.update_lane.assert_not_called()
 
     def test_external_step_change_cancels_pending_timer_command(self):
         self.node.step = 10

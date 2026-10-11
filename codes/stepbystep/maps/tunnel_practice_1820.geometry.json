@@ -1,6 +1,6 @@
 {
   "source": "User confirmation in this chat, 2026-10-09 Asia/Seoul",
-  "status": "Dimensions user-confirmed; start placement is the documented setup convention, not an observed robot pose.",
+  "status": "Dimensions user-confirmed; nominal start defines the surveyed map frame. Actual activation pose is measured from LiDAR, not assumed equal to this reference.",
   "user_dimensions_m": {
     "outer_square": 1.82,
     "wall_thickness": 0.002,
@@ -8,7 +8,7 @@
     "exit_clear_width": 0.3
   },
   "topology": "Entry near the right corner; exit on the perpendicular left side near the far corner, matching the existing tunnel topology.",
-  "coordinate_frame": "Frozen activation base_footprint: +x initial forward, +y left, yaw degrees counterclockwise.",
+  "coordinate_frame": "Fixed survey frame: origin at nominal axle 140mm outside entry; +x perpendicular inward, +y left, yaw degrees counterclockwise. Independent of actual activation pose.",
   "outer_square_bounds": [
     0.14,
     -0.152,

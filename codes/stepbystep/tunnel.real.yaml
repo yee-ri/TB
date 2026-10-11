@@ -1,10 +1,17 @@
 # PRACTICE: outer 1820 mm square, 2 mm walls, 300 mm clear portals.
-# Local origin: axle centre ground projection 140 mm outside the entrance,
-# centred in the opening and facing perpendicular into the tunnel.
+# Fixed survey frame: nominal axle centre 140 mm outside the entrance.
+# The actual starting pose is estimated from stopped LiDAR wall observations.
 # User confirmed physical preparations complete on 2026-10-10.
 # This file contains tunnel runtime parameters only; no readiness paperwork.
 # Confirmed sensor mounts are in launch/nuc_sensors.launch.
 # Competition selection is in scripts/nuc_env.sh; original tunnel.yaml is preserved.
+localization:
+  geometry: maps/tunnel_practice_1820.geometry.json
+  search_bounds: [-0.35, -0.07, 0.45, 0.07] # Candidate base poses in the fixed map, not wall positions.
+  yaw_limit_deg: 20.0
+  confirmation_scans: 3 # Distinct consistent scans; ambiguity keeps the robot stopped.
+  observation_window: 1.0 # Accumulate stopped Livox sweeps to distinguish extended walls from bottles.
+  height_band: [0.04, 0.23] # Stopped wall fit only; includes weak black-wall returns, retains particle filtering.
 goal:
   pose: [1.808, 1.868, 90.0] # 200 mm beyond the exit outer wall, on portal centreline.
   planning_pose: [1.808, 1.488, 90.0] # Internal alignment target, unchanged 380 mm connector span.
@@ -49,7 +56,6 @@ sensors:
   maximum_age: 0.30
   maximum_future_stamp: 0.06
   lane_maximum_age: 0.30
-  lane_confirmation_frames: 3
   minimum_lane_pixels: 30
 grid:
   bounds: [-0.5, -0.4, 2.4, 2.2] # Local [xmin, ymin, xmax, ymax].
@@ -67,7 +73,7 @@ grid:
   dynamic_inflation_radius: 0.06
   dynamic_inflation_value: 64
 entry:
-  distance: 0.92 # Original normal entry distance retained; verified against practice walls.
+  distance: 0.92 # Fixed map x endpoint; traveled distance adapts to the localized start.
   obstacle_clearance: 0.30 # Original gap from physical body FRONT to obstacle retained.
   # Entry base half-width: measured body, without the extra planner padding.
   # Left side uses this value; the explicit right override below is narrower.
@@ -83,7 +89,7 @@ planner:
     - [1.658, 1.488, 1.958, 2.068]
   minimum_turning_radius: 0.18
   primitive_step: 0.10
-  steering_samples: 5
+  steering_samples: 9 # Include gentle arcs when the measured start is near a side wall; radius/margins unchanged.
   heading_bins: 36
   state_xy_resolution: 0.05
   goal_position_tolerance: 0.035
