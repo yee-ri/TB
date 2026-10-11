@@ -74,10 +74,10 @@ grid:
   dynamic_inflation_value: 64
 entry:
   distance: 0.92 # Fixed map x endpoint; traveled distance adapts to the localized start.
-  obstacle_clearance: 0.30 # Original gap from physical body FRONT to obstacle retained.
-  # Entry base half-width: measured body, without the extra planner padding.
-  # Left side uses this value; the explicit right override below is narrower.
-  obstacle_half_width: 0.0903
+  obstacle_clearance: 0.35 # Gap from physical body FRONT; stop earlier to leave room to turn.
+  # Entry left reach: measured body half-width + 10 mm clearance.
+  # The explicit right override below keeps this increase on the left only.
+  obstacle_half_width: 0.1003
   # User requested an additional right-only reduction after viewing the returns.
   # ENTRY no longer checks the outermost 5.3 mm of the physical right side.
   obstacle_right_width: 0.085
