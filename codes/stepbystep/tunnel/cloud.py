@@ -146,7 +146,8 @@ def _require_livox_intensity_layout(cloud, fields):
         raise ValueError('Minimum intensity requires a valid Livox layout: ' + str(error)) from error
 
 
-def tunnel_cloud_xy(cloud, rotation, translation, settings, read_points, motion_poses=None):
+def tunnel_cloud_xy(cloud, rotation, translation, settings, read_points, motion_poses=None,
+                    wall_height_band=None):
     """Return the existing height/range-filtered XY values, or None for fallback.
 
     The fast path is deliberately limited to contiguous, little-endian XYZ
@@ -179,7 +180,18 @@ def tunnel_cloud_xy(cloud, rotation, translation, settings, read_points, motion_
     inclusive, independently of tag filtering. Invalid intensity metadata
     rejects the cloud; invalid or weaker values reject only their points,
     without supplying free-space rays.
+
+    ``wall_height_band`` optionally returns (obstacle_xy, wall_xy) from the
+    same transform. Wall XY is used only for stopped initial registration:
+    its ground-height band replaces the horizontal slice and includes weak
+    intensity 0/1 returns from black walls. Particle rejection, acquisition
+    transforms, finite coordinates and range checks still apply. It must
+    never be passed to the obstacle costmap in place of obstacle_xy.
     """
+    if wall_height_band is not None:
+        band = np.asarray(wall_height_band, dtype=float)
+        if band.shape != (2,) or not np.isfinite(band).all() or not 0. <= band[0] < band[1]:
+            raise ValueError('wall_height_band must contain two increasing finite ground heights')
     particle_filter = settings.get('livox_particle_filter', False)
     if not isinstance(particle_filter, bool):
         raise ValueError('livox_particle_filter must be a boolean')
@@ -212,7 +224,7 @@ def tunnel_cloud_xy(cloud, rotation, translation, settings, read_points, motion_
         # Include the mathematical angle boundary despite one-ULP rounding
         # in tan (for example, tan(45 degrees) may be just below 1).
         horizontal_slope = 0. if angle == 0. else np.nextafter(np.tan(np.radians(angle)), np.inf)
-    strict = particle_filter or motion_compensation or horizontal_slice or intensity_filter
+    strict = particle_filter or motion_compensation or horizontal_slice or intensity_filter or wall_height_band is not None
     try:
         fields = sorted(cloud.fields, key=lambda field: field.offset)
         supported = (
@@ -282,6 +294,8 @@ def tunnel_cloud_xy(cloud, rotation, translation, settings, read_points, motion_
         points = points.astype(np.float32).astype(np.float64)
         keep = (np.isfinite(points).all(axis=1)
                 & (np.hypot(points[:, 0], points[:, 1]) <= settings['range_max']))
+        if wall_height_band is not None:
+            wall_keep = keep & (points[:, 2] > band[0]) & (points[:, 2] < band[1])
         if horizontal_slice:
             keep &= horizontal_keep
         else:
@@ -289,6 +303,13 @@ def tunnel_cloud_xy(cloud, rotation, translation, settings, read_points, motion_
                      & (points[:, 2] < settings['z_max']))
     if particle_filter:
         keep &= particle_keep
+        if wall_height_band is not None:
+            wall_keep &= particle_keep
     if intensity_filter:
         keep &= intensity_keep
+        if wall_height_band is not None:
+            with np.errstate(invalid='ignore'):
+                wall_keep &= np.isfinite(intensity) & (intensity >= 0.) & (intensity <= 255.)
+    if wall_height_band is not None:
+        return points[keep, :2], points[wall_keep, :2]
     return points[keep, :2]

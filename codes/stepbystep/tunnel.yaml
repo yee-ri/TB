@@ -30,7 +30,6 @@ sensors:
   maximum_age: 0.30
   maximum_future_stamp: 0.06
   lane_maximum_age: 0.30
-  lane_confirmation_frames: 3
   minimum_lane_pixels: 30
 grid:
   bounds: [-1.0, -1.5, 3.0, 2.5]

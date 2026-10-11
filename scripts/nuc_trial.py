@@ -236,6 +236,10 @@ def snapshot(trial, config_path):
         map_path = (config_path.parent / static_map['image']).resolve()
         if map_path.is_file():
             shutil.copy2(map_path, trial / 'walls.pgm')
+    geometry = config.get('localization', {}).get('geometry')
+    geometry_path = (config_path.parent / geometry).resolve() if geometry else None
+    if geometry_path is not None:
+        shutil.copy2(geometry_path, trial / 'wall_geometry.json')
     revision = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip()
     diff = subprocess.check_output(['git', '-C', str(ROOT), 'diff', 'HEAD', '--'] + SCOPE, text=True)
     (trial / 'source.diff').write_text(diff, encoding='utf-8')
@@ -286,6 +290,7 @@ def snapshot(trial, config_path):
             'config_sha256': digest(config_path), 'source_digest_file': 'source_sha256.json',
             'wall_map_recorded': (trial / 'walls.pgm').is_file(),
             'wall_map_sha256': digest(trial / 'walls.pgm') if (trial / 'walls.pgm').is_file() else None,
+            'wall_geometry_sha256': digest(geometry_path) if geometry_path is not None else None,
             'sensor_ros_log_directory': os.environ.get('ROS_LOG_DIR'),
             'sensor_log_offset_bytes': (RECORDS / 'sensors.log').stat().st_size if (RECORDS / 'sensors.log').is_file() else 0,
             'firmware_source_status': 'Installed firmware source/version, RC100 behavior, watchdog, and motor torque effect remain unverified unless separately evidenced.'}
@@ -389,7 +394,9 @@ def check_remote(trial):
         raise RuntimeError('Nonzero/invalid RC100 remote input observed; disable the firmware remote input before trial')
 
 
-def start(config_path):
+def start(config_path, start_step=9):
+    if type(start_step) is not int or start_step not in (8, 9):
+        raise ValueError('Physical trial start_step must be 8 or 9')
     config, map_path = check_config(config_path)
     trial, metadata = current_trial()
     if not metadata.get('recording_active') or not owned_process(metadata, 'rosbag_process', 'record'):
@@ -398,6 +405,9 @@ def start(config_path):
         raise RuntimeError('YAML changed after recording began; end this recording and create a new trial')
     if metadata.get('wall_map_sha256') != digest(map_path):
         raise RuntimeError('Wall map changed after recording began; create a new trial')
+    geometry = config.get('localization', {}).get('geometry')
+    if geometry and metadata.get('wall_geometry_sha256') != digest((config_path.parent / geometry).resolve()):
+        raise RuntimeError('Alignment wall geometry changed after recording began; create a new trial')
     hashes = json.loads((trial / 'source_sha256.json').read_text())
     for relative, expected in hashes.items():
         if relative == 'codes/stepbystep/try_maze.py' or relative.startswith('codes/stepbystep/tunnel/'):
@@ -424,20 +434,29 @@ def start(config_path):
     if not owned_process(metadata, 'rosbag_process', 'record'):
         raise RuntimeError('Recording stopped during diagnostics; tunnel start refused')
     command = [sys.executable, str(ROOT / 'codes/stepbystep/try_maze.py'),
-               '__name:=tb_controller', '_start_step:=9', '_tunnel_profile:=normal',
+               '__name:=tb_controller', '_start_step:=' + str(start_step), '_tunnel_profile:=normal',
                '_enable_motor_torque:=true',
                '_tunnel_config:=' + str(config_path), '_lidar_type:=pointcloud2', '_lidar_topic:=/livox/lidar']
     metadata['controller_command'] = command
+    metadata['start_step'] = start_step
+    metadata['start_condition'] = 'gate_already_open' if start_step == 8 else 'tunnel_entry'
+    metadata['lane_controller'] = 'upstream_speedup_e0b970f'
     metadata['controller_status'] = 'starting'
+    start_message = 'Controller /tb_controller, normal step{}. Completion continues into step11 lane driving.'.format(start_step)
+    start_message += ' Lane tracking: upstream speedup e0b970f (default 0.1045 m/s).'
+    if start_step == 8:
+        start_message += ' Gate must already be open; step8 does not check the gate.'
     previous_term = signal.signal(signal.SIGTERM, interrupt_foreground)
     with (trial / 'controller.log').open('w') as logfile:
+        logfile.write(start_message + '\n')
+        logfile.flush()
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                    start_new_session=True, text=True, bufsize=1,
                                    env=dict(os.environ, PYTHONUNBUFFERED='1', ROS_LOG_DIR=str(trial / 'ros')))
         metadata['controller_process'] = process_identity(process.pid)
         metadata['controller_status'] = 'running'
         save_json(trial / 'trial.json', metadata)
-        print('Controller /tb_controller, normal step9. Completion continues into step11 lane driving.', flush=True)
+        print(start_message, flush=True)
         try:
             for line in process.stdout:
                 logfile.write(line)
@@ -562,10 +581,11 @@ def stop_record():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('record', 'start', 'stop', 'stop-record', 'check-config', 'check-layout'))
+    parser.add_argument('command', choices=('record', 'start', 'start8', 'stop', 'stop-record', 'check-config', 'check-layout'))
     parser.add_argument('--config', type=Path, default=DEFAULT_CONFIG)
     args = parser.parse_args()
     path = args.config.expanduser().resolve()
+    operation_lock = None
     try:
         if args.command in ('check-config', 'check-layout'):
             check_config(path)
@@ -573,22 +593,26 @@ def main():
             print('Live sensor/TF, remote input, recording and publisher checks run when start is requested.')
             return 0
         require_environment()
-        operation_lock = None
-        if args.command in ('record', 'start'):
+        if args.command in ('record', 'start', 'start8'):
             RECORDS.mkdir(parents=True, exist_ok=True)
-            operation_lock = (RECORDS / (args.command + '.lock')).open('a')
+            lock_name = 'record' if args.command == 'record' else 'start'
+            operation_lock = (RECORDS / (lock_name + '.lock')).open('a')
             try:
                 fcntl.flock(operation_lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
-                raise RuntimeError('Another ' + args.command + ' command is already active')
+                raise RuntimeError('Another ' + lock_name + ' command is already active')
         {'record': lambda: record(path), 'start': lambda: start(path),
+         'start8': lambda: start(path, start_step=8),
          'stop': stop, 'stop-record': stop_record}[args.command]()
         return 0
     except (Exception, KeyboardInterrupt) as error:
         print('REFUSED/FAILED: {}: {}'.format(type(error).__name__, error), file=sys.stderr)
-        if args.command in ('start', 'stop'):
+        if args.command in ('start', 'start8', 'stop'):
             print('If the robot does not stop, disconnect actual drive power; the PC-power switch does not guarantee motor stop. Keep the PC on for stop-record when possible, and wait for Bag finalized before PC shutdown.', file=sys.stderr)
         return 1
+    finally:
+        if operation_lock is not None:
+            operation_lock.close()
 
 
 if __name__ == '__main__':

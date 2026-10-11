@@ -115,24 +115,28 @@ class MotorArmingTests(unittest.TestCase):
         fixture = wiring.TunnelWiringTests()
         fixture.setUp()
         try:
-            fixture.params.update({'~enable_motor_torque':True,'~start_step':9})
-            @contextmanager
-            def handshake(publisher,zero,cancelled,abort,lock):
-                node = fixture.subscribers[-1][1].__self__
-                self.assertIsNone(node.tunnel_timer)
-                self.assertFalse(node.drive_ready)
-                node.move(.1,.2,tunnel=True)
-                node.step = 0
-                node.move(.1,.2)
-                node.publish_velocity(10.,20.)
-                self.assertTrue(all(call.args[0].linear.x == call.args[0].angular.z == 0
-                                    for call in publisher.publish.call_args_list))
-                node.step = 9
-                yield
-                self.assertTrue(node.drive_ready)
-                self.assertIsNotNone(node.tunnel_timer)
-            with patch.object(fixture.target,'arm_motor_torque',handshake):
-                fixture.target.turtlebot()
+            for start_step in (8, 9):
+                with self.subTest(start_step=start_step):
+                    fixture.params.update({'~enable_motor_torque':True,'~start_step':start_step})
+                    @contextmanager
+                    def handshake(publisher,zero,cancelled,abort,lock):
+                        node = fixture.subscribers[-1][1].__self__
+                        self.assertEqual(node.step, start_step)
+                        self.assertIsNone(node.tunnel_timer)
+                        self.assertFalse(node.drive_ready)
+                        node.move(.1,.2,tunnel=start_step == 9)
+                        node.step = 0
+                        node.move(.1,.2)
+                        node.publish_velocity(10.,20.)
+                        self.assertTrue(all(call.args[0].linear.x == call.args[0].angular.z == 0
+                                            for call in publisher.publish.call_args_list))
+                        node.step = start_step
+                        yield
+                        self.assertTrue(node.drive_ready)
+                        self.assertIsNotNone(node.tunnel_timer)
+                    with patch.object(fixture.target,'arm_motor_torque',handshake):
+                        node = fixture.target.turtlebot()
+                    self.assertEqual(node.step, start_step)
         finally:
             fixture.doCleanups()
 

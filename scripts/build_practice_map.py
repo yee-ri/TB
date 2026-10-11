@@ -47,11 +47,11 @@ def build():
     image_path.write_bytes(image)
     geometry = {
         'source': 'User confirmation in this chat, 2026-10-09 Asia/Seoul',
-        'status': 'Dimensions user-confirmed; start placement is the documented setup convention, not an observed robot pose.',
+        'status': 'Dimensions user-confirmed; nominal start defines the surveyed map frame. Actual activation pose is measured from LiDAR, not assumed equal to this reference.',
         'user_dimensions_m': {'outer_square': 1.820, 'wall_thickness': 0.002,
                               'entry_clear_width': 0.300, 'exit_clear_width': 0.300},
         'topology': 'Entry near the right corner; exit on the perpendicular left side near the far corner, matching the existing tunnel topology.',
-        'coordinate_frame': 'Frozen activation base_footprint: +x initial forward, +y left, yaw degrees counterclockwise.',
+        'coordinate_frame': 'Fixed survey frame: origin at nominal axle 140mm outside entry; +x perpendicular inward, +y left, yaw degrees counterclockwise. Independent of actual activation pose.',
         'outer_square_bounds': [0.140, -0.152, 1.960, 1.668],
         'inner_clear_bounds': [0.142, -0.150, 1.958, 1.666],
         'inner_clear_square_m': 1.816,

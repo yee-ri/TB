@@ -96,10 +96,12 @@ def rotation(roll, pitch, yaw):
 
 
 class TunnelCloudTests(unittest.TestCase):
-    def transform(self, message, matrix=None, translation=None, settings=None, motion_poses=None):
+    def transform(self, message, matrix=None, translation=None, settings=None, motion_poses=None,
+                  wall_height_band=None):
         return tunnel_cloud_xy(message, np.eye(3) if matrix is None else matrix,
                                np.zeros(3) if translation is None else translation,
-                               SETTINGS if settings is None else settings, read_points, motion_poses)
+                               SETTINGS if settings is None else settings, read_points, motion_poses,
+                               wall_height_band=wall_height_band)
 
     def test_matches_scalar_transform_filter_for_generic_rotations_and_nonfinite_data(self):
         rng = np.random.RandomState(947)
@@ -550,6 +552,107 @@ class TunnelCloudTests(unittest.TestCase):
         mission.update_odometry(odom, 0., 0., 10.5)
         self.assertEqual(mission.step(10.5), (0., 0., False))
         self.assertIn('waiting for fresh', mission.reason)
+
+    def test_wall_output_preserves_obstacle_xy_and_shares_point_read_and_acquisition_tf(self):
+        rng = np.random.RandomState(12026)
+        points = rng.uniform([-3., -3., -.25], [3., 3., .25], (1000, 3))
+        message = timed_cloud(points, 42. + rng.uniform(0., .1, len(points)),
+                              tags=rng.randint(0, 256, len(points)), height=2,
+                              intensities=rng.randint(0, 256, len(points)))
+        message.fields.reverse()
+        matrix, mount = rotation(.03, -.04, .12), np.array([-.033073, 0., .19165])
+        def motion(stamps):
+            delta = np.asarray(stamps) - 42.
+            return np.column_stack((3. + .2*delta, -2. + .01*delta, .1 + .4*delta))
+        for horizontal in (False, True):
+            with self.subTest(horizontal=horizontal):
+                settings = dict(SETTINGS, livox_particle_filter=True,
+                                livox_motion_compensation=True, minimum_intensity=2.)
+                if horizontal:
+                    settings['horizontal_half_angle_deg'] = .5
+                expected = self.transform(message, matrix, mount, settings, motion)
+                wall_settings = dict(settings, z_min=.04, z_max=.23, minimum_intensity=0.)
+                wall_settings.pop('horizontal_half_angle_deg', None)
+                expected_wall = self.transform(message, matrix, mount, wall_settings, motion)
+                reads, queries = [], []
+                def reader(*args, **kwargs):
+                    reads.append(kwargs['field_names'])
+                    return read_points(*args, **kwargs)
+                def measured(stamps):
+                    queries.append(stamps.copy())
+                    return motion(stamps)
+                actual, wall = tunnel_cloud_xy(message, matrix, mount, settings, reader,
+                                               measured, wall_height_band=(.04, .23))
+                np.testing.assert_array_equal(actual, expected)
+                np.testing.assert_array_equal(wall, expected_wall)
+                self.assertEqual(len(reads), 1)
+                self.assertEqual(len(queries), 1)
+
+    def test_weak_wall_returns_do_not_become_obstacles_or_refresh_obstacle_scan(self):
+        from tunnel.mission import TunnelMission, load_config
+        config_path = Path(__file__).resolve().parents[1] / 'codes/stepbystep/tunnel.yaml'
+        mission = TunnelMission(load_config(config_path))
+        self.addCleanup(mission.close)
+        sensor, odom = (-.033073, 0., 0.), (0., 0., 0.)
+        self.assertTrue(mission.update_cloud([[.5, 0.]], sensor, odom, 10.))
+        message = tagged_cloud([[.5, 0., 0.], [.6, 0., 0.]], [0, 0], intensities=[0., 1.])
+        settings = dict(SETTINGS, horizontal_half_angle_deg=.5, minimum_intensity=2.,
+                        livox_particle_filter=True)
+        obstacle, wall = self.transform(message, translation=np.array([-.033073, 0., .19165]),
+                                        settings=settings, wall_height_band=(.04, .23))
+        self.assertEqual(obstacle.shape, (0, 2))
+        self.assertEqual(wall.shape, (2, 2))
+        self.assertFalse(mission.update_cloud(obstacle, sensor, odom, 10.1))
+        self.assertEqual(mission.scan[-1], 10.)
+        mission.update_odometry(odom, 0., 0., 10.5)
+        self.assertEqual(mission.step(10.5), (0., 0., False))
+        self.assertIn('waiting for fresh', mission.reason)
+
+    def test_wall_output_keeps_quality_range_height_and_invalid_intensity_checks(self):
+        # x uniquely identifies each accepted input after FLOAT32 wire rounding.
+        points = [[.5, 0., 0.], [.6, 0., 0.], [.7, 0., -.10], [.8, 0., .08],
+                  [.9, 0., 0.], [1., 0., 0.], [1.1, 0., 0.], [1.2, 0., 0.],
+                  [1.3, 0., 0.], [4., 0., 0.], [np.nan, 0., 0.]]
+        tags = [0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0]
+        intensities = [0., 1., 2., 2., 0., np.nan, -1., 256., np.inf, 2., 2.]
+        message = tagged_cloud(points, tags, intensities=intensities)
+        mount = np.array([0., 0., .19165])
+        settings = dict(SETTINGS, horizontal_half_angle_deg=.5, minimum_intensity=2.,
+                        livox_particle_filter=True)
+        obstacle, wall = self.transform(message, translation=mount, settings=settings,
+                                        wall_height_band=(.04, .23))
+        np.testing.assert_array_equal(obstacle, np.empty((0, 2)))
+        expected = self.transform(cloud(points[:3]), translation=mount,
+                                  settings=dict(SETTINGS, z_min=.04, z_max=.23))
+        np.testing.assert_array_equal(wall, expected)
+
+    def test_wall_output_rejects_timestamp_and_motion_failures_without_partial_result(self):
+        settings = dict(SETTINGS, horizontal_half_angle_deg=.5, minimum_intensity=2.,
+                        livox_particle_filter=True, livox_motion_compensation=True)
+        def missing(stamps):
+            raise RuntimeError('missing acquisition TF')
+        message = timed_cloud([[.5, 0., 0.]], [42.05], intensities=[0.])
+        for motion in (None, lambda stamps: np.full((len(stamps), 3), np.nan)):
+            with self.subTest(motion=motion), self.assertRaises(ValueError):
+                self.transform(message, settings=settings, motion_poses=motion,
+                               wall_height_band=(.04, .23))
+        with self.assertRaisesRegex(RuntimeError, 'missing acquisition TF'):
+            self.transform(message, settings=settings, motion_poses=missing,
+                           wall_height_band=(.04, .23))
+        for bad_time in (np.nan, 41.998, 42.3):
+            with self.subTest(timestamp=bad_time), self.assertRaises(ValueError):
+                self.transform(timed_cloud([[.5, 0., 0.]], [bad_time], intensities=[0.]),
+                               settings=settings, wall_height_band=(.04, .23))
+
+    def test_wall_output_rejects_malformed_band_and_unsupported_layout(self):
+        for band in ([], [.04], [.04, .23, .3], [[.04, .23]], 1., 'bad',
+                     [-.01, .23], [.23, .04], [.04, .04], [np.nan, .23], [.04, np.inf]):
+            with self.subTest(band=band), self.assertRaises(ValueError):
+                self.transform(cloud([[.5, 0., .1]]), wall_height_band=band)
+        message = cloud([[.5, 0., .1]])
+        message.is_bigendian = True
+        with self.assertRaises(ValueError):
+            self.transform(message, wall_height_band=(.04, .23))
 
 
 if __name__ == '__main__':
