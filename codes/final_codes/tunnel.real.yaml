@@ -1,0 +1,133 @@
+# PRACTICE: outer 1820 mm square, 2 mm walls, 300 mm clear portals.
+# Local origin: axle centre ground projection 140 mm outside the entrance,
+# centred in the opening and facing perpendicular into the tunnel.
+# User confirmed physical preparations complete on 2026-10-10.
+# This file contains tunnel runtime parameters only; no readiness paperwork.
+# Confirmed sensor mounts are in launch/nuc_sensors.launch.
+# Competition selection is in scripts/nuc_env.sh; original tunnel.yaml is preserved.
+goal:
+  pose: [1.808, 1.868, 90.0] # 200 mm beyond the exit outer wall, on portal centreline.
+  planning_pose: [1.808, 1.488, 90.0] # Internal alignment target, unchanged 380 mm connector span.
+  position_tolerance: 0.035
+  heading_tolerance_deg: 10.0
+exit_connector:
+  tangent_ratio: 0.20
+  minimum_tangent_length: 0.008
+  maximum_tangent_length: 0.055
+  sample_step: 0.010
+footprint:
+  # Source Sheet '하드웨어 정리' A48:H48: measured TB horizontal outline.
+  # base_link is wheel-axis centre; active base_footprint is its ground projection.
+  front: 0.067645
+  rear: 0.118073
+  half_width: 0.0903 # Includes wheel bolts/camera protrusions, not base box width.
+  padding: 0.010 # Geometric clearance around the current body and planned path.
+sensors:
+  base_frame: base_footprint
+  # Mid-360 only: reject non-normal particle-confidence tags (bits 2..3).
+  # Recorded exit ghosts carried these tags; keep other tag groups unchanged.
+  # Missing/malformed tags stop updates instead of bypassing this filter.
+  livox_particle_filter: true
+  # Use each point's acquisition timestamp to correct motion within a scan.
+  # Missing timestamps/acquisition TF reject the cloud; freshness is unchanged.
+  livox_motion_compensation: true
+  # Bottle practice: user confirmed all obstacles extend above LiDAR height.
+  # Select +/-0.5 degrees BEFORE mounting/motion transforms.
+  # Recorded 0 mm slices missed bottles under the existing two-scan confirmation.
+  # This replaces the ground-height band below; low obstacles can be missed.
+  horizontal_half_angle_deg: 0.5
+  # Exit returns in two failed trials had intensity 0 or 1; keep >=2.
+  # Bottle geometry survived both replays, but weak real objects can also be lost.
+  # Rejected or missing points do not become free-space rays.
+  minimum_intensity: 2
+  # Previous ground-height band, used only if horizontal_half_angle_deg is removed.
+  z_min: 0.03
+  z_max: 0.22
+  range_min: 0.05
+  range_max: 3.0
+  angular_bins: 720
+  maximum_age: 0.30
+  maximum_future_stamp: 0.06
+  lane_maximum_age: 0.30
+  lane_confirmation_frames: 3
+  minimum_lane_pixels: 30
+grid:
+  bounds: [-0.5, -0.4, 2.4, 2.2] # Local [xmin, ymin, xmax, ymax].
+  resolution: 0.02 # Physical raster MUST match this unchanged 20 mm cell size.
+  static_map:
+    image: maps/tunnel_practice_1820.pgm # User dimensions; conservative 20 mm occupied cells.
+    origin: [-0.5, -0.4] # Local lower-left boundary of final raster.
+    quarter_turns: 0
+  static_hit_exclusion_radius: 0.100
+  static_occupied_threshold: 65
+  dynamic_cell_size: 0.005
+  mark_observations: 2 # Consecutive scans, NOT point count. Each scan needs only one hit per cell.
+  clear_observations: 2
+  endpoint_clear_guard_radius: 0.030
+  dynamic_inflation_radius: 0.06
+  dynamic_inflation_value: 64
+entry:
+  distance: 0.92 # Original normal entry distance retained; verified against practice walls.
+  obstacle_clearance: 0.30 # Original gap from physical body FRONT to obstacle retained.
+  # Entry base half-width: measured body, without the extra planner padding.
+  # Left side uses this value; the explicit right override below is narrower.
+  obstacle_half_width: 0.0903
+  # User requested an additional right-only reduction after viewing the returns.
+  # ENTRY no longer checks the outermost 5.3 mm of the physical right side.
+  obstacle_right_width: 0.085
+  cruise_velocity: 0.30 # User-requested straight entry cap; acceleration and stopping gap retained.
+planner:
+  keep_in_rectangles: # Base-centre regions; padded body collision checks remain unchanged.
+    - [-0.42, -0.15, 0.34, 0.15]
+    - [0.142, -0.15, 1.958, 1.666]
+    - [1.658, 1.488, 1.958, 2.068]
+  minimum_turning_radius: 0.18
+  primitive_step: 0.10
+  steering_samples: 5
+  heading_bins: 36
+  state_xy_resolution: 0.05
+  goal_position_tolerance: 0.035
+  goal_heading_tolerance: 0.1396263402
+  collision_check_step: 0.01
+  collision_check_angle: 0.0523598776
+  path_sample_step: 0.02
+  obstacle_cost_weight: 0.12
+  obstacle_cost_distance: 0.30
+  soft_obstacle_cost_weight: 1.0
+  soft_cost_check_step: 0.020
+  heading_heuristic_weight: 0.25
+  heuristic_weight: 1.25
+  maximum_iterations: 60000
+control:
+  period: 0.05
+  cruise_velocity: 0.32 # User-selected physical cruise speed.
+  minimum_velocity: 0.035
+  entry_velocity: 0.04
+  exit_velocity: 0.025
+  # User-requested turn limits from tunnel.yaml's Docker/Gazebo FAST profile.
+  maximum_angular_velocity: 1.4
+  maximum_lateral_acceleration: 0.30
+  linear_acceleration: 0.15
+  linear_deceleration: 0.40
+  angular_acceleration: 8.0
+  safety_linear_deceleration: 0.15
+  safety_angular_deceleration: 0.55
+  safety_reaction_time: 0.10
+  safety_distance_margin: 0.01
+  planning_stopped_linear: 0.008
+  planning_stopped_angular: 0.03
+  plan_retry_period: 0.50
+  planning_start_position_tolerance: 0.015
+  planning_start_heading_tolerance_deg: 3.0
+  lookahead_distance: 0.065
+  heading_gain: 0.30
+  path_curvature_weight: 0.20
+  nearest_search_ahead: 0.40
+  tracking_position_tolerance: 0.030
+  tracking_heading_tolerance_deg: 20.0
+
+# Physical normal uses the explicit values above, including FAST turn limits.
+# Entry cruise is 0.30; exit speed and longitudinal limits retain their values.
+# Obstacle checks use the padded body/path, without a speed-based stopping sweep.
+profiles:
+  normal: {}

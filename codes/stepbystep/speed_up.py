@@ -15,12 +15,20 @@ from std_msgs.msg import UInt8
 import tf2_ros
 import tf2_sensor_msgs.tf2_sensor_msgs
 from tunnel.mission import TunnelMission, load_config
+from tunnel.cloud import tunnel_cloud_xy
+from tunnel.motor import arm_motor_torque
 
 class turtlebot():
     def __init__(self):
         rospy.init_node('controller',anonymous=True)
         self.command_lock=RLock()
         self.shutting_down=False
+        self.enable_motor_torque=rospy.get_param('~enable_motor_torque',False)
+        if type(self.enable_motor_torque) is not bool:
+            raise ValueError('~enable_motor_torque must be a boolean')
+        self.drive_ready=not self.enable_motor_torque
+        self.arming_cancelled=False
+        self.tunnel_timer=None
         self.tunnel_generation=0
         self.tunnel_active=False
         config_path=rospy.get_param('~tunnel_config',str(Path(__file__).with_name('tunnel.yaml')))
@@ -116,27 +124,52 @@ class turtlebot():
         self.initial_yaw=None
 
         # ROS callbacks can run immediately: subscribe only after initialization.
-        self.step_sub=rospy.Subscriber('/step',UInt8,self.step_callback)
+        # self.step_sub=rospy.Subscriber('/step',UInt8,self.step_callback)
         self.image_sub=rospy.Subscriber('/camera/color/image_raw',Image,self.img_callback,queue_size=1,buff_size=2**24)
         scan_type,scan_callback=(PointCloud2,self.scan_callback) if self.lidar_type=='pointcloud2' else (LaserScan,self.laser_callback)
-        self.scan_sub=rospy.Subscriber(self.lidar_topic,scan_type,scan_callback,queue_size=1)
+        scan_options={'queue_size':1}
+        if self.lidar_type=='pointcloud2':
+            # A Mid-360 cloud is ~522 kB. Read multiple complete messages so
+            # queue_size=1 can discard old clouds after a processing stall.
+            scan_options['buff_size']=4*1024*1024
+        self.scan_sub=rospy.Subscriber(self.lidar_topic,scan_type,scan_callback,**scan_options)
         self.odom_sub=rospy.Subscriber('/odom',Odometry,self.odom_callback,queue_size=1)
         self.depth_sub=rospy.Subscriber('/camera/depth/image_rect_raw',Image,self.depth_callback,queue_size=1,buff_size=2**24)
-        self.tunnel_timer=rospy.Timer(rospy.Duration(self.tunnel_config['control']['period']),self.tunnel_tick)
         rospy.on_shutdown(self.shutdown)
+        if self.enable_motor_torque:
+            if self.step not in (9,10):
+                raise ValueError('Physical torque startup requires a tunnel start step')
+            with arm_motor_torque(self.cmd_pub,Twist,
+                                  lambda:self.shutting_down or self.arming_cancelled,
+                                  self.shutdown,self.command_lock):
+                try:
+                    with self.command_lock:
+                        if self.shutting_down or self.arming_cancelled:
+                            raise RuntimeError('Motor startup cancelled')
+                        self.drive_ready=True
+                        self.tunnel_timer=rospy.Timer(rospy.Duration(self.tunnel_config['control']['period']),self.tunnel_tick)
+                except BaseException:
+                    self.shutdown()
+                    raise
+        else:
+            self.tunnel_timer=rospy.Timer(rospy.Duration(self.tunnel_config['control']['period']),self.tunnel_tick)
 
     def shutdown(self):
         with self.command_lock:
             if self.shutting_down:
                 return
             self.shutting_down=True
+            self.drive_ready=False
             self.tunnel_generation+=1
-            self.tunnel_timer.shutdown()
+            if self.tunnel_timer is not None:
+                self.tunnel_timer.shutdown()
             self.cmd_pub.publish(Twist())
         self.tunnel.close()
 
     def step_callback(self,data): # 그냥 rostopic pub으로 구간별 테스트하려고 만든거
         with self.command_lock:
+            if not self.drive_ready:
+                self.arming_cancelled=True
             was_tunnel=self.step in (9,10)
             self.step=data.data
             self.tunnel_generation+=1
