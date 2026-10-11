@@ -50,7 +50,7 @@ class turtlebot():
         
 
 ############## 구간별 테스트 설정 ##############
-        self.step=int(rospy.get_param('~start_step',0))
+        self.step=int(rospy.get_param('~start_step',3))
         self.yaw = 0.0
         self.initial_yaw=None
 
@@ -1216,28 +1216,6 @@ class turtlebot():
 
                 return  
 
-        # elif self.step ==8: 
-        #     crop_img=image[300:,:]
-        #     height,width=crop_img.shape[:2]
-        #     hsv=cv2.cvtColor(crop_img,cv2.COLOR_BGR2HSV)
-        #     white_mask=cv2.inRange(hsv,np.array([0,0,210]),np.array([179, 55, 255]))
-        #     yellow_mask=cv2.inRange(hsv,np.array([15,100,100]),np.array([50,255,255]))
-        #     yellow_area=cv2.countNonZero(yellow_mask)
-        #     white_area=cv2.countNonZero(white_mask)
-
-        #     rospy.loginfo("Y: %.3f. W: %.3f",yellow_area,white_area)
-        #     if yellow_area<=30 and white_area <=30:
-        #         self.maze_count +=1
-        #     else: self.maze_count =0
-            
-        #     if self.maze_count == 10:
-        #         with self.command_lock:
-        #             self.step=9
-        #             self.tunnel_generation+=1
-        #             self.tunnel_active=False
-        #         return
-                
-        #     else: pass
 
         elif self.step==8:
             crop_img=image[300:,:]
