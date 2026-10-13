@@ -9,6 +9,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
+import xml.etree.ElementTree as ET
 
 import yaml
 
@@ -24,6 +25,21 @@ def load_cli():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+class NucSensorLaunchTests(unittest.TestCase):
+    def test_camera_stream_does_not_force_exposure_or_gain(self):
+        launch = ET.parse(ROOT / 'launch/nuc_sensors.launch').getroot()
+        camera = launch.find("include[@file='$(find realsense2_camera)/launch/rs_camera.launch']")
+        self.assertIsNotNone(camera)
+        arguments = {arg.get('name'): arg.get('value') for arg in camera.findall('arg')}
+        for name, value in {'color_width': '640', 'color_height': '480',
+                            'color_fps': '30', 'infra_rgb': 'true',
+                            'publish_tf': 'true'}.items():
+            self.assertEqual(arguments[name], value)
+        overrides = {'enable_auto_exposure', 'exposure', 'gain'}
+        for setting in list(launch.iter('param')) + list(launch.iter('arg')):
+            self.assertNotIn(setting.get('name', '').rsplit('/', 1)[-1], overrides)
 
 
 class NucTrialSafetyTests(unittest.TestCase):
