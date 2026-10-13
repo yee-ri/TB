@@ -3,12 +3,6 @@
   <arg name="opencr_port" default="/dev/serial/by-id/usb-ROBOTIS_OpenCR_Virtual_ComPort_in_FS_Mode_FFFFFFFEFFFF-if00"/>
   <arg name="publish_measured_mounts" default="false"/>
   <param name="use_sim_time" value="false"/>
-  <!-- D405 color uses the stereo module. Reapply the tuned exposure at startup. -->
-  <group ns="camera/stereo_module">
-    <param name="enable_auto_exposure" type="bool" value="false"/>
-    <param name="exposure" type="int" value="15000"/>
-    <param name="gain" type="int" value="16"/>
-  </group>
   <include file="$(find realsense2_camera)/launch/rs_camera.launch">
     <arg name="enable_depth" value="false"/>
     <arg name="enable_infra1" value="false"/>
