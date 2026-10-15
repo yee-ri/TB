@@ -1,4 +1,4 @@
-"""TB-owned tunnel mission: straight entry, Hybrid A*, odom tracking.
+"""TB-owned tunnel mission: heading-controlled entry, Hybrid A*, odom tracking.
 
 No ROS publishers, AMCL or other mission controllers.
 LiDAR inputs share one scan representation with an acquisition-time odom
@@ -8,14 +8,16 @@ only the stopped Hybrid A* search runs asynchronously on an immutable grid.
 
 import math
 import threading
+import time
 from pathlib import Path
 
 import numpy as np
 import yaml
 
 from .costmap import TunnelCostmap
+from .static_geometry import refined_static_cells
 from .planner import HybridAStarPlanner, OccupancyGrid, Pose2D, RectangularFootprint
-from .tracking import (TrackingPath, build_speed_profile, calculate_tracking,
+from .tracking import (LimitedCommand, TrackingPath, build_speed_profile, calculate_tracking,
                        geometry_from_poses, limit_tracking_command,
                        normalize_angle, quintic_pose_path)
 
@@ -31,6 +33,8 @@ def load_config(path, profile='normal'):
     static_map = config['grid'].get('static_map')
     if static_map is not None:
         static_map['image'] = str((Path(path).resolve().parent / static_map['image']).resolve())
+        if static_map.get('geometry'):
+            static_map['geometry'] = str((Path(path).resolve().parent / static_map['geometry']).resolve())
     return config
 
 
@@ -52,6 +56,12 @@ class TunnelMission:
                     'plan_retry_period'):
             if not math.isfinite(self.control[key]) or self.control[key] <= 0:
                 raise ValueError('control/%s must be finite and positive' % key)
+        entry_acceleration = config['entry'].get('linear_acceleration', self.control['linear_acceleration'])
+        if (isinstance(entry_acceleration, (bool, np.bool_))
+                or not isinstance(entry_acceleration, (int, float, np.integer, np.floating))
+                or not math.isfinite(entry_acceleration) or entry_acceleration <= 0):
+            raise ValueError('entry/linear_acceleration must be finite and positive')
+        self.entry_linear_acceleration = float(entry_acceleration)
         if (int(self.sensors['angular_bins']) != self.sensors['angular_bins']
                 or self.sensors['angular_bins'] < 8
                 or not 0 <= self.sensors['range_min'] < self.sensors['range_max']):
@@ -84,7 +94,43 @@ class TunnelMission:
         # Explicit right-side override may be inside the physical body edge;
         # it affects only the entry trigger, never the mapped scan/footprint.
         self.entry_obstacle_right_width = entry_right_width
+        for key, default in (('obstacle_left_far_width', entry_half_width),
+                             ('obstacle_check_distance', self.sensors['range_max'])):
+            value = config['entry'].get(key, default)
+            if (isinstance(value, (bool, np.bool_))
+                    or not isinstance(value, (int, float, np.integer, np.floating))
+                    or not math.isfinite(value) or value <= 0.):
+                raise ValueError('entry/%s must be finite and positive' % key)
+            setattr(self, 'entry_' + key, float(value))
+        if self.entry_obstacle_left_far_width < entry_half_width:
+            raise ValueError('entry/obstacle_left_far_width must cover the near left width')
+        if not config['entry']['obstacle_clearance'] < self.entry_obstacle_check_distance <= self.sensors['range_max']:
+            raise ValueError('entry/obstacle_check_distance must exceed the stop gap and stay within sensor range')
         self.planner = HybridAStarPlanner(self.footprint, **config['planner'])
+        entry_heading = config['entry'].get('heading_offset_deg', 0.)
+        if (isinstance(entry_heading, (bool, np.bool_))
+                or not isinstance(entry_heading, (int, float, np.integer, np.floating))
+                or not math.isfinite(entry_heading) or abs(entry_heading) > 15.):
+            raise ValueError('entry/heading_offset_deg must be finite and within +/-15 degrees')
+        self.entry_heading_offset = math.radians(entry_heading)
+        entry_curvature = config['entry'].get(
+            'maximum_curvature', min(.35, 1./self.planner.minimum_turning_radius))
+        if (isinstance(entry_curvature, (bool, np.bool_))
+                or not isinstance(entry_curvature, (int, float, np.integer, np.floating))
+                or not math.isfinite(entry_curvature)
+                or not 0. < entry_curvature <= 1./self.planner.minimum_turning_radius):
+            raise ValueError('entry/maximum_curvature must be finite, positive and within the turning limit')
+        self.entry_maximum_curvature = float(entry_curvature)
+        for key, default, maximum in (
+                ('alignment_angular_velocity', .10, self.control['maximum_angular_velocity']),
+                ('alignment_angular_acceleration', .25, self.control['angular_acceleration']),
+                ('alignment_tolerance_deg', .3, 1.)):
+            value = config['entry'].get(key, default)
+            if (isinstance(value, (bool, np.bool_))
+                    or not isinstance(value, (int, float, np.integer, np.floating))
+                    or not math.isfinite(value) or not 0. < value <= maximum):
+                raise ValueError('entry/%s must be finite, positive and <= %s' % (key, maximum))
+            setattr(self, 'entry_' + key, float(value))
         goal = config['goal']['pose']
         self.goal = Pose2D(float(goal[0]), float(goal[1]), math.radians(goal[2]))
         planning_goal = config['goal'].get('planning_pose', goal)
@@ -104,13 +150,21 @@ class TunnelMission:
             self.generation += 1
             self.state, self.reason = 'ENTRY', 'waiting for sensors'
             self.anchor = self.path = self.costmap = self.grid = None
+            self.static_cell_rectangles = {}
             self.plan_result = None
             self.last_plan_attempt = None
+            self.planning_started = self.planning_duration = None
+            self.freshness_report = None
             self.mapped_stamp = self.last_time = None
             self.version = self.path_version = self.index = self.plans = 0
             self.last_linear = self.last_angular = 0.0
             self.lane_count = 0
             self.completion_started = None
+            self.entry_start_x = 0.
+            self.entry_start_yaw = 0.
+            self.entry_phase = 'WAIT_STOP' if self.entry_heading_offset else 'DRIVE'
+            self.entry_alignment_stop_stamp = None
+            self.entry_drive_yaw = None
 
     def close(self):
         self.reset()
@@ -174,10 +228,15 @@ class TunnelMission:
         angles = angle_min + np.flatnonzero(hits) * angle_increment + sensor_pose[2]
         x = sensor_pose[0] + ranges[hits] * np.cos(angles)
         y = sensor_pose[1] + ranges[hits] * np.sin(angles)
-        # Only the straight-entry clearance corridor uses this optional width.
-        # Keep all measured rays for mapping and the full padded planner body.
-        ahead = ((x >= 0) & (y <= self.entry_obstacle_half_width)
-                 & (y >= -self.entry_obstacle_right_width))
+        # Entry only: widen the left edge toward the far end of a trapezoid.
+        # Keep the complete scan for mapping and path collision checks.
+        ahead = (x >= 0) & (y >= -self.entry_obstacle_right_width)
+        left_limit = self.entry_obstacle_half_width
+        if self.entry_obstacle_left_far_width > left_limit:
+            far_x = self.footprint.front + self.entry_obstacle_check_distance
+            ahead &= x <= far_x
+            left_limit = left_limit + (self.entry_obstacle_left_far_width - left_limit) * x / far_x
+        ahead &= y <= left_limit
         clearance = float(np.min(x[ahead])) - self.footprint.front if np.any(ahead) else math.inf
         with self.lock:
             if self.scan is not None and stamp <= self.scan[-1]:
@@ -204,8 +263,8 @@ class TunnelMission:
             self.version += 1
             self.grid = None
 
-    def _initialize(self):
-        self.anchor = self.odom[:3]
+    def _initialize(self, anchor=None):
+        self.anchor = self.odom[:3] if anchor is None else anchor
         cfg = self.config['grid']
         x0, y0, x1, y1 = cfg['bounds']
         resolution = cfg['resolution']
@@ -225,7 +284,12 @@ class TunnelMission:
         self.costmap = TunnelCostmap(
             static_data, width, height, resolution, x0, y0, planning_bounds=cfg['bounds'],
             **{k: v for k, v in cfg.items() if k not in ('bounds', 'resolution', 'static_map')})
-        self._map_scan()
+        self.static_cell_rectangles = refined_static_cells(
+            static_map, resolution, static_data, self.costmap.static_occupied_threshold,
+            crop=(self.costmap.source_column, self.costmap.source_row,
+                  self.costmap.width, self.costmap.height))
+        if self.scan is not None:
+            self._map_scan()
 
     def _grid(self):
         if self.grid is None:
@@ -236,7 +300,8 @@ class TunnelMission:
             self.grid = OccupancyGrid(values, c.resolution, c.origin_x, c.origin_y,
                                       occupied_threshold=c.static_occupied_threshold,
                                       soft_cost_data=np.asarray(c.to_soft_cost_data()).reshape(c.height, c.width),
-                                      dynamic_cell_rectangles=c.refined_dynamic_cells())
+                                      dynamic_cell_rectangles=c.refined_dynamic_cells(),
+                                      static_cell_rectangles=self.static_cell_rectangles)
         return self.grid
 
     def _zero(self, reason):
@@ -257,7 +322,10 @@ class TunnelMission:
     def _planned_path(self, plan, grid):
         """Source internal goal + prevalidated moving exit, one tracking path."""
         if 'planning_pose' not in self.config['goal']:
-            return self._tracking_path(plan.x, plan.y, plan.yaw, plan.curvature)
+            path = self._tracking_path(plan.x, plan.y, plan.yaw, plan.curvature)
+            if not self._route_safe(grid, 0, path):
+                raise ValueError('planned path is not collision-free')
+            return path
         terminal = Pose2D(float(plan.x[-1]), float(plan.y[-1]), float(plan.yaw[-1]))
         target, cfg = self.goal, self.config['exit_connector']
         forward = np.asarray((math.cos(self.planning_goal.yaw), math.sin(self.planning_goal.yaw)))
@@ -294,34 +362,88 @@ class TunnelMission:
         self.reason = reason
         return self.last_linear, self.last_angular, False
 
+    def _align_entry(self, pose, elapsed, now):
+        """Turn once toward the entry heading, stop, then drive straight."""
+        cfg = self.control
+        measured_linear, measured_angular = self.odom[3:5]
+        stopped = (abs(measured_linear) <= cfg['planning_stopped_linear']
+                   and abs(measured_angular) <= cfg['planning_stopped_angular'])
+        error = normalize_angle(self.entry_start_yaw + self.entry_heading_offset - pose.yaw)
+        direction = math.copysign(1., self.entry_heading_offset)
+        remaining = direction * error
+        tolerance = math.radians(self.entry_alignment_tolerance_deg)
+        if self.entry_phase == 'WAIT_STOP':
+            if not stopped:
+                return self._zero('waiting for measured rest before entry heading turn')
+            self.entry_phase = 'ALIGN'
+        if self.entry_phase == 'SETTLE':
+            if self.odom[-1] <= self.entry_alignment_stop_stamp or not stopped:
+                return self._zero('waiting for measured stop after entry heading turn')
+            # Accept the stopped heading once; correcting overshoot here
+            # makes a small entry turn oscillate instead of driving forward.
+            self.entry_drive_yaw = pose.yaw
+            self.entry_phase = 'DRIVE'
+            return self._zero('entry heading aligned; ready for straight entry')
+        if abs(measured_linear) > cfg['planning_stopped_linear']:
+            return self._zero('waiting for measured rest before entry heading turn')
+        if remaining <= tolerance:
+            self.entry_phase = 'SETTLE'
+            self.entry_alignment_stop_stamp = max(now, self.odom[-1])
+            return self._zero('waiting for measured stop after entry heading turn')
+
+        acceleration = self.entry_alignment_angular_acceleration
+        deceleration = min(acceleration, cfg['safety_angular_deceleration'])
+        reaction = cfg['safety_reaction_time'] + cfg['period']
+        # Slow near the target; reaching or passing it ends the turn above.
+        cap = math.sqrt((deceleration * reaction)**2 + 2. * deceleration * remaining) - deceleration * reaction
+        target = direction * min(self.entry_alignment_angular_velocity, cap)
+        change = acceleration * min(elapsed, cfg['period'])
+        angular = max(self.last_angular-change, min(self.last_angular+change, target))
+        return self._command(LimitedCommand(0., angular), now,
+                             'aligning entry heading before straight drive')
+
     def _enter(self, pose, elapsed, now):
+        if self.entry_heading_offset and not self.planner.pose_is_collision_free(self._grid(), pose):
+            return self._zero('current body overlaps mapped obstacle; physical contact not measured')
+        if self.entry_phase != 'DRIVE':
+            return self._align_entry(pose, elapsed, now)
         cfg, entry = self.control, self.config['entry']
+        entry_name = 'aligned straight entry' if self.entry_heading_offset else 'straight entry'
+        traveled = max(0., pose.x)
         distance_remaining = entry['distance'] - pose.x
         clearance_remaining = self.front_clearance - entry['obstacle_clearance']
         remaining = min(distance_remaining, clearance_remaining)
         if remaining <= cfg['safety_distance_margin']:
             command = self._stop_command(elapsed)
             if command.linear_velocity > 1e-9 or abs(command.angular_velocity) > 1e-9:
-                return self._command(command, now, 'stopping at straight entry target')
+                return self._command(command, now, 'stopping at ' + entry_name + ' target')
             self.state = 'PLANNING'
             cause = 'distance target' if distance_remaining <= clearance_remaining else 'front clearance'
-            return self._zero('straight entry complete: %s; traveled=%.3fm, front_clearance=%.3fm, required_gap=%.3fm'
-                              % (cause, pose.x, self.front_clearance, entry['obstacle_clearance']))
+            return self._zero('%s complete: %s; traveled=%.3fm, front_clearance=%.3fm, required_gap=%.3fm'
+                              % (entry_name, cause, traveled, self.front_clearance, entry['obstacle_clearance']))
         # Entry velocity is the initial profile speed, not a whole-leg cap.
         # Match the source's distance ramp and reaction + braking limit while
-        # retaining this port's requested straight entry and stopping target.
+        # retaining the entry stopping target.
         reference = min(entry['cruise_velocity'], math.sqrt(
-            cfg['entry_velocity']**2 + 2 * cfg['linear_acceleration'] * max(0., pose.x)))
+            cfg['entry_velocity']**2 + 2 * self.entry_linear_acceleration * traveled))
         decel = min(cfg['linear_deceleration'], cfg['safety_linear_deceleration'])
         reaction = cfg['safety_reaction_time'] + cfg['period']
         remaining = max(0., remaining - .5 * cfg['safety_distance_margin'])
         cap = math.sqrt((decel * reaction)**2 + 2 * decel * remaining) - decel * reaction
+        target_yaw = (self.entry_start_yaw if self.entry_drive_yaw is None
+                      else self.entry_drive_yaw)
+        angular = cfg['heading_gain'] * normalize_angle(target_yaw-pose.yaw)
+        if self.entry_heading_offset:
+            # After the separate pivot, only correct drift from the frozen
+            # straight heading. Keep these moving corrections gentle.
+            maximum_angular = reference * self.entry_maximum_curvature
+            angular = max(-maximum_angular, min(maximum_angular, angular))
         command = limit_tracking_command(
-            min(reference, cap), reference, -cfg['heading_gain'] * pose.yaw,
+            min(reference, cap), reference, angular,
             self.last_linear, self.last_angular, min(elapsed, cfg['period']),
-            cfg['linear_acceleration'], cfg['linear_deceleration'], cfg['angular_acceleration'],
+            self.entry_linear_acceleration, cfg['linear_deceleration'], cfg['angular_acceleration'],
             cfg['maximum_angular_velocity'], cfg['maximum_lateral_acceleration'])
-        return self._command(command, now, 'straight entry')
+        return self._command(command, now, entry_name)
 
     def _stop_command(self, elapsed):
         cfg = self.control
@@ -340,8 +462,41 @@ class TunnelMission:
                 return False
         return self.planner.pose_is_collision_free(grid, Pose2D(path.x[-1], path.y[-1], path.heading[-1]))
 
+    def _planning_status(self):
+        """Report worker progress without consuming a result or bypassing gates."""
+        if self.plan_result is not None:
+            result, error, _ = self.plan_result
+            duration = '' if self.planning_duration is None else ' in %.2fs' % self.planning_duration
+            return ('plan ready' + duration if result is not None
+                    else 'plan finished' + duration + ': ' + error)
+        if self.worker is not None and self.worker.is_alive():
+            if self.planning_started is None:
+                return 'waiting for previous planning worker'
+            return 'planning from measured rest (elapsed %ds)' % max(0., time.monotonic()-self.planning_started)
+        return ''
+
+    def _planning_gate_reason(self, reason):
+        status = self._planning_status() if self.state == 'PLANNING' else ''
+        return reason + ('; ' + status if status else '')
+
+    def _stale_sensor_reason(self, now):
+        # Numeric diagnostics refresh once per second. A changed failing
+        # sensor or completed worker is reported immediately; gates still
+        # evaluate the exact timestamps on every control tick.
+        ages = (now-self.odom[-1], now-self.scan[-1])
+        failures = tuple('future' if age < -self.sensors['maximum_future_stamp']
+                         else 'stale' if age > self.sensors['maximum_age'] else 'fresh'
+                         for age in ages)
+        status = self._planning_status() if self.state == 'PLANNING' else ''
+        key = (int(time.monotonic()), failures, status)
+        if self.freshness_report is None or self.freshness_report[0] != key:
+            reason = 'waiting for fresh odometry and lidar (odom_age=%.3fs, lidar_age=%.3fs)' % ages
+            self.freshness_report = (key, reason + ('; ' + status if status else ''))
+        return self.freshness_report[1]
+
     def _begin_plan(self, pose, now):
         if self.worker is not None and self.worker.is_alive():
+            self.reason = self._planning_status()
             return
         if (self.last_plan_attempt is not None
                 and now - self.last_plan_attempt < self.control['plan_retry_period']):
@@ -353,6 +508,8 @@ class TunnelMission:
         self.last_plan_attempt = now
         generation = self.generation
         self.plan_result = None
+        started = self.planning_started = time.monotonic()
+        self.planning_duration = None
         self.plans += 1
         self.reason = 'planning from measured rest'
 
@@ -364,8 +521,10 @@ class TunnelMission:
                     result = self._planned_path(result, grid)
             except (ValueError, RuntimeError) as exc:
                 result, error = None, str(exc)
+            duration = max(0., time.monotonic()-started)
             with self.lock:
                 if self.generation == generation:
+                    self.planning_duration = duration
                     self.plan_result = (result, error, pose)
 
         self.worker = threading.Thread(target=search, daemon=True)
@@ -383,7 +542,8 @@ class TunnelMission:
                 return self._zero('waiting for odometry and lidar')
             if any(not -self.sensors['maximum_future_stamp'] <= now-stamp <= self.sensors['maximum_age']
                    for stamp in (self.odom[-1], self.scan[-1])):
-                return self._zero('waiting for fresh odometry and lidar')
+                return self._zero(self._stale_sensor_reason(now))
+            self.freshness_report = None
             if self.anchor is None:
                 self._initialize()
             pose = relative_pose(self.odom[:3], self.anchor)
@@ -396,19 +556,21 @@ class TunnelMission:
                 return self._zero(self.reason)
             if self.state == 'ENTRY':
                 return self._enter(pose, elapsed, now)
+            tracking_reason = 'tracking path'
             if self.state == 'PLANNING':
                 if (abs(measured_linear) > self.control['planning_stopped_linear']
                         or abs(measured_angular) > self.control['planning_stopped_angular']):
-                    return self._zero('waiting for measured rest before planning')
+                    return self._zero(self._planning_gate_reason('waiting for measured rest before planning'))
                 if self.plan_result is None:
                     self._begin_plan(pose, now)
                     return self._zero(self.reason)
                 result, error, start = self.plan_result
+                completed_status = self._planning_status()
                 self.plan_result = None
                 if result is None:
                     # The source retries from rest against the latest grid;
                     # one unsuccessful search is not a terminal mission failure.
-                    return self._zero(error)
+                    return self._zero(completed_status)
                 if (math.hypot(pose.x-start.x, pose.y-start.y)
                         > self.control['planning_start_position_tolerance']
                         or abs(normalize_angle(pose.yaw-start.yaw))
@@ -418,6 +580,8 @@ class TunnelMission:
                 self.path = result
                 self.index, self.path_version = 0, -1
                 self.state = 'FOLLOWING'
+                if self.planning_duration is not None:
+                    tracking_reason += '; plan finished in %.2fs' % self.planning_duration
             # A completed plan is checked against the latest scan snapshot,
             # including all updates received while its search was running.
             grid = self._grid()
@@ -425,7 +589,7 @@ class TunnelMission:
             # the robot holds the same path until later free rays clear it;
             # it must not first erase the path and force a colliding-start plan.
             if not self.planner.pose_is_collision_free(grid, pose):
-                return self._zero('localized footprint overlaps an obstacle')
+                return self._zero('localized footprint or clearance is blocked in map; physical contact not measured')
             cfg = self.control
             tracking = calculate_tracking(self.path, pose.x, pose.y, pose.yaw, self.index,
                 cfg['lookahead_distance'], cfg['maximum_angular_velocity'], cfg['heading_gain'],
@@ -444,7 +608,8 @@ class TunnelMission:
                 return self._zero('waiting for exit lane at goal')
             if (tracking.position_error > cfg['tracking_position_tolerance']
                     or abs(tracking.heading_error) > math.radians(cfg['tracking_heading_tolerance_deg'])):
-                return self._zero('tracking tolerance exceeded')
+                return self._zero('tracking tolerance exceeded: position=%.3fm, heading=%.1fdeg'
+                                  % (tracking.position_error, math.degrees(tracking.heading_error)))
             if self.path_version != self.version:
                 if not self._route_safe(grid, self.index):
                     # Only an actual remaining-route conflict requests search.
@@ -463,4 +628,4 @@ class TunnelMission:
                 self.last_linear, self.last_angular, min(elapsed, cfg['period']),
                 cfg['linear_acceleration'], cfg['linear_deceleration'], cfg['angular_acceleration'],
                 cfg['maximum_angular_velocity'], cfg['maximum_lateral_acceleration'])
-            return self._command(command, now, 'tracking path')
+            return self._command(command, now, tracking_reason)

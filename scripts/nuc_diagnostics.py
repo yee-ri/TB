@@ -16,8 +16,8 @@ import sys
 import threading
 import time
 
-
 CAMERA = "/camera/color/image_raw"
+DEPTH = "/camera/depth/image_rect_raw"
 LIDAR = "/livox/lidar"
 ODOM = "/odom"
 EXPECTED = {CAMERA: "sensor_msgs/Image", LIDAR: "sensor_msgs/PointCloud2",
@@ -55,6 +55,21 @@ def image_data(msg):
             "bytes": len(data), "sample_byte_range": [min(sample), max(sample)],
             "nonzero": any(sample), "varied": min(sample) != max(sample),
             "sample_sha256": hashlib.sha256(sample).hexdigest()}
+
+
+def depth_data(msg):
+    """Check that a complete 16UC1 frame contains actual depth pixels."""
+    data = bytes(msg.data)
+    valid_size = (msg.height > 0 and msg.width > 0 and msg.step >= 2 * msg.width
+                  and len(data) == msg.height * msg.step)
+    result = {"valid_size": valid_size, "valid_encoding": msg.encoding == "16UC1",
+              "bytes": len(data), "nonzero": False}
+    if valid_size and result["valid_encoding"]:
+        # Either byte of a 16-bit pixel is nonzero in either byte order.
+        # Exclude row padding, which is not a depth measurement.
+        result["nonzero"] = any(any(data[row * msg.step:row * msg.step + 2 * msg.width])
+                                for row in range(msg.height))
+    return result
 
 
 def cloud_data(msg):
@@ -121,7 +136,7 @@ def save_report(report, output):
     print(text)
 
 
-def diagnose(duration):
+def diagnose(duration, require_depth=False):
     import rospy
     import rosgraph
     import tf2_ros
@@ -129,8 +144,12 @@ def diagnose(duration):
     from sensor_msgs.msg import Image, PointCloud2
     from tf2_msgs.msg import TFMessage
 
+    expected_topics = dict(EXPECTED)
+    if require_depth:
+        expected_topics[DEPTH] = "sensor_msgs/Image"
     rospy.init_node("nuc_diagnostics", anonymous=True, disable_signals=True, disable_rosout=True)
     report = {"status": "unverified", "duration_seconds": duration,
+              "require_depth": require_depth,
               "wall_time_unix": time.time(), "read_only": True,
               "limits_seconds": {"maximum_message_age": MAX_AGE,
                                   "maximum_future_stamp": MAX_FUTURE,
@@ -158,7 +177,7 @@ def diagnose(duration):
                               "value": rospy.get_param("/use_sim_time", False)}
     if report["use_sim_time"]["value"] is not False:
         report["failures"].append("/use_sim_time must be false for real hardware.")
-    for topic, expected_type in EXPECTED.items():
+    for topic, expected_type in expected_topics.items():
         actual = report["graph_before"]["published_topics"].get(topic)
         if actual != expected_type:
             report["failures"].append("{}: expected {}, found {}".format(topic, expected_type, actual))
@@ -169,7 +188,7 @@ def diagnose(duration):
     buffer = tf2_ros.Buffer(cache_time=rospy.Duration(15.0))
     listener = tf2_ros.TransformListener(buffer)
     lock = threading.Lock()
-    samples = {topic: [] for topic in EXPECTED}
+    samples = {topic: [] for topic in expected_topics}
     authorities = {}
     callback_errors = []
 
@@ -189,9 +208,10 @@ def diagnose(duration):
                      "age_at_receipt_seconds": now - stamp,
                      "frame_id": msg.header.frame_id,
                      "stamp": msg.header.stamp}
-            if topic == CAMERA:
+            if topic in (CAMERA, DEPTH):
                 entry.update({"resolution": [msg.width, msg.height], "encoding": msg.encoding,
-                              "step": msg.step, "data": image_data(msg)})
+                              "step": msg.step,
+                              "data": depth_data(msg) if topic == DEPTH else image_data(msg)})
             elif topic == LIDAR:
                 entry["data"] = cloud_data(msg)
             else:
@@ -202,9 +222,12 @@ def diagnose(duration):
             with lock:
                 callback_errors.append("{}: {}: {}".format(topic, type(error).__name__, error))
 
+    topic_classes = [(CAMERA, Image), (LIDAR, PointCloud2), (ODOM, Odometry)]
+    if require_depth:
+        topic_classes.append((DEPTH, Image))
     subscriptions = [rospy.Subscriber(topic, kind, callback, callback_args=topic,
                                       queue_size=5, buff_size=16 * 1024 * 1024)
-                     for topic, kind in ((CAMERA, Image), (LIDAR, PointCloud2), (ODOM, Odometry))]
+                     for topic, kind in topic_classes]
     subscriptions += [rospy.Subscriber(topic, TFMessage, tf_callback, callback_args=topic,
                                        queue_size=100) for topic in ("/tf", "/tf_static")]
     start = time.monotonic()
@@ -232,7 +255,7 @@ def diagnose(duration):
     report["topics"] = {}
     report["measured_time_tf"] = []
     for topic, entries in captured.items():
-        details = {"expected_type": EXPECTED[topic], "messages_received": len(entries),
+        details = {"expected_type": expected_topics[topic], "messages_received": len(entries),
                    "status": "unverified"}
         report["topics"][topic] = details
         if len(entries) < 2:
@@ -268,6 +291,10 @@ def diagnose(duration):
                 topic_failures.append("image data size, nonzero pixels, or spatial variation failed")
             if last["encoding"] not in ("rgb8", "bgr8", "rgba8", "bgra8"):
                 topic_failures.append("image encoding is not a supported real color encoding")
+        elif topic == DEPTH:
+            if any(not e["data"]["valid_size"] or not e["data"]["valid_encoding"]
+                   or not e["data"]["nonzero"] for e in entries):
+                topic_failures.append("depth requires valid 16UC1 data and nonzero depth pixels")
         elif topic == LIDAR:
             details["point_counts"] = summary([e["data"]["points"] for e in entries])
             if any(not e["data"]["valid_size"] or not e["data"]["nonzero"]
@@ -325,11 +352,13 @@ def main():
     parser.add_argument("--duration", type=float, default=12.0,
                         help="Wall-clock observation seconds, bounded to 3–30 (default: 12)")
     parser.add_argument("--output", help="Save the diagnostic JSON to this path")
+    parser.add_argument("--require-depth", action="store_true",
+                        help="Require fresh 16UC1 depth images for full-course gate detection")
     args = parser.parse_args()
     if not 3 <= args.duration <= 30:
         parser.error("--duration must be between 3 and 30 seconds")
     try:
-        report = diagnose(args.duration)
+        report = diagnose(args.duration, require_depth=args.require_depth)
     except Exception as error:
         report = {"status": "unverified", "read_only": True,
                   "failures": ["{}: {}".format(type(error).__name__, error)]}

@@ -2,7 +2,7 @@
 """Explicit user-operated recording, gated tunnel start, and ordered stopping.
 
 Creating/checking this program does not launch a controller or publish commands.
-Use `source /home/sj/ParkCars/TB-tunnel-nuc/scripts/nuc_env.sh` first.
+From the repository root, use `source scripts/nuc_env.sh` first.
 """
 import argparse
 from datetime import datetime, timedelta, timezone
@@ -141,21 +141,26 @@ def check_config(path):
     # Validate runtime constructor arguments without any ROS node or publisher.
     sys.path.insert(0, str(ROOT / 'codes/stepbystep'))
     from tunnel.mission import TunnelMission, load_config
-    from tunnel.planner import OccupancyGrid, Pose2D
+    from tunnel.odometry import read_linear_scale, read_angular_command_scale
+    from tunnel.planner import Pose2D
+    read_linear_scale(config)
+    read_angular_command_scale(config)
     mission = TunnelMission(load_config(path, 'normal'))
-    # Use the runtime's exact black-cell map semantics and padded rectangle.
-    grid = OccupancyGrid((rotated == 0).astype(np.int8) * 100,
-                         config['grid']['resolution'], origin[0], origin[1],
-                         occupied_threshold=config['grid']['static_occupied_threshold'])
-    for pose, label in [(Pose2D(0., 0., 0.), 'activation origin')] + [
-            (Pose2D(goal[0], goal[1], math.radians(goal[2])), label)
-            for goal, label in zip(goals, ('outside exit', 'internal goal'))]:
-        if not mission.planner.pose_is_collision_free(grid, pose):
-            raise ValueError('Padded physical footprint collides with static walls/bounds at ' + label)
-    if not mission.planner.primitive_is_collision_free(grid, Pose2D(0., 0., 0.),
-                                                       0., config['entry']['distance']):
-        raise ValueError('Configured straight entry sweep collides with measured static walls/bounds')
-    mission.close()
+    try:
+        # Use the same validated wall geometry and configured body as live control.
+        # No observations or ROS connections are needed for this static check.
+        mission._initialize(anchor=(0., 0., 0.))
+        grid = mission._grid()
+        for pose, label in [(Pose2D(0., 0., 0.), 'activation origin')] + [
+                (Pose2D(goal[0], goal[1], math.radians(goal[2])), label)
+                for goal, label in zip(goals, ('outside exit', 'internal goal'))]:
+            if not mission.planner.pose_is_collision_free(grid, pose):
+                raise ValueError('Configured physical footprint collides with static walls/bounds at ' + label)
+        if not mission.planner.primitive_is_collision_free(grid, Pose2D(0., 0., 0.),
+                                                           0., config['entry']['distance']):
+            raise ValueError('Configured straight entry sweep collides with measured static walls/bounds')
+    finally:
+        mission.close()
     return config, map_path
 
 
@@ -229,6 +234,8 @@ def interrupt_foreground(_signal, _frame):
 
 
 def snapshot(trial, config_path):
+    import rospkg
+
     config = read_config(config_path)
     shutil.copy2(config_path, trial / 'tunnel.yaml')
     static_map = config.get('grid', {}).get('static_map')
@@ -240,6 +247,10 @@ def snapshot(trial, config_path):
     geometry_path = (config_path.parent / geometry).resolve() if geometry else None
     if geometry_path is not None:
         shutil.copy2(geometry_path, trial / 'wall_geometry.json')
+    static_geometry = (static_map or {}).get('geometry')
+    static_geometry_path = (config_path.parent / static_geometry).resolve() if static_geometry else None
+    if static_geometry_path is not None:
+        shutil.copy2(static_geometry_path, trial / 'static_wall_geometry.json')
     revision = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip()
     diff = subprocess.check_output(['git', '-C', str(ROOT), 'diff', 'HEAD', '--'] + SCOPE, text=True)
     (trial / 'source.diff').write_text(diff, encoding='utf-8')
@@ -254,34 +265,48 @@ def snapshot(trial, config_path):
                 destination = source_root / source.relative_to(ROOT)
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, destination)
-    driver_config = Path('/home/sj/ParkCars/src/livox_ros_driver2/config/MID360_config.json')
-    if driver_config.is_file():
-        destination = source_root / 'driverconfig/MID360_config.json'
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(driver_config, destination)
     dependencies = {}
-    for name, repository, scoped_path in (
-            ('geometry2', ROOT / 'deps/geometry2', 'tf2_sensor_msgs'),
-            ('common_msgs', ROOT / 'deps/common_msgs', 'sensor_msgs'),
-            ('turtlebot3_msgs', Path('/home/sj/Desktop/ARAICodes/catkin_ws/src/turtlebot3_msgs'), '.'),
-            ('livox_ros_driver2', Path('/home/sj/ParkCars/src/livox_ros_driver2'), 'config/MID360_config.json')):
-        if not repository.is_dir():
+    packages = rospkg.RosPack()
+    for name, package, snapshot_prefix in (
+            ('geometry2', 'tf2_sensor_msgs', 'tf2_sensor_msgs'),
+            ('common_msgs', 'sensor_msgs', 'sensor_msgs'),
+            ('turtlebot3_msgs', 'turtlebot3_msgs', '.'),
+            ('livox_ros_driver2', 'livox_ros_driver2', '.')):
+        try:
+            package_path = Path(packages.get_path(package)).resolve()
+        except rospkg.ResourceNotFound as error:
+            dependencies[name] = {'package': package, 'path': None, 'commit': None,
+                                  'resolution_error': str(error)}
             continue
-        commit = subprocess.run(['git', '-C', str(repository), 'rev-parse', 'HEAD'],
-                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-        delta = subprocess.run(['git', '-C', str(repository), 'diff', 'HEAD', '--', scoped_path],
-                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-        dependencies[name] = {'path': str(repository), 'commit': commit.stdout.strip() if commit.returncode == 0 else None}
+        dependencies[name] = {'package': package, 'path': str(package_path), 'commit': None}
+        # A copied/installed package may sit inside an unrelated Git checkout.
+        # Accept an owned checkout (Livox generates an ignored package.xml), or
+        # an enclosing repository that actually tracks this package manifest.
+        tracked = subprocess.run(['git', '-C', str(package_path), 'ls-files',
+                                  '--error-unmatch', '--', 'package.xml'],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        delta = ''
+        if (package_path / '.git').exists() or tracked.returncode == 0:
+            commit = subprocess.run(['git', '-C', str(package_path), 'rev-parse', 'HEAD'],
+                                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+            if commit.returncode == 0:
+                dependencies[name]['commit'] = commit.stdout.strip()
+                scoped_path = 'config/MID360_config.json' if package == 'livox_ros_driver2' else '.'
+                delta = subprocess.check_output(
+                    ['git', '-C', str(package_path), 'diff', 'HEAD', '--', scoped_path], text=True)
         destination = source_root / 'dependencies' / name
         destination.mkdir(parents=True, exist_ok=True)
-        (destination / 'scoped.diff').write_text(delta.stdout, encoding='utf-8')
-        if name == 'common_msgs':
-            dependencies[name]['local_change_purpose'] = 'Host BatteryState definition matches deployed firmware MD5; firmware itself was not modified.'
-        if name in ('geometry2', 'common_msgs', 'turtlebot3_msgs'):
-            selected = repository / scoped_path
-            for source in selected.rglob('*'):
+        (destination / 'scoped.diff').write_text(delta, encoding='utf-8')
+        if package == 'livox_ros_driver2':
+            driver_config = package_path / 'config/MID360_config.json'
+            if driver_config.is_file():
+                target = source_root / 'driverconfig/MID360_config.json'
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(driver_config, target)
+        else:
+            for source in package_path.rglob('*'):
                 if source.is_file() and '__pycache__' not in source.parts and '.git' not in source.parts and source.suffix in ('.py', '.cpp', '.h', '.hpp', '.xml', '.msg', '.srv', '.txt', '.cmake'):
-                    target = destination / source.relative_to(repository)
+                    target = destination / snapshot_prefix / source.relative_to(package_path)
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(source, target)
     save_json(trial / 'source_sha256.json', hashes)
@@ -291,6 +316,7 @@ def snapshot(trial, config_path):
             'wall_map_recorded': (trial / 'walls.pgm').is_file(),
             'wall_map_sha256': digest(trial / 'walls.pgm') if (trial / 'walls.pgm').is_file() else None,
             'wall_geometry_sha256': digest(geometry_path) if geometry_path is not None else None,
+            'static_wall_geometry_sha256': digest(static_geometry_path) if static_geometry_path is not None else None,
             'sensor_ros_log_directory': os.environ.get('ROS_LOG_DIR'),
             'sensor_log_offset_bytes': (RECORDS / 'sensors.log').stat().st_size if (RECORDS / 'sensors.log').is_file() else 0,
             'firmware_source_status': 'Installed firmware source/version, RC100 behavior, watchdog, and motor torque effect remain unverified unless separately evidenced.'}
@@ -395,12 +421,12 @@ def check_remote(trial):
 
 
 def start(config_path, start_step=9):
-    if type(start_step) is not int or start_step not in (8, 9):
-        raise ValueError('Physical trial start_step must be 8 or 9')
+    if type(start_step) is not int or start_step not in (0, 8, 9):
+        raise ValueError('Physical trial start_step must be 0, 8 or 9')
     config, map_path = check_config(config_path)
     trial, metadata = current_trial()
     if not metadata.get('recording_active') or not owned_process(metadata, 'rosbag_process', 'record'):
-        raise RuntimeError('An active owned rosbag recording is required before tunnel start')
+        raise RuntimeError('An active owned rosbag recording is required before controller start')
     if metadata['config_sha256'] != digest(config_path):
         raise RuntimeError('YAML changed after recording began; end this recording and create a new trial')
     if metadata.get('wall_map_sha256') != digest(map_path):
@@ -408,6 +434,9 @@ def start(config_path, start_step=9):
     geometry = config.get('localization', {}).get('geometry')
     if geometry and metadata.get('wall_geometry_sha256') != digest((config_path.parent / geometry).resolve()):
         raise RuntimeError('Alignment wall geometry changed after recording began; create a new trial')
+    static_geometry = config['grid']['static_map'].get('geometry')
+    if static_geometry and metadata.get('static_wall_geometry_sha256') != digest((config_path.parent / static_geometry).resolve()):
+        raise RuntimeError('Static collision wall geometry changed after recording began; create a new trial')
     hashes = json.loads((trial / 'source_sha256.json').read_text())
     for relative, expected in hashes.items():
         if relative == 'codes/stepbystep/try_maze.py' or relative.startswith('codes/stepbystep/tunnel/'):
@@ -417,6 +446,8 @@ def start(config_path, start_step=9):
     print('Checking fresh real sensor data and acquisition-time TF before controller start...', flush=True)
     diagnostic = [sys.executable, str(ROOT / 'scripts/nuc_diagnostics.py'), '--duration', '6',
                   '--output', str(trial / 'prestart_diagnostics.json')]
+    if start_step == 0:
+        diagnostic.append('--require-depth')
     with (trial / 'prestart_diagnostics.log').open('w') as log:
         completed = subprocess.run(diagnostic, stdout=log, stderr=subprocess.STDOUT, timeout=20)
     if completed.returncode != 0:
@@ -432,36 +463,53 @@ def start(config_path, start_step=9):
     if '/turtlebot3_core' not in state['subscribers'].get('/cmd_vel', []):
         raise RuntimeError('Expected real /turtlebot3_core drivetrain subscriber is absent')
     if not owned_process(metadata, 'rosbag_process', 'record'):
-        raise RuntimeError('Recording stopped during diagnostics; tunnel start refused')
+        raise RuntimeError('Recording stopped during diagnostics; controller start refused')
     command = [sys.executable, str(ROOT / 'codes/stepbystep/try_maze.py'),
                '__name:=tb_controller', '_start_step:=' + str(start_step), '_tunnel_profile:=normal',
                '_enable_motor_torque:=true',
                '_tunnel_config:=' + str(config_path), '_lidar_type:=pointcloud2', '_lidar_topic:=/livox/lidar']
     metadata['controller_command'] = command
     metadata['start_step'] = start_step
-    metadata['start_condition'] = 'gate_already_open' if start_step == 8 else 'tunnel_entry'
-    metadata['lane_controller'] = 'upstream_speedup_e0b970f'
+    metadata['start_condition'] = {0: 'traffic_light', 8: 'gate_already_open', 9: 'tunnel_entry'}[start_step]
+    metadata['lane_controller'] = 'original_try_maze_e0b970f'
     metadata['controller_status'] = 'starting'
     start_message = 'Controller /tb_controller, normal step{}. Completion continues into step11 lane driving.'.format(start_step)
-    start_message += ' Lane tracking: upstream speedup e0b970f (default 0.1045 m/s).'
-    if start_step == 8:
+    start_message += ' Lane tracking: restored try_maze e0b970f (default command 0.07125 m/s).'
+    if start_step == 0:
+        start_message += ' Full course: wait for the green traffic light before step1.'
+    elif start_step == 8:
         start_message += ' Gate must already be open; step8 does not check the gate.'
     previous_term = signal.signal(signal.SIGTERM, interrupt_foreground)
     with (trial / 'controller.log').open('w') as logfile:
         logfile.write(start_message + '\n')
         logfile.flush()
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        log_offset = logfile.tell()
+        # ROS logging is synchronous inside camera/LiDAR callbacks. A pipe
+        # drained through terminal printing lets a slow console stop those
+        # callbacks (and cmd_vel). Write directly to disk; the console only
+        # follows an independent read handle and cannot hold up the controller.
+        process = subprocess.Popen(command, stdout=logfile, stderr=subprocess.STDOUT,
                                    start_new_session=True, text=True, bufsize=1,
                                    env=dict(os.environ, PYTHONUNBUFFERED='1', ROS_LOG_DIR=str(trial / 'ros')))
-        metadata['controller_process'] = process_identity(process.pid)
-        metadata['controller_status'] = 'running'
-        save_json(trial / 'trial.json', metadata)
-        print(start_message, flush=True)
         try:
-            for line in process.stdout:
-                logfile.write(line)
-                logfile.flush()
-                print(line, end='', flush=True)
+            metadata['controller_process'] = process_identity(process.pid)
+            metadata['controller_status'] = 'running'
+            save_json(trial / 'trial.json', metadata)
+            print(start_message, flush=True)
+            with (trial / 'controller.log').open() as output:
+                output.seek(log_offset)
+                while True:
+                    line = output.readline()
+                    if line:
+                        print(line, end='', flush=True)
+                    elif process.poll() is not None:
+                        # The final write can race the first EOF read.
+                        remainder = output.read()
+                        if remainder:
+                            print(remainder, end='', flush=True)
+                        break
+                    else:
+                        time.sleep(.05)
             process.wait()
         except KeyboardInterrupt:
             signal_group(process.pid, timeout=10)
@@ -581,7 +629,7 @@ def stop_record():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('record', 'start', 'start8', 'stop', 'stop-record', 'check-config', 'check-layout'))
+    parser.add_argument('command', choices=('record', 'start', 'start0', 'start8', 'stop', 'stop-record', 'check-config', 'check-layout'))
     parser.add_argument('--config', type=Path, default=DEFAULT_CONFIG)
     args = parser.parse_args()
     path = args.config.expanduser().resolve()
@@ -593,7 +641,7 @@ def main():
             print('Live sensor/TF, remote input, recording and publisher checks run when start is requested.')
             return 0
         require_environment()
-        if args.command in ('record', 'start', 'start8'):
+        if args.command in ('record', 'start', 'start0', 'start8'):
             RECORDS.mkdir(parents=True, exist_ok=True)
             lock_name = 'record' if args.command == 'record' else 'start'
             operation_lock = (RECORDS / (lock_name + '.lock')).open('a')
@@ -602,12 +650,13 @@ def main():
             except BlockingIOError:
                 raise RuntimeError('Another ' + lock_name + ' command is already active')
         {'record': lambda: record(path), 'start': lambda: start(path),
+         'start0': lambda: start(path, start_step=0),
          'start8': lambda: start(path, start_step=8),
          'stop': stop, 'stop-record': stop_record}[args.command]()
         return 0
     except (Exception, KeyboardInterrupt) as error:
         print('REFUSED/FAILED: {}: {}'.format(type(error).__name__, error), file=sys.stderr)
-        if args.command in ('start', 'start8', 'stop'):
+        if args.command in ('start', 'start0', 'start8', 'stop'):
             print('If the robot does not stop, disconnect actual drive power; the PC-power switch does not guarantee motor stop. Keep the PC on for stop-record when possible, and wait for Bag finalized before PC shutdown.', file=sys.stderr)
         return 1
     finally:

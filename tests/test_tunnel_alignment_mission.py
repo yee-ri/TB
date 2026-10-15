@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'codes/stepbystep')
 
 from tunnel.localization import AlignmentResult
 from tunnel.mission import TunnelMission, load_config, relative_pose
-from tunnel.planner import Pose2D
+from tunnel.planner import OccupancyGrid, Pose2D
 
 
 CONFIG = Path(__file__).resolve().parents[1] / 'codes/stepbystep/tunnel.real.yaml'
@@ -83,7 +83,10 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
     def join(self, mission):
         worker = mission.worker
         if worker is not None:
-            worker.join(timeout=5.)
+            # This fixture checks geometric completion, not a 5 s CPU budget.
+            # Exact thin-wall planning can take just over 5 s on this host;
+            # live planning is asynchronous and has no such deadline.
+            worker.join(timeout=10.)
             self.assertFalse(worker.is_alive(), 'offline wall fit/planning worker did not finish')
 
     def confirm(self, mission, pose=(.04, 0., 0.), frame=(0., 0., 0.),
@@ -211,6 +214,8 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
         for pose in ((.04, .02, 0.), (.04, 0., math.radians(5.))):
             with self.subTest(pose=pose):
                 mission = self.mission(pose)
+                mission.entry_heading_offset = 0.  # Explicit legacy straight mode.
+                mission.entry_phase = 'DRIVE'
                 now = self.confirm(mission, pose)
                 self.assertEqual(mission.state, 'ENTRY')
                 self.assertEqual(mission.plans, 0)
@@ -355,8 +360,9 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
         self.assertEqual(mission.step(now), (0., 0., False))
         self.assertIn('mapped scans', mission.reason)
         self.feed(mission, now+.1)
-        linear, _, finished = mission.step(now+.1)
-        self.assertGreater(linear, 0.)
+        linear, angular, finished = mission.step(now+.1)
+        self.assertEqual(linear, 0.)
+        self.assertGreater(angular, 0.)  # The first allowed motion is the heading turn.
         self.assertFalse(finished)
 
     def test_collision_at_the_localized_pose_keeps_the_robot_stopped(self):
@@ -365,12 +371,35 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
         now = self.confirm(mission, pose)
         self.feed(mission, now+.1, pose)
         self.assertEqual(mission.step(now+.1), (0., 0., False))
-        self.assertIn('footprint overlaps', mission.reason)
+        self.assertIn('footprint or clearance is blocked in map', mission.reason)
         self.assertEqual(mission.plans, 0)
+
+    def test_recorded_stop_pose_uses_actual_body_without_added_padding(self):
+        pose = (.511643, -.003789, math.radians(26.334))
+        mission = self.mission(pose)
+        now = self.confirm(mission, pose)
+        self.feed(mission, now + .1, pose)
+        grid = mission._grid()
+        self.assertTrue(mission.planner.pose_is_collision_free(grid, Pose2D(*pose)))
+        self.assertEqual(mission.footprint.padding, 0.)
+        linear, angular, _ = mission.step(now + .1)
+        self.assertGreater(abs(linear) + abs(angular), 0.)
+
+        # A real body overlap still stops motion; merely entering the former
+        # 10 mm padded rectangle no longer does.
+        tight = (pose[0], pose[1] - .015, pose[2])
+        body_gap = (tight[1] - mission.footprint.rear * math.sin(tight[2])
+                    - mission.footprint.half_width * math.cos(tight[2]) + .150)
+        self.assertLess(body_gap, 0.)
+        self.feed(mission, now + .2, tight)
+        self.assertEqual(mission.step(now + .2), (0., 0., False))
+        self.assertIn('clearance is blocked in map', mission.reason)
 
     def test_entry_endpoint_is_fixed_while_reported_travel_adapts(self):
         mission = self.mission()
         now = self.confirm(mission)
+        # Isolate the straight leg after the entry heading turn.
+        mission.entry_phase, mission.entry_drive_yaw = 'DRIVE', 0.
         self.feed(mission, now+.1, (.911, 0., 0.))
         self.assertEqual(mission.step(now+.1), (0., 0., False))
         self.assertEqual(mission.state, 'PLANNING')

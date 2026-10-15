@@ -115,7 +115,7 @@ class MotorArmingTests(unittest.TestCase):
         fixture = wiring.TunnelWiringTests()
         fixture.setUp()
         try:
-            for start_step in (8, 9):
+            for start_step in (0, 8, 9):
                 with self.subTest(start_step=start_step):
                     fixture.params.update({'~enable_motor_torque':True,'~start_step':start_step})
                     @contextmanager
@@ -124,6 +124,10 @@ class MotorArmingTests(unittest.TestCase):
                         self.assertEqual(node.step, start_step)
                         self.assertIsNone(node.tunnel_timer)
                         self.assertFalse(node.drive_ready)
+                        if start_step == 0:
+                            node.img_callback(fixture.green_light_image())
+                            self.assertEqual(node.step, 0)
+                            fixture.target.rospy.sleep.assert_not_called()
                         node.move(.1,.2,tunnel=start_step == 9)
                         node.step = 0
                         node.move(.1,.2)
@@ -137,6 +141,13 @@ class MotorArmingTests(unittest.TestCase):
                     with patch.object(fixture.target,'arm_motor_torque',handshake):
                         node = fixture.target.turtlebot()
                     self.assertEqual(node.step, start_step)
+                    if start_step == 0:
+                        node.img_callback(fixture.image())
+                        self.assertEqual(node.step, 0)
+                        node.img_callback(fixture.green_light_image())
+                        self.assertEqual(node.step, 1)
+                        self.assertTrue(all(call.args[0].linear.x == call.args[0].angular.z == 0
+                                            for call in node.cmd_pub.publish.call_args_list))
         finally:
             fixture.doCleanups()
 

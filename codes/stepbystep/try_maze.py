@@ -16,12 +16,18 @@ from std_msgs.msg import UInt8
 import tf2_ros
 import tf2_sensor_msgs.tf2_sensor_msgs
 from tunnel.mission import TunnelMission, load_config
+from tunnel.odometry import read_linear_scale, read_angular_command_scale, scale_pose
 from tunnel.cloud import tunnel_cloud_xy
 from tunnel.motor import arm_motor_torque
 
 class turtlebot():
     def __init__(self):
         rospy.init_node('controller',anonymous=True)
+        # An absent rosout option makes rospy call the master on every log.
+        # Set its unchanged default before callbacks can publish drive commands.
+        if not rospy.has_param('/rosout_disable_topics_generation'):
+            rospy.set_param('/rosout_disable_topics_generation',False)
+        rospy.get_param_cached('/rosout_disable_topics_generation',False)
         self.command_lock=RLock()
         self.shutting_down=False
         self.enable_motor_torque=rospy.get_param('~enable_motor_torque',False)
@@ -36,8 +42,12 @@ class turtlebot():
         self.tunnel_generation=0
         self.tunnel_active=False
         config_path=rospy.get_param('~tunnel_config',os.environ.get(
-            'TB_TUNNEL_CONFIG',str(Path(__file__).with_name('tunnel.yaml'))))
+            'TB_TUNNEL_CONFIG',str(Path(__file__).with_name('tunnel.real.yaml'))))
         self.tunnel_config=load_config(config_path,rospy.get_param('~tunnel_profile','normal'))
+        self.tunnel_linear_scale=read_linear_scale(self.tunnel_config)
+        self.tunnel_angular_command_scale=read_angular_command_scale(self.tunnel_config)
+        rospy.loginfo("Tunnel linear scale: %.6f (distance/speed x scale, linear command / scale); angular command / %.6f",
+                      self.tunnel_linear_scale,self.tunnel_angular_command_scale)
         self.lidar_type=rospy.get_param('~lidar_type','pointcloud2')
         if self.lidar_type not in ('pointcloud2','laserscan'):
             raise ValueError('~lidar_type must be pointcloud2 or laserscan')
@@ -55,7 +65,7 @@ class turtlebot():
         
 
 ############## 구간별 테스트 설정 ##############
-        self.step=int(rospy.get_param('~start_step',0))
+        self.step=int(rospy.get_param('~start_step',1))
         self.standalone_gate_start=self.step==8
         # Full-course odometry uses its original heading. A fresh step8 run
         # instead captures the approach heading when the lane ends.
@@ -147,8 +157,8 @@ class turtlebot():
         self.depth_sub=rospy.Subscriber('/camera/depth/image_rect_raw',Image,self.depth_callback,queue_size=1,buff_size=2**24)
         rospy.on_shutdown(self.shutdown)
         if self.enable_motor_torque:
-            if self.step not in (8,9,10):
-                raise ValueError('Physical torque startup requires start step 8, 9 or 10')
+            if self.step not in (0,8,9,10):
+                raise ValueError('Physical torque startup requires start step 0, 8, 9 or 10')
             with arm_motor_torque(self.cmd_pub,Twist,
                                   lambda:self.shutting_down or self.arming_cancelled,
                                   self.shutdown,self.command_lock):
@@ -212,8 +222,9 @@ class turtlebot():
         self.odom_x,self.odom_y,self.yaw=self.local_pose(x,y,raw_yaw)
         self.odom_frame=data.header.frame_id
         self.odom_received=True
-        self.tunnel.update_odometry((self.odom_x,self.odom_y,self.yaw),
-                                    data.twist.twist.linear.x,data.twist.twist.angular.z,
+        tunnel_pose=scale_pose((self.odom_x,self.odom_y,self.yaw),self.tunnel_linear_scale)
+        self.tunnel.update_odometry(tunnel_pose,
+                                    data.twist.twist.linear.x*self.tunnel_linear_scale,data.twist.twist.angular.z,
                                     data.header.stamp.to_sec())
 
     def local_pose(self,x,y,yaw):
@@ -234,7 +245,8 @@ class turtlebot():
         with self.command_lock:
             if generation!=self.tunnel_generation or self.step not in (9,10):
                 return
-            self.move(linear,angular,tunnel=True)
+            self.move(linear/self.tunnel_linear_scale,
+                      angular/self.tunnel_angular_command_scale,tunnel=True)
             if finished:
                 self.step=11
                 self.tunnel_active=False
@@ -322,7 +334,8 @@ class turtlebot():
             odom_tf=self.tf_buffer.lookup_transform(odom_frame,base_frame,
                          rospy.Time.from_sec(float(stamps[index])),rospy.Duration(timeout))
             p,q=odom_tf.transform.translation,odom_tf.transform.rotation
-            poses[index]=(p.x,p.y,euler_from_quaternion([q.x,q.y,q.z,q.w])[2])
+            yaw=euler_from_quaternion([q.x,q.y,q.z,q.w])[2]
+            poses[index]=scale_pose(self.local_pose(p.x,p.y,yaw),self.tunnel_linear_scale)
         if self.odom_frame!=odom_frame:
             raise ValueError('Odometry frame changed during cloud acquisition')
         return poses
@@ -410,7 +423,7 @@ class turtlebot():
             return None
         p,q=odom_tf.transform.translation,odom_tf.transform.rotation
         yaw=euler_from_quaternion([q.x,q.y,q.z,q.w])[2]
-        scan_pose=self.local_pose(p.x,p.y,yaw)
+        scan_pose=scale_pose(self.local_pose(p.x,p.y,yaw),self.tunnel_linear_scale)
         p,q=transform.transform.translation,transform.transform.rotation
         sensor_pose=(p.x,p.y,euler_from_quaternion([q.x,q.y,q.z,q.w])[2])
         return sensor_pose,scan_pose
@@ -427,7 +440,7 @@ class turtlebot():
 
         if cv2.countNonZero(green_mask)>=200:
             rospy.loginfo("@@@@@@ GREEN LIGHT @@@@@@")
-            self.stop()
+            # self.stop()
             rospy.sleep(0.5)
             self.step=1
             rospy.loginfo("@@@@@@ STEP 1 @@@@@@")
@@ -441,11 +454,8 @@ class turtlebot():
 
         yellow_mask=cv2.inRange(hsv,np.array([15,100,100]),np.array([50,255,255]))
         white_mask=cv2.inRange(hsv,np.array([0,0,210]),np.array([179, 55, 255]))
-        # white_mask=cv2.inRange(hsv,np.array([0,0,150]),np.array([179,50,255]))
-        # blue_mask=cv2.inRange(hsv,np.array([90,80,50]),np.array([130,255,255]))
 
         mask=cv2.bitwise_or(yellow_mask,white_mask)
-        # mask=cv2.bitwise_or(mask,blue_mask)
 
         filtered=cv2.bitwise_and(image,image,mask=mask)
         gray=cv2.cvtColor(filtered,cv2.COLOR_BGR2GRAY)
@@ -459,9 +469,9 @@ class turtlebot():
         rospy.loginfo("LEFT: %.1f%% RIGHT: %.1f%%",max_val_l*100,max_val_r*100)
 
         if 1.2<=self.front_distance<=2.2:
-            if max_val_r>=max_val_l and max_val_r>0.29:
+            if max_val_r>=max_val_l and max_val_r>0.27:
                 self.right_count+=1
-            elif max_val_l>=max_val_r and max_val_l>0.29:
+            elif max_val_l>=max_val_r and max_val_l>0.27:
                 self.left_count+=1
 
             if self.right_count>=5:
@@ -740,7 +750,7 @@ class turtlebot():
         else:
             self.obstacle_clear_count=0
 
-        if self.obstacle_clear_count>=40:
+        if self.obstacle_clear_count>=60:
             self.step=4
             self.obstacle_clear_count=0
             self.obstacle_direction=None
@@ -946,10 +956,6 @@ class turtlebot():
                 self.signal=1
                 self.parking_side='right'
 
-            # if 0.15<=self.right_distance<=0.3: # 오른쪽에 뭐있음 -->정지-> 왼쪽으로회전(0)--> 출구쪽 바라봄(1.57)
-            #     self.signal=1
-            #     self.parking_side='right'
-
             # elif 0.15<=self.left_distance<=0.3: # 왼쪽에 뭐있음 -->정지-> 오른쪽으로회전(0)--> 출구쪽 바라봄(1.57)
             elif self.set ==3:    
                 self.signal=1
@@ -992,12 +998,7 @@ class turtlebot():
                 
                 self.sequence=2
 
-        # if self.parking_end==None and self.sequence==2:
-        #     if self.set_yaw(1):
-        #         self.move_time(0.04,0,2.5)
-        #         self.parking_end=1
-        #         self.step=6
-        #         return
+   
         if self.parking_end==None and self.sequence==2:
             if self.set_yaw(1):
                 self.move_time_yaw_hold(0.04,1.565,2.5)
@@ -1097,6 +1098,11 @@ class turtlebot():
         if image is None:
             return
 
+        # Keep the start stage fixed until motor preparation is complete.
+        if not self.drive_ready:
+            self.move(0,0,tunnel=self.step in (9,10))
+            return
+
         if self.step in (9,10):
             self.tunnel.update_lane(self.lane_detect(image),data.header.stamp.to_sec())
             return
@@ -1118,7 +1124,7 @@ class turtlebot():
         
         elif self.step == 2: # straight find --> turn detect reset for obstacle !!~!~!~
             # self.turn_detect='left'
-            self.straight = self.is_straight(image,300) #6
+            self.straight = self.is_straight(image,250) #6
             if self.straight:
                 self.turn_detect = 'straight'#None
                 self.turn_direction = 'straight'
@@ -1135,17 +1141,17 @@ class turtlebot():
                 return
 
             if self.obstacle_move_count>=20:
-                self.speed=2
+                self.speed = 2
                 if self.check_obstacle_end():
-                    self.speed=0
                     self.obstacle_move_count=0
                     self.obstacle_pass_count=0
                     self.turn_detect=None
+                    self.speed = 0
                     return
 
 
         elif self.step==4: # 장애물 후 straight 발견 --> 주차구간 시작 직전임
-            self.straight = self.is_straight(image,100) #25
+            self.straight = self.is_straight(image,70) #25
             if self.straight:
                 self.step = 5
                 # self.straight_count = 0
@@ -1209,7 +1215,7 @@ class turtlebot():
                 self.yellow_zero_count=0
                 self.turn_time('straight',0.8,0.06,0)
                 rospy.loginfo("@@@@@@ TURN LEFT @@@@@@")
-                self.turn_time('left',0.8,0.03,0.45)
+                self.turn_time('left',0.8,0.04,0.45) #0.8,0.03,0.45)
                 self.step=7
                 return
                 
@@ -1223,9 +1229,10 @@ class turtlebot():
             self.turn_direction=None
 
             if self.gate_state == 0:
-                if 500 < self.red_area < 12000:
-                    self.speed=1
-                if (self.depth <= 0.75 and self.red_area>7000) or self.red_area >=12000:
+                if 500<self.red_area<12000:
+                    self.speed = 1
+                    
+                if (self.depth <= 0.75 and self.red_area>1200) or self.red_area >=1600:
                     self.gate_close_count += 1
                     rospy.loginfo("GATE CLOSE COUNT: %d / 5",self.gate_close_count)
                 else:
@@ -1243,7 +1250,7 @@ class turtlebot():
             elif self.gate_state == 1:
                 self.stop()
 
-                if  self.red_area<=2200:
+                if  self.red_area<=950:
                     self.gate_open_count += 1
                     rospy.loginfo("GATE OPEN COUNT: %d / 10",self.gate_open_count)
                 else:
@@ -1256,10 +1263,9 @@ class turtlebot():
                     self.gate_open_count=0
                     self.turn_direction = None
                     self.step=8
-                    self.speed=0
+                    self.speed = 0
 
                 return  
-
 
         elif self.step==8:
             crop_img=image[300:,:]
@@ -1277,14 +1283,12 @@ class turtlebot():
             else:
                 self.maze_count=0
 
-            if self.maze_count>=10:
-                if self.standalone_gate_start:
-                    self.gate_approach_yaw=self.yaw
+            if self.maze_count>=5:
                 self.step=8.5
                 return
 
         elif self.step==8.5:
-            self.move_time_yaw_hold(0.06,self.gate_approach_yaw,2.5)
+            self.move_time_yaw_hold(0.06,self.gate_approach_yaw,1)
             self.move(0,0)
 
             with self.command_lock:

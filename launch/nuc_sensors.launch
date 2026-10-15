@@ -2,9 +2,10 @@
   <!-- Existing NUC sensor drivers only. This launch has no cmd_vel publisher. -->
   <arg name="opencr_port" default="/dev/serial/by-id/usb-ROBOTIS_OpenCR_Virtual_ComPort_in_FS_Mode_FFFFFFFEFFFF-if00"/>
   <arg name="publish_measured_mounts" default="false"/>
+  <arg name="enable_depth" default="false"/>
   <param name="use_sim_time" value="false"/>
   <include file="$(find realsense2_camera)/launch/rs_camera.launch">
-    <arg name="enable_depth" value="false"/>
+    <arg name="enable_depth" value="$(arg enable_depth)"/>
     <arg name="enable_infra1" value="false"/>
     <arg name="enable_infra2" value="false"/>
     <arg name="infra_rgb" value="true"/>

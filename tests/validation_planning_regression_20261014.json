@@ -1,0 +1,522 @@
+{
+  "validation_date_kst": "2026-10-14",
+  "status": "diagnosis_complete; no new planner acceleration selected; user requested gentle-left entry instead",
+  "trial": "/home/sj/Desktop/TB/records/20261014_111215_453879_KST",
+  "reconstruction_script": "/home/sj/Desktop/TB/records/analysis_cache/diagnose_latest_planning.py",
+  "source_sha256": {
+    "tunnel.yaml": "00ece1912b0b39da755668d13b7c0ad18e673d1bcbbda12d273f068e0d10b2df",
+    "source/codes/stepbystep/tunnel/planner.py": "5465ef9d13247d6490a95b508d8104ab3e5cbf1f93f898e2600a539e5439f818",
+    "source/codes/stepbystep/tunnel/mission.py": "65922f062d543cac65e921e5658b48e3bb55c3b8ed02a09aa98163a515abc417",
+    "walls.pgm": "bc96c2d3de1ad8e2b97dbf999a7042e27e5928077a3409431fd6b3f9880848db",
+    "wall_geometry.json": "e94149ad4b5fd7b888c7b9f4d2585bebab2d2d33ec3d68350a1701e0e836ed90"
+  },
+  "recorded_runtime": {
+    "first_planning_time": 1791943968.58684,
+    "last_waiting_log_time": 1791944019.262512,
+    "reported_wait_seconds": 50.67567205429077,
+    "result": "no following/no-feasible result before shutdown",
+    "reason_caveat": "waiting-for-fresh-input text could persist while worker was alive; repeated text alone does not prove continuous sensor staleness"
+  },
+  "latest_recorded_planner_replay": {
+    "trial": "/home/sj/Desktop/TB/records/20261014_111215_453879_KST",
+    "start": [
+      0.485474500540626,
+      -0.03536762198831689,
+      -0.005182562837169718
+    ],
+    "anchor": [
+      0.13283844955207655,
+      -0.4497185168916257,
+      0.004497109409432629
+    ],
+    "mapped_scans": 32,
+    "grid_sha256": "0348504f9483725cd016805dc6cf7756ad9ae3638a2f681da9a7350e845cff6c",
+    "collision_resolution": 0.001999999999999974,
+    "dynamic_cell_count": 92,
+    "precise_start_free": true,
+    "precise_goal_free": true,
+    "progress": [
+      {
+        "elapsed": 5.0007153330000165,
+        "expanded": 3647,
+        "queue": 2141,
+        "nodes": 6267,
+        "queued_goal_cost": null
+      },
+      {
+        "elapsed": 10.001181036000162,
+        "expanded": 7648,
+        "queue": 3585,
+        "nodes": 12455,
+        "queued_goal_cost": null
+      },
+      {
+        "elapsed": 15.003920904000097,
+        "expanded": 11695,
+        "queue": 5323,
+        "nodes": 18654,
+        "queued_goal_cost": null
+      },
+      {
+        "elapsed": 20.006585773000097,
+        "expanded": 15901,
+        "queue": 5327,
+        "nodes": 24570,
+        "queued_goal_cost": null
+      },
+      {
+        "elapsed": 25.01099807200012,
+        "expanded": 20227,
+        "queue": 5975,
+        "nodes": 30243,
+        "queued_goal_cost": null
+      },
+      {
+        "elapsed": 30.013089442000137,
+        "expanded": 24365,
+        "queue": 6090,
+        "nodes": 35814,
+        "queued_goal_cost": null
+      },
+      {
+        "elapsed": 35.01339555200002,
+        "expanded": 31523,
+        "queue": 5165,
+        "nodes": 45604,
+        "queued_goal_cost": null
+      },
+      {
+        "elapsed": 40.017025241000056,
+        "expanded": 38859,
+        "queue": 5535,
+        "nodes": 55748,
+        "queued_goal_cost": null
+      },
+      {
+        "elapsed": 45.01757603500005,
+        "expanded": 45290,
+        "queue": 5819,
+        "nodes": 64843,
+        "queued_goal_cost": null
+      },
+      {
+        "elapsed": 50.01882574000001,
+        "expanded": 50767,
+        "queue": 8944,
+        "nodes": 74724,
+        "queued_goal_cost": null
+      }
+    ],
+    "plan_seconds": 54.76738894900018,
+    "found": true,
+    "expanded_nodes": 56795,
+    "precise_final_route_safe": true,
+    "path_samples": 223,
+    "path_length_m": 3.150870774388219
+  },
+  "earlier_easier_input": {
+    "trial": "/home/sj/Desktop/TB/records/20261013_150628_144714_KST",
+    "plan_seconds": 4.393329822999988,
+    "found": true,
+    "expanded_nodes": 4144,
+    "grid_sha256": "124dcda19b1ef424751b9c181160a4a9d4fd9b13f8e1907c5204b2db65958981",
+    "mapped_scans": 33,
+    "start": [
+      0.50663027451647,
+      -0.014411405882405692,
+      0.0032774882307653463
+    ],
+    "planning_goal": [
+      1.808,
+      1.488,
+      1.5707963267948966
+    ],
+    "path_build_seconds": 0.009496263000016825,
+    "precise_final_route_safe": true,
+    "precise_route_check_seconds": 0.007308620999992854,
+    "path_samples": 176,
+    "path_length_m": 2.528030230847612,
+    "path_sha256": "bfbff3c050c63bd0fbc9bba5899c52c3495206ef7307d2d081a97211b45ef51e"
+  },
+  "input_comparison": {
+    "old": {
+      "start": [
+        0.50663027451647,
+        -0.014411405882405692,
+        0.18778624302665356
+      ],
+      "dynamic_cells": 78,
+      "clusters": [
+        {
+          "cells": 14,
+          "bounds": [
+            0.6,
+            0.7,
+            0.78,
+            0.78
+          ],
+          "centroid": [
+            0.7,
+            0.7471
+          ]
+        },
+        {
+          "cells": 7,
+          "bounds": [
+            1.38,
+            -0.04,
+            1.44,
+            0.04
+          ],
+          "centroid": [
+            1.4071,
+            -0.0043
+          ]
+        },
+        {
+          "cells": 6,
+          "bounds": [
+            1.24,
+            0.7,
+            1.3,
+            0.8
+          ],
+          "centroid": [
+            1.2667,
+            0.7533
+          ]
+        },
+        {
+          "cells": 4,
+          "bounds": [
+            0.86,
+            0.76,
+            0.94,
+            0.8
+          ],
+          "centroid": [
+            0.9,
+            0.775
+          ]
+        },
+        {
+          "cells": 3,
+          "bounds": [
+            1.12,
+            0.72,
+            1.16,
+            0.78
+          ],
+          "centroid": [
+            1.1433,
+            0.75
+          ]
+        },
+        {
+          "cells": 3,
+          "bounds": [
+            1.18,
+            0.74,
+            1.22,
+            0.78
+          ],
+          "centroid": [
+            1.2033,
+            0.7633
+          ]
+        },
+        {
+          "cells": 3,
+          "bounds": [
+            1.38,
+            0.04,
+            1.42,
+            0.1
+          ],
+          "centroid": [
+            1.3967,
+            0.07
+          ]
+        }
+      ],
+      "physical_right_wall_gap": 0.044902096940211356,
+      "padded_right_wall_gap": 0.03486937582617869,
+      "first_primitive_options": [
+        {
+          "curvature": 0.0,
+          "radius": null,
+          "free": true
+        },
+        {
+          "curvature": 1.388889,
+          "radius": 0.72,
+          "free": true
+        },
+        {
+          "curvature": -1.388889,
+          "radius": 0.72,
+          "free": true
+        },
+        {
+          "curvature": 2.777778,
+          "radius": 0.36,
+          "free": true
+        },
+        {
+          "curvature": -2.777778,
+          "radius": 0.36,
+          "free": true
+        },
+        {
+          "curvature": 4.166667,
+          "radius": 0.24,
+          "free": true
+        },
+        {
+          "curvature": -4.166667,
+          "radius": 0.24,
+          "free": false
+        },
+        {
+          "curvature": 5.555556,
+          "radius": 0.18,
+          "free": true
+        },
+        {
+          "curvature": -5.555556,
+          "radius": 0.18,
+          "free": false
+        }
+      ],
+      "start_units": [
+        "m",
+        "m",
+        "degrees"
+      ]
+    },
+    "latest": {
+      "start": [
+        0.485474500540626,
+        -0.03536762198831689,
+        -0.29693897763117055
+      ],
+      "dynamic_cells": 92,
+      "clusters": [
+        {
+          "cells": 16,
+          "bounds": [
+            0.94,
+            0.72,
+            1.08,
+            0.82
+          ],
+          "centroid": [
+            1.0238,
+            0.7712
+          ]
+        },
+        {
+          "cells": 15,
+          "bounds": [
+            1.1,
+            0.72,
+            1.24,
+            0.8
+          ],
+          "centroid": [
+            1.17,
+            0.7673
+          ]
+        },
+        {
+          "cells": 6,
+          "bounds": [
+            -0.06,
+            1.64,
+            0.04,
+            1.68
+          ],
+          "centroid": [
+            -0.0067,
+            1.6633
+          ]
+        },
+        {
+          "cells": 5,
+          "bounds": [
+            1.24,
+            0.7,
+            1.32,
+            0.78
+          ],
+          "centroid": [
+            1.278,
+            0.738
+          ]
+        },
+        {
+          "cells": 4,
+          "bounds": [
+            -0.14,
+            1.64,
+            -0.08,
+            1.68
+          ],
+          "centroid": [
+            -0.105,
+            1.66
+          ]
+        },
+        {
+          "cells": 4,
+          "bounds": [
+            1.24,
+            1.26,
+            1.32,
+            1.3
+          ],
+          "centroid": [
+            1.28,
+            1.285
+          ]
+        },
+        {
+          "cells": 3,
+          "bounds": [
+            -0.24,
+            1.64,
+            -0.2,
+            1.68
+          ],
+          "centroid": [
+            -0.2167,
+            1.6633
+          ]
+        }
+      ],
+      "physical_right_wall_gap": 0.023983017797124362,
+      "padded_right_wall_gap": 0.01393132669523664,
+      "first_primitive_options": [
+        {
+          "curvature": 0.0,
+          "radius": null,
+          "free": true
+        },
+        {
+          "curvature": 1.388889,
+          "radius": 0.72,
+          "free": true
+        },
+        {
+          "curvature": -1.388889,
+          "radius": 0.72,
+          "free": false
+        },
+        {
+          "curvature": 2.777778,
+          "radius": 0.36,
+          "free": false
+        },
+        {
+          "curvature": -2.777778,
+          "radius": 0.36,
+          "free": false
+        },
+        {
+          "curvature": 4.166667,
+          "radius": 0.24,
+          "free": false
+        },
+        {
+          "curvature": -4.166667,
+          "radius": 0.24,
+          "free": false
+        },
+        {
+          "curvature": 5.555556,
+          "radius": 0.18,
+          "free": false
+        },
+        {
+          "curvature": -5.555556,
+          "radius": 0.18,
+          "free": false
+        }
+      ],
+      "start_units": [
+        "m",
+        "m",
+        "degrees"
+      ]
+    }
+  },
+  "expanded_node_ratio": 13.705357142857142,
+  "bounded_rejected_queue_weight_experiments": [
+    {
+      "heuristic_weight": 2.0,
+      "padding_m": 0.01,
+      "minimum_turning_radius": 0.18,
+      "collision_resolution": 0.001999999999999974,
+      "plan_seconds": 15.001572859999897,
+      "found": null,
+      "timeout": "offline experiment deadline",
+      "expanded": 9327,
+      "queued_goal_cost": null,
+      "trial": "/home/sj/Desktop/TB/records/20261014_111215_453879_KST",
+      "grid_sha256": "0348504f9483725cd016805dc6cf7756ad9ae3638a2f681da9a7350e845cff6c",
+      "mapped_scans": 32
+    },
+    {
+      "heuristic_weight": 3.0,
+      "padding_m": 0.01,
+      "minimum_turning_radius": 0.18,
+      "collision_resolution": 0.001999999999999974,
+      "plan_seconds": 15.002223748999995,
+      "found": null,
+      "timeout": "offline experiment deadline",
+      "expanded": 7854,
+      "queued_goal_cost": null,
+      "trial": "/home/sj/Desktop/TB/records/20261014_111215_453879_KST",
+      "grid_sha256": "0348504f9483725cd016805dc6cf7756ad9ae3638a2f681da9a7350e845cff6c",
+      "mapped_scans": 32
+    },
+    {
+      "heuristic_weight": 5.0,
+      "padding_m": 0.01,
+      "minimum_turning_radius": 0.18,
+      "collision_resolution": 0.001999999999999974,
+      "plan_seconds": 15.001973144000203,
+      "found": null,
+      "timeout": "offline experiment deadline",
+      "expanded": 7187,
+      "queued_goal_cost": null,
+      "trial": "/home/sj/Desktop/TB/records/20261014_111215_453879_KST",
+      "grid_sha256": "0348504f9483725cd016805dc6cf7756ad9ae3638a2f681da9a7350e845cff6c",
+      "mapped_scans": 32
+    }
+  ],
+  "conclusions": [
+    "The recorded optimized planner can require roughly 55 seconds on the latest reconstructed input; earlier 4.4 seconds was a different single recorded input, not a runtime guarantee.",
+    "Latest start is approximately 21 mm closer to the right wall and only 2 of 9 initial 10 cm steering primitives pass, versus 7 of 9 previously.",
+    "Dynamic occupancy changed from 78 to 92 cells and changed spatial layout; this alone does not establish causal responsibility for the search increase.",
+    "Precise collision resolution remained 2 mm; no tiny-refinement sliver explains the regression.",
+    "No analytic goal candidate was queued at the 5-second checkpoints through 50 seconds; search eventually returned a precisely validated path at56,795 expansions.",
+    "The later entry-steering change has not been physically replayed along its new trajectory, so planning latency improvement from that behavior is unproven."
+  ],
+  "uncertainty": "Snapshot source/config and bag data; alignment is reconstructed from rounded controller log values and interpolated odometry, using all received scans before the first-plan timestamp. Actual asynchronous acceptance order may differ. Single offline timing without live callbacks; no robot commands or hardware movement.",
+  "bounded_rejected_dubins_heuristic_experiment": {
+    "heuristic_weight": 1.25,
+    "padding_m": 0.01,
+    "minimum_turning_radius": 0.18,
+    "collision_resolution": 0.001999999999999974,
+    "plan_seconds": 20.001014640999983,
+    "found": null,
+    "timeout": "offline experiment deadline",
+    "expanded": 16243,
+    "queued_goal_cost": null,
+    "algorithm": "weight*max(grid_distance, forward_Dubins_distance)",
+    "trial": "/home/sj/Desktop/TB/records/20261014_111215_453879_KST",
+    "grid_sha256": "0348504f9483725cd016805dc6cf7756ad9ae3638a2f681da9a7350e845cff6c",
+    "mapped_scans": 32
+  }
+}

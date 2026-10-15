@@ -12,6 +12,14 @@ localization:
   confirmation_scans: 3 # Distinct consistent scans; ambiguity keeps the robot stopped.
   observation_window: 1.0 # Accumulate stopped Livox sweeps to distinguish extended walls from bottles.
   height_band: [0.04, 0.23] # Stopped wall fit only; includes weak black-wall returns, retains particle filtering.
+odometry:
+  # Current OpenCR: 0.033 m effective radius; documented drive: 0.04775 m x 2.
+  # Tunnel input XY/linear speed x scale, tunnel linear commands / scale.
+  # Global odom/TF and other missions stay raw. Set 1.0 after firmware correction.
+  linear_scale: 2.893939393939394
+  # 2026-10-14 following: measured rest-to-rest yaw / command integral = 3.32.
+  # Divide ONLY tunnel angular commands; leave measured IMU yaw/rate unchanged.
+  angular_command_scale: 3.3
 goal:
   pose: [1.808, 1.868, 90.0] # 200 mm beyond the exit outer wall, on portal centreline.
   planning_pose: [1.808, 1.488, 90.0] # Internal alignment target, unchanged 380 mm connector span.
@@ -28,7 +36,7 @@ footprint:
   front: 0.067645
   rear: 0.118073
   half_width: 0.0903 # Includes wheel bolts/camera protrusions, not base box width.
-  padding: 0.010 # Geometric clearance around the current body and planned path.
+  padding: 0.0 # User-requested actual body outline; no added corner/side clearance.
 sensors:
   base_frame: base_footprint
   # Mid-360 only: reject non-normal particle-confidence tags (bits 2..3).
@@ -62,6 +70,7 @@ grid:
   resolution: 0.02 # Physical raster MUST match this unchanged 20 mm cell size.
   static_map:
     image: maps/tunnel_practice_1820.pgm # User dimensions; conservative 20 mm occupied cells.
+    geometry: maps/tunnel_practice_1820.geometry.json # Exact wall surfaces for collision checks; validated against image.
     origin: [-0.5, -0.4] # Local lower-left boundary of final raster.
     quarter_turns: 0
   static_hit_exclusion_radius: 0.100
@@ -74,14 +83,19 @@ grid:
   dynamic_inflation_value: 64
 entry:
   distance: 0.92 # Fixed map x endpoint; traveled distance adapts to the localized start.
-  obstacle_clearance: 0.35 # Gap from physical body FRONT; stop earlier to leave room to turn.
-  # Entry left reach: measured body half-width + 10 mm clearance.
-  # The explicit right override below keeps this increase on the left only.
-  obstacle_half_width: 0.1003
-  # User requested an additional right-only reduction after viewing the returns.
-  # ENTRY no longer checks the outermost 5.3 mm of the physical right side.
-  obstacle_right_width: 0.085
-  cruise_velocity: 0.30 # User-requested straight entry cap; acceleration and stopping gap retained.
+  obstacle_clearance: 0.60 # Gap target from physical body FRONT; finish entry early enough to turn.
+  # Entry trapezoid: widen the left side ahead; keep the near/right body width.
+  obstacle_half_width: 0.0903
+  obstacle_right_width: 0.0903
+  obstacle_left_far_width: 0.30 # Left extent from the centreline at the far edge.
+  obstacle_check_distance: 0.80 # Far edge ahead of the front bumper, in metres.
+  cruise_velocity: 0.25 # User-selected entry target after tunnel linear calibration.
+  linear_acceleration: 0.10 # Entry-only ramp in m/s^2 for a gentler start.
+  heading_offset_deg: 5.0 # First turn left in place, confirm rest, then drive straight.
+  alignment_angular_velocity: 0.10 # Initial pivot cap, rad/s.
+  alignment_angular_acceleration: 0.25 # Initial pivot ramp, rad/s^2.
+  alignment_tolerance_deg: 0.3 # Stop near/past the target once, then hold the stopped heading.
+  maximum_curvature: 0.35 # Gentle drift corrections only during straight entry.
 planner:
   keep_in_rectangles: # Base-centre regions; padded body collision checks remain unchanged.
     - [-0.42, -0.15, 0.34, 0.15]
@@ -133,7 +147,8 @@ control:
   tracking_heading_tolerance_deg: 20.0
 
 # Physical normal uses the explicit values above, including FAST turn limits.
-# Entry cruise is 0.30; exit speed and longitudinal limits retain their values.
-# Obstacle checks use the padded body/path, without a speed-based stopping sweep.
+# Entry uses 0.15 m/s and 0.10 m/s^2; path tracking uses the control limits above.
+# Collision checks use the actual body/path, with no added body padding
+# and no predicted rear-corner/braking sweep during entry.
 profiles:
   normal: {}

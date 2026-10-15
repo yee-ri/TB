@@ -218,6 +218,26 @@ class TunnelMissionPortTest(unittest.TestCase):
         self.assertIsNone(mission.path)
         self.assertIn('connector is not collision-free', mission.reason)
 
+    def test_plan_without_exit_connector_checks_thin_obstacle_between_samples(self):
+        mission = self.make_mission()
+        self.assertNotIn('planning_pose', mission.config['goal'])
+        data = np.zeros((100, 100), dtype=np.int8)
+        data[50, 41] = 100
+        grid = OccupancyGrid(data, .02, -.5, -1., static_cell_rectangles={
+            50 * 100 + 41: ((.329, .004, .331, .006),)})
+        plan = SimpleNamespace(x=np.array([0., .65]), y=np.zeros(2),
+                               yaw=np.zeros(2), curvature=np.zeros(2))
+        # Both saved poses are clear; checking only vertices misses the 2 mm
+        # obstacle crossed by the candidate between them.
+        for x in plan.x:
+            self.assertTrue(mission.planner.pose_is_collision_free(grid, (x, 0., 0.)))
+        with patch.object(mission.planner, 'primitive_is_collision_free',
+                          wraps=mission.planner.primitive_is_collision_free) as precise_check:
+            with self.assertRaisesRegex(ValueError, 'planned path is not collision-free'):
+                mission._planned_path(plan, grid)
+            self.assertGreater(precise_check.call_count, 0)
+        self.assertIsNone(mission.path)
+
     def test_exit_connector_keeps_source_forward_and_curvature_limits(self):
         mission = self.connector_mission()
         grid = mission._grid()
@@ -760,6 +780,39 @@ class TunnelMissionPortTest(unittest.TestCase):
                 self.assertEqual(mission.state, 'PLANNING')
                 self.assertIn('front clearance', mission.reason)
 
+    def test_physical_entry_previews_ahead_left_without_widening_body_or_right_side(self):
+        root = CONFIG.parents[2]
+        for folder in ('stepbystep', 'final_codes'):
+            for lateral in (-.095, -.088, .088, .095):
+                with self.subTest(folder=folder, lateral=lateral):
+                    config = load_config(root / 'codes' / folder / 'tunnel.real.yaml')
+                    # Isolate the straight leg after localization/heading turn.
+                    # The ahead-left preview is separate from the unpadded
+                    # body model and the unchanged physical right-side width.
+                    config.pop('localization', None)
+                    config['grid'].pop('static_map', None)
+                    mission = TunnelMission(config)
+                    mission.entry_phase, mission.entry_drive_yaw = 'DRIVE', 0.
+                    self.addCleanup(mission.close)
+                    expected = mission.footprint.half_width + mission.footprint.padding
+                    self.assertEqual(mission.footprint.padding, 0.)
+                    self.assertAlmostEqual(mission.entry_obstacle_half_width, expected)
+                    self.assertAlmostEqual(mission.entry_obstacle_right_width, expected)
+                    self.assertEqual(mission.entry_obstacle_left_far_width, .30)
+                    self.assertEqual(mission.entry_obstacle_check_distance, .80)
+                    mission.update_odometry((0., 0., 0.), 0., 0., 10.)
+                    mission.update_cloud([[.16, lateral]], (-.033073, 0., 0.),
+                                         (0., 0., 0.), 10.)
+                    if lateral >= -mission.footprint.half_width:
+                        self.assertLess(mission.front_clearance, config['entry']['obstacle_clearance'])
+                        self.assertEqual(mission.step(10.), (0., 0., False))
+                        self.assertEqual(mission.state, 'PLANNING')
+                        self.assertIn('front clearance', mission.reason)
+                    else:
+                        self.assertEqual(mission.front_clearance, math.inf)
+                        self.assertGreater(mission.step(10.)[0], 0.)
+                        self.assertEqual(mission.state, 'ENTRY')
+
     def test_entry_right_width_rejects_non_numeric_nonfinite_or_nonpositive_values(self):
         config = configuration()
         for value in (True, False, np.bool_(True), None, '0.085', 0., -.001,
@@ -847,14 +900,84 @@ class TunnelMissionPortTest(unittest.TestCase):
         mission.step(10.)
         mission.state, mission.reason = 'PLANNING', 'planning from measured rest'
         mission.worker = SimpleNamespace(is_alive=lambda: True)
+        mission.planning_started = time.monotonic()
         with patch.object(mission, '_grid', side_effect=AssertionError('unused snapshot')):
             self.assertEqual(mission.step(10.05), (0., 0., False))
-            self.assertEqual(mission.reason, 'planning from measured rest')
+            self.assertIn('planning from measured rest (elapsed ', mission.reason)
             mission.worker = None
             mission.last_plan_attempt = 10.
             mission.reason = 'no feasible path'
             self.assertEqual(mission.step(10.1), (0., 0., False))
             self.assertEqual(mission.reason, 'no feasible path')
+
+    def test_pending_search_status_recovers_after_stale_sensors(self):
+        mission = self.make_mission()
+        self.feed(mission, 10.)
+        mission.step(10.)
+        mission.state = 'PLANNING'
+        mission.worker = SimpleNamespace(is_alive=lambda: True)
+        mission.planning_started = 100.
+        with patch('tunnel.mission.time.monotonic', return_value=104.5):
+            self.assertEqual(mission.step(11.), (0., 0., False))
+            self.assertIn('waiting for fresh odometry and lidar', mission.reason)
+            self.assertIn('odom_age=1.000s, lidar_age=1.000s', mission.reason)
+            self.assertIn('elapsed 4s', mission.reason)
+            first_report = mission.reason
+            self.assertEqual(mission.step(11.05), (0., 0., False))
+            self.assertEqual(mission.reason, first_report)
+            mission.update_odometry((0., 0., 0.), 0., 0., 11.05)
+            self.assertEqual(mission.step(11.05), (0., 0., False))
+            self.assertIn('odom_age=0.000s, lidar_age=1.050s', mission.reason)
+            self.feed(mission, 11.05)
+            self.assertEqual(mission.step(11.05), (0., 0., False))
+        self.assertEqual(mission.reason, 'planning from measured rest (elapsed 4s)')
+        self.assertEqual(mission.state, 'PLANNING')
+        self.assertEqual(mission.plans, 0)
+
+    def test_ready_plan_status_does_not_bypass_sensor_or_measured_rest_gates(self):
+        mission = self.make_mission()
+        self.prepare_following(mission)
+        result = mission.path
+        mission.state, mission.path = 'PLANNING', None
+        pending = (result, '', Pose2D(0., 0., 0.))
+        mission.plan_result, mission.planning_duration = pending, 2.25
+        self.assertEqual(mission.step(11.), (0., 0., False))
+        self.assertIn('waiting for fresh odometry and lidar', mission.reason)
+        self.assertIn('plan ready in 2.25s', mission.reason)
+        self.assertIs(mission.plan_result, pending)
+        self.feed(mission, 11., velocity=(.05, .1))
+        self.assertEqual(mission.step(11.), (0., 0., False))
+        self.assertIn('waiting for measured rest', mission.reason)
+        self.assertIn('plan ready in 2.25s', mission.reason)
+        self.assertIs(mission.plan_result, pending)
+        self.feed(mission, 11.05)
+        self.assertGreater(mission.step(11.05)[0], 0.)
+        self.assertEqual(mission.state, 'FOLLOWING')
+        self.assertIsNone(mission.plan_result)
+        self.assertEqual(mission.reason, 'tracking path; plan finished in 2.25s')
+        self.feed(mission, 11.10)
+        self.assertGreater(mission.step(11.10)[0], 0.)
+        self.assertEqual(mission.reason, 'tracking path')
+
+    def test_failed_search_records_monotonic_duration_before_result_is_consumed(self):
+        mission = self.make_mission()
+        self.feed(mission, 10.)
+        mission.step(10.)
+        mission.state = 'PLANNING'
+        with patch('tunnel.mission.time.monotonic', side_effect=(100., 102.75)), \
+                patch.object(mission.planner, 'plan', return_value=None):
+            self.assertEqual(mission.step(10.05), (0., 0., False))
+            mission.worker.join(timeout=2.)
+        self.assertFalse(mission.worker.is_alive())
+        self.assertEqual(mission.planning_duration, 2.75)
+        self.assertEqual(mission.step(11.), (0., 0., False))
+        self.assertIn('waiting for fresh odometry and lidar', mission.reason)
+        self.assertIn('plan finished in 2.75s: no feasible path', mission.reason)
+        self.assertIsNotNone(mission.plan_result)
+        self.feed(mission, 11.)
+        self.assertEqual(mission.step(11.), (0., 0., False))
+        self.assertEqual(mission.reason, 'plan finished in 2.75s: no feasible path')
+        self.assertIsNone(mission.plan_result)
 
     def test_completed_plan_checks_obstacle_received_during_search(self):
         mission = self.make_mission()
@@ -906,6 +1029,8 @@ class TunnelMissionPortTest(unittest.TestCase):
                 release.set()
                 mission.worker.join(timeout=2.)
             self.assertIsNone(mission.plan_result)
+            self.assertIsNone(mission.planning_started)
+            self.assertIsNone(mission.planning_duration)
             self.assertEqual(mission.state, 'ENTRY')
 
     def test_planning_result_from_shifted_start_is_not_accepted(self):

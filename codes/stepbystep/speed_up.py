@@ -15,6 +15,7 @@ from std_msgs.msg import UInt8
 import tf2_ros
 import tf2_sensor_msgs.tf2_sensor_msgs
 from tunnel.mission import TunnelMission, load_config
+from tunnel.odometry import read_linear_scale, read_angular_command_scale, scale_pose
 from tunnel.cloud import tunnel_cloud_xy
 from tunnel.motor import arm_motor_torque
 
@@ -33,6 +34,10 @@ class turtlebot():
         self.tunnel_active=False
         config_path=rospy.get_param('~tunnel_config',str(Path(__file__).with_name('tunnel.yaml')))
         self.tunnel_config=load_config(config_path,rospy.get_param('~tunnel_profile','normal'))
+        self.tunnel_linear_scale=read_linear_scale(self.tunnel_config)
+        self.tunnel_angular_command_scale=read_angular_command_scale(self.tunnel_config)
+        rospy.loginfo("Tunnel linear scale: %.6f (distance/speed x scale, linear command / scale); angular command / %.6f",
+                      self.tunnel_linear_scale,self.tunnel_angular_command_scale)
         self.lidar_type=rospy.get_param('~lidar_type','pointcloud2')
         if self.lidar_type not in ('pointcloud2','laserscan'):
             raise ValueError('~lidar_type must be pointcloud2 or laserscan')
@@ -201,8 +206,9 @@ class turtlebot():
         self.odom_x,self.odom_y,self.yaw=self.local_pose(x,y,raw_yaw)
         self.odom_frame=data.header.frame_id
         self.odom_received=True
-        self.tunnel.update_odometry((self.odom_x,self.odom_y,self.yaw),
-                                    data.twist.twist.linear.x,data.twist.twist.angular.z,
+        tunnel_pose=scale_pose((self.odom_x,self.odom_y,self.yaw),self.tunnel_linear_scale)
+        self.tunnel.update_odometry(tunnel_pose,
+                                    data.twist.twist.linear.x*self.tunnel_linear_scale,data.twist.twist.angular.z,
                                     data.header.stamp.to_sec())
 
     def local_pose(self,x,y,yaw):
@@ -223,7 +229,8 @@ class turtlebot():
         with self.command_lock:
             if generation!=self.tunnel_generation or self.step not in (9,10):
                 return
-            self.move(linear,angular,tunnel=True)
+            self.move(linear/self.tunnel_linear_scale,
+                      angular/self.tunnel_angular_command_scale,tunnel=True)
             if finished:
                 self.step=11
                 self.tunnel_active=False
@@ -351,7 +358,7 @@ class turtlebot():
             return None
         p,q=odom_tf.transform.translation,odom_tf.transform.rotation
         yaw=euler_from_quaternion([q.x,q.y,q.z,q.w])[2]
-        scan_pose=self.local_pose(p.x,p.y,yaw)
+        scan_pose=scale_pose(self.local_pose(p.x,p.y,yaw),self.tunnel_linear_scale)
         p,q=transform.transform.translation,transform.transform.rotation
         sensor_pose=(p.x,p.y,euler_from_quaternion([q.x,q.y,q.z,q.w])[2])
         return sensor_pose,scan_pose

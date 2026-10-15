@@ -1,0 +1,71 @@
+{
+  "validation_date_kst": "2026-10-14",
+  "trial": "/home/sj/Desktop/TB/records/20261013_150628_144714_KST",
+  "benchmark_script": "/home/sj/Desktop/TB/records/analysis_cache/benchmark_tunnel_planning.py",
+  "source_sha256": {
+    "codes/stepbystep/tunnel/planner.py": "5465ef9d13247d6490a95b508d8104ab3e5cbf1f93f898e2600a539e5439f818",
+    "codes/stepbystep/tunnel/mission.py": "65922f062d543cac65e921e5658b48e3bb55c3b8ed02a09aa98163a515abc417",
+    "codes/stepbystep/tunnel/static_geometry.py": "ac7ee955861b7302341b256a55499634ddf26ebdb52eeceda841918bdfe69bf3"
+  },
+  "recorded_config_sha256": "ea3020a8be772a2b43dab74945ef1dfe4da7cea17b93bfb1c66bc6df017aef2d",
+  "planning_snapshot_time": 1791871617.135933,
+  "recorded_scans_in_dataset": 174,
+  "anchor": [
+    2.7298742669384373,
+    -0.4392971335498193,
+    1.096695171102964
+  ],
+  "padding_m": 0.01,
+  "baseline_method": "Current planner with only _planning_primitive_is_collision_free delegated to original precise _primitive_is_collision_free(...,check_start=False); emulates preoptimization planning without changing geometry, costs or limits.",
+  "uncertainty": "Rounded logged alignment, interpolated odometry and all bag scans in each window. Offline single-run timings; no hardware movement or real-time callback scheduling. Baseline reconstructed because previous /tmp snapshot was lost on environment restart.",
+  "precise_baseline": {
+    "plan_seconds": 13.867656584999963,
+    "found": true,
+    "expanded_nodes": 4144,
+    "grid_sha256": "124dcda19b1ef424751b9c181160a4a9d4fd9b13f8e1907c5204b2db65958981",
+    "mapped_scans": 33,
+    "start": [
+      0.50663027451647,
+      -0.014411405882405692,
+      0.0032774882307653463
+    ],
+    "planning_goal": [
+      1.808,
+      1.488,
+      1.5707963267948966
+    ],
+    "path_build_seconds": 0.009417715999973097,
+    "precise_final_route_safe": true,
+    "precise_route_check_seconds": 0.007266436999998405,
+    "path_samples": 176,
+    "path_length_m": 2.528030230847612,
+    "path_sha256": "bfbff3c050c63bd0fbc9bba5899c52c3495206ef7307d2d081a97211b45ef51e"
+  },
+  "optimized": {
+    "plan_seconds": 4.393329822999988,
+    "found": true,
+    "expanded_nodes": 4144,
+    "grid_sha256": "124dcda19b1ef424751b9c181160a4a9d4fd9b13f8e1907c5204b2db65958981",
+    "mapped_scans": 33,
+    "start": [
+      0.50663027451647,
+      -0.014411405882405692,
+      0.0032774882307653463
+    ],
+    "planning_goal": [
+      1.808,
+      1.488,
+      1.5707963267948966
+    ],
+    "path_build_seconds": 0.009496263000016825,
+    "precise_final_route_safe": true,
+    "precise_route_check_seconds": 0.007308620999992854,
+    "path_samples": 176,
+    "path_length_m": 2.528030230847612,
+    "path_sha256": "bfbff3c050c63bd0fbc9bba5899c52c3495206ef7307d2d081a97211b45ef51e"
+  },
+  "same_input_grid": true,
+  "byte_identical_trajectory": true,
+  "speedup": 3.156525265278268,
+  "reduction_percent": 68.31959461880489
+}
