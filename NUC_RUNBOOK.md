@@ -1,5 +1,7 @@
 # NUC 실물 터널 준비 기록 — 2026-10-09 KST
 
+이 문서의 `/home/sj/ParkCars` 경로와 네트워크·메시지 호환 설정은 당시 NUC의 준비 이력이다. 현재 `/home/sj/Desktop/TB`에서의 환경 준비와 실행은 [README_TUNNEL_TEST.md](README_TUNNEL_TEST.md)를 따른다.
+
 2026-10-10 추가 확인: 사용자가 설명한 스위치는 PC 전원을 즉시 끈다. 모터 전원 차단 기능은 확인되지 않았으며, 이 스위치를 모터 정지 수단으로 기록한 이전 해석은 정정한다. 정상 시험 종료는 PC를 유지한 채 기존 드라이버의 소프트웨어 정지 요청과 rosbag 정상 종료를 사용한다. 실행 순서는 [README_TUNNEL_TEST.md](README_TUNNEL_TEST.md)에만 있다.
 
 사용자가 직접 시험할 때의 순서별 안내: [터널 테스트 시작 안내 — README_TUNNEL_TEST.md](README_TUNNEL_TEST.md) (2026-10-10 갱신).

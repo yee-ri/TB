@@ -5,8 +5,10 @@
 
 The planner deliberately keeps mapping and ROS message conversion outside this
 module.  It consumes one occupancy-grid snapshot and plans in SE(2) with
-forward, constant-curvature motion primitives.  Collision checks use the
-robot's oriented, asymmetric rectangular footprint at every swept sample.
+forward, constant-curvature motion primitives. Search uses conservative swept
+footprint certificates with precise sampling for uncertain edges. The public
+runtime/safety checker retains the oriented, asymmetric footprint at every
+precise swept sample.
 
 Occupancy-grid coordinates follow ``nav_msgs/OccupancyGrid`` conventions:
 ``data[grid_y, grid_x]`` and the origin is the lower-left corner of cell
@@ -96,6 +98,7 @@ class OccupancyGrid:
         unknown_is_occupied=True,
         soft_cost_data=None,
         dynamic_cell_rectangles=None,
+        static_cell_rectangles=None,
     ):
         values = np.asarray(data)
         if values.ndim != 2:
@@ -145,38 +148,45 @@ class OccupancyGrid:
         self._inflated_masks = {0.0: self._occupied}
         self._integral_masks = {}
         self._goal_distance_fields = {}
-        self._dynamic_cell_geometry = {}
+        self._refined_cell_geometry = {}
         self._occupied_geometry_cache = None
         self.collision_resolution = self.resolution
         self._refined_cells = np.zeros(self.data.size, dtype=bool)
-        for raw_index, rectangles in (dynamic_cell_rectangles or {}).items():
-            index = int(raw_index)
-            if index != raw_index or not 0 <= index < self.data.size:
-                raise ValueError("refined dynamic cell index is outside the grid")
-            row, column = divmod(index, self.width)
-            boxes = np.asarray(rectangles, dtype=np.float64)
-            if (boxes.ndim != 2 or boxes.shape[1] != 4 or boxes.shape[0] == 0
-                    or not np.all(np.isfinite(boxes))
-                    or not self._occupied[row, column]):
-                raise ValueError("refined dynamic cells require nonempty finite occupied rectangles")
-            minimum = np.asarray((self.origin_x + column * self.resolution,
-                                  self.origin_y + row * self.resolution))
-            if (np.any(boxes[:, 2:] <= boxes[:, :2])
-                    or np.any(boxes[:, :2] < minimum - 1e-9)
-                    or np.any(boxes[:, 2:] > minimum + self.resolution + 1e-9)):
-                raise ValueError("refined rectangles must stay inside their source cell")
-            centres = 0.5 * (boxes[:, :2] + boxes[:, 2:])
-            halves = 0.5 * (boxes[:, 2:] - boxes[:, :2])
-            self._dynamic_cell_geometry[index] = np.column_stack((centres, halves))
-            self._refined_cells[index] = True
-            self.collision_resolution = min(self.collision_resolution, float(np.min(2.0 * halves)))
+        for source, cell_rectangles in (
+                ("dynamic", dynamic_cell_rectangles),
+                ("static", static_cell_rectangles)):
+            for raw_index, rectangles in (cell_rectangles or {}).items():
+                index = int(raw_index)
+                if index != raw_index or not 0 <= index < self.data.size:
+                    raise ValueError("refined {} cell index is outside the grid".format(source))
+                if index in self._refined_cell_geometry:
+                    raise ValueError("a cell cannot have both static and dynamic refinements")
+                row, column = divmod(index, self.width)
+                boxes = np.asarray(rectangles, dtype=np.float64)
+                if (boxes.ndim != 2 or boxes.shape[1] != 4 or boxes.shape[0] == 0
+                        or not np.all(np.isfinite(boxes))
+                        or not self._occupied[row, column]
+                        or self.data[row, column] < 0):
+                    raise ValueError("refined {} cells require nonempty finite known occupied rectangles".format(source))
+                minimum = np.asarray((self.origin_x + column * self.resolution,
+                                      self.origin_y + row * self.resolution))
+                if (np.any(boxes[:, 2:] <= boxes[:, :2])
+                        or np.any(boxes[:, :2] < minimum - 1e-9)
+                        or np.any(boxes[:, 2:] > minimum + self.resolution + 1e-9)):
+                    raise ValueError("refined rectangles must stay inside their source cell")
+                centres = 0.5 * (boxes[:, :2] + boxes[:, 2:])
+                halves = 0.5 * (boxes[:, 2:] - boxes[:, :2])
+                self._refined_cell_geometry[index] = np.column_stack((centres, halves))
+                self._refined_cells[index] = True
+                self.collision_resolution = min(self.collision_resolution, float(np.min(2.0 * halves)))
 
     def occupied_cell_geometry(self, minimum_x, maximum_x, minimum_y, maximum_y,
                                inflation_radius=0.0):
         """Return exact hard rectangles behind the conservative coarse index.
 
-        Full static/unknown cells are unchanged. With explicit coarse-grid
-        inflation, keep that conservative full-cell geometry as before.
+        Only explicitly refined known occupied cells use exact rectangles;
+        other static/dynamic cells and unknown cells keep their full extent.
+        With explicit coarse-grid inflation, keep full-cell geometry as before.
         The production tunnel uses zero grid inflation and a padded robot.
         """
         key = (minimum_x, maximum_x, minimum_y, maximum_y, inflation_radius)
@@ -199,7 +209,7 @@ class OccupancyGrid:
             np.full(np.count_nonzero(~refined), 0.5 * self.resolution),
             np.full(np.count_nonzero(~refined), 0.5 * self.resolution),
         ))
-        geometry = (np.concatenate([coarse] + [self._dynamic_cell_geometry[int(index)] for index in indices[refined]])
+        geometry = (np.concatenate([coarse] + [self._refined_cell_geometry[int(index)] for index in indices[refined]])
                     if np.any(refined) else coarse)
         geometry.setflags(write=False)
         self._occupied_geometry_cache = (key, geometry)
@@ -248,6 +258,7 @@ class OccupancyGrid:
         unknown_is_occupied=True,
         soft_cost_data=None,
         dynamic_cell_rectangles=None,
+        static_cell_rectangles=None,
     ):
         """Build a grid directly from flat ROS-style occupancy data."""
         width = int(width)
@@ -274,6 +285,7 @@ class OccupancyGrid:
             unknown_is_occupied,
             soft_values,
             dynamic_cell_rectangles,
+            static_cell_rectangles,
         )
 
     @property
@@ -1127,7 +1139,21 @@ class HybridAStarPlanner:
             return soft
         if soft:
             return grid.soft_cost_count(x0, x1, y0, y1) == 0
-        return grid.occupied_count(x0, x1, y0, y1, self.inflation_radius) == 0
+        if grid.occupied_count(x0, x1, y0, y1, self.inflation_radius) == 0:
+            return True
+        if not grid._refined_cell_geometry or self.inflation_radius > 0.0:
+            return False
+        # The conservative raster can touch a sweep which stays wholly clear
+        # of its surveyed/sensor rectangles. Reject those broad-phase false
+        # overlaps before sampling at the smallest refined wall thickness.
+        # The same complete corner-arc bounds above cover every swept pose;
+        # contact or any uncertain overlap still takes the existing SAT path.
+        geometry = grid.occupied_cell_geometry(x0, x1, y0, y1)
+        centres, halves = geometry[:, :2], geometry[:, 2:]
+        epsilon = 1e-10
+        overlap = (np.all(centres + halves >= np.asarray(body[:2]) - epsilon, axis=1)
+                   & np.all(centres - halves <= np.asarray(body[2:]) + epsilon, axis=1))
+        return not np.any(overlap)
 
     def _primitive_is_collision_free(
         self,
@@ -1150,6 +1176,92 @@ class HybridAStarPlanner:
             sample_step /= 1.0 + abs(curvature) * radius
         return self._sampled_poses_are_collision_free(
             grid, self._motion_samples(start, curvature, distance, sample_step))
+
+    def _swept_footprint_envelope(self, start, curvature, distance):
+        """Enclose a <= pi corner arc in a midpoint-oriented rectangle.
+
+        Each corner stays within its endpoint chord plus its circular sagitta.
+        Project both endpoint footprints onto the midpoint axes, then expand
+        their bounds by the largest possible corner sagitta. Straight motion
+        has no sagitta, so this is its exact continuous footprint union.
+        """
+        end = self._propagate(start, curvature, distance)
+        heading = start.yaw + 0.5 * curvature * distance
+        cosine, sine = math.cos(heading), math.sin(heading)
+        endpoint_bounds = []
+        for pose in (start, end):
+            x, y, c, s, half_length, half_width = self._footprint_geometry(pose)
+            along = c * cosine + s * sine
+            across = -s * cosine + c * sine
+            extent_u = abs(along) * half_length + abs(across) * half_width
+            extent_v = abs(across) * half_length + abs(along) * half_width
+            u, v = x * cosine + y * sine, -x * sine + y * cosine
+            endpoint_bounds.append((u - extent_u, v - extent_v,
+                                    u + extent_u, v + extent_v))
+        first, last = endpoint_bounds
+        minimum_u, minimum_v = min(first[0], last[0]), min(first[1], last[1])
+        maximum_u, maximum_v = max(first[2], last[2]), max(first[3], last[3])
+        sagitta = 1e-10
+        if abs(curvature) > _ANGLE_EPSILON:
+            body_radius = math.hypot(
+                max(self.footprint.front, self.footprint.rear) + self.footprint.padding,
+                self.footprint.half_width + self.footprint.padding,
+            )
+            sagitta += ((1.0 / abs(curvature) + body_radius)
+                        * (1.0 - math.cos(0.5 * abs(curvature * distance))))
+        u, v = 0.5 * (minimum_u + maximum_u), 0.5 * (minimum_v + maximum_v)
+        return (cosine * u - sine * v, sine * u + cosine * v, cosine, sine,
+                0.5 * (maximum_u - minimum_u) + sagitta,
+                0.5 * (maximum_v - minimum_v) + sagitta)
+
+    def _planning_primitive_is_collision_free(self, grid, start, curvature, distance):
+        """Certify search edges cheaply; uncertain sweeps keep precise sampling.
+
+        The start is an already checked search node. A disjoint envelope proves
+        the entire continuous sweep is free; an overlapping curved envelope
+        alone proves nothing. Split it at most twice before falling back to
+        the original primitive and its unchanged millimetre sample positions.
+        Public/live collision checks continue using the precise checker.
+        """
+        end = self._propagate(start, curvature, distance)
+        if not self._pose_is_collision_free(grid, end):
+            return False
+        bounds = self._swept_bounds(start, curvature, distance)
+        if bounds is None:
+            return self._primitive_is_collision_free(
+                grid, start, curvature, distance, check_start=False)
+        body, base = bounds
+        if (body[0] < grid.origin_x or body[1] < grid.origin_y
+                or body[2] > grid.maximum_x or body[3] > grid.maximum_y
+                or (self.keep_in_rectangles and not any(
+                    base[0] >= x0 and base[1] >= y0 and base[2] <= x1 and base[3] <= y1
+                    for x0, y0, x1, y1 in self.keep_in_rectangles))):
+            return self._primitive_is_collision_free(
+                grid, start, curvature, distance, check_start=False)
+        x0, y0 = grid.world_to_grid(body[0], body[1])
+        x1, y1 = grid.world_to_grid(body[2], body[3])
+        x0, y0 = max(0, x0), max(0, y0)
+        x1, y1 = min(grid.width - 1, x1), min(grid.height - 1, y1)
+        if grid.occupied_count(x0, x1, y0, y1, self.inflation_radius) == 0:
+            return True
+        geometry = grid.occupied_cell_geometry(x0, x1, y0, y1, self.inflation_radius)
+        pending = [(start, distance, 0)]
+        while pending:
+            segment_start, segment_length, depth = pending.pop()
+            envelope = self._swept_footprint_envelope(segment_start, curvature, segment_length)
+            fields = np.asarray([envelope]).T[:, :, None]
+            if not self._footprints_overlap_cells(fields, geometry):
+                continue
+            if abs(curvature) <= _ANGLE_EPSILON:
+                return False
+            if depth == 2:
+                return self._primitive_is_collision_free(
+                    grid, start, curvature, distance, check_start=False)
+            half = 0.5 * segment_length
+            midpoint = self._propagate(segment_start, curvature, half)
+            pending.extend(((midpoint, half, depth + 1),
+                            (segment_start, half, depth + 1)))
+        return True
 
     def _primitive_soft_cost_exposure(
         self, grid, start, curvature, distance
@@ -1328,12 +1440,11 @@ class HybridAStarPlanner:
             return None
 
         end_pose = self._propagate(node.pose, 0.0, longitudinal)
-        if not self._primitive_is_collision_free(
+        if not self._planning_primitive_is_collision_free(
             grid,
             node.pose,
             0.0,
             longitudinal,
-            check_start=False,
         ):
             return None
         soft_cost_exposure = self._primitive_soft_cost_exposure(
@@ -1545,12 +1656,11 @@ class HybridAStarPlanner:
                     successor_key, math.inf
                 ):
                     continue
-                if not self._primitive_is_collision_free(
+                if not self._planning_primitive_is_collision_free(
                     grid,
                     node.pose,
                     curvature,
                     self.primitive_step,
-                    check_start=False,
                 ):
                     continue
                 soft_cost_exposure = self._primitive_soft_cost_exposure(

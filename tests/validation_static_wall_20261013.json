@@ -1,0 +1,355 @@
+{
+  "trial": "/home/sj/Desktop/TB/records/20261013_150628_144714_KST",
+  "anchor": [
+    2.7298742669384373,
+    -0.4392971335498193,
+    1.096695171102964
+  ],
+  "padding": 0.01,
+  "comparison_scope": "Recorded config and 10mm padding preserved; new surveyed static geometry enabled only for new comparison. Recorded poses are reused, not a simulation of new vehicle motion or the reduced entry cap.",
+  "config_sha256": "ea3020a8be772a2b43dab74945ef1dfe4da7cea17b93bfb1c66bc6df017aef2d",
+  "current_source_sha256": {
+    "codes/stepbystep/tunnel/mission.py": "8619120ade6ce32cd3438d4754f32c50e23a5c4d3ec7ccb2693ee5a724215798",
+    "codes/stepbystep/tunnel/planner.py": "3db9ec926b8f3fe411d1d7013567989d41537ddd232affdd151d538e2d8ab9d1",
+    "codes/stepbystep/tunnel/static_geometry.py": "ac7ee955861b7302341b256a55499634ddf26ebdb52eeceda841918bdfe69bf3"
+  },
+  "uncertainty": "Rounded logged alignment, interpolated odometry, all bag scans instead of asynchronous accepted subset; planned paths are reconstructed, not recorded.",
+  "observations": [
+    {
+      "time": 1791871617.135933,
+      "label": "plan_start",
+      "pose": [
+        0.50663027451647,
+        -0.014411405882405692,
+        0.18778624302665356
+      ],
+      "physical_right_wall_gap": 0.044902096940211356,
+      "padded_right_wall_gap": 0.03486937582617869,
+      "old": {
+        "full_footprint_free": true,
+        "static_footprint_free": true,
+        "full_overlap_geometry": [],
+        "static_overlap_geometry": [],
+        "pose_check_seconds": 0.0001475469998695189,
+        "collision_resolution": 0.004999999999999893,
+        "path_guards": {
+          "position_error": 0.0,
+          "heading_error_deg": 0.0,
+          "tracking_tolerance_passed": true,
+          "remaining_route_safe": true,
+          "remaining_route_check_seconds": 0.006939115000932361,
+          "path_index": 0
+        }
+      },
+      "new": {
+        "full_footprint_free": true,
+        "static_footprint_free": true,
+        "full_overlap_geometry": [],
+        "static_overlap_geometry": [],
+        "pose_check_seconds": 0.00014353999904415105,
+        "collision_resolution": 0.001999999999999974,
+        "path_guards": {
+          "position_error": 0.0,
+          "heading_error_deg": 0.0,
+          "tracking_tolerance_passed": true,
+          "remaining_route_safe": true,
+          "remaining_route_check_seconds": 0.00822418200004904,
+          "path_index": 0
+        }
+      }
+    },
+    {
+      "time": 1791871629.025369,
+      "label": "following_start",
+      "pose": [
+        0.5066303031032009,
+        -0.01441139121352289,
+        0.5046839496941121
+      ],
+      "physical_right_wall_gap": 0.044252091491994314,
+      "padded_right_wall_gap": 0.034164396601734925,
+      "old": {
+        "full_footprint_free": true,
+        "static_footprint_free": true,
+        "full_overlap_geometry": [],
+        "static_overlap_geometry": [],
+        "pose_check_seconds": 0.00013925299936090596,
+        "collision_resolution": 0.004999999999999893,
+        "path_guards": {
+          "position_error": 3.2130628761296906e-08,
+          "heading_error_deg": -0.3168977066674586,
+          "tracking_tolerance_passed": true,
+          "remaining_route_safe": true,
+          "remaining_route_check_seconds": 0.005932916999881854,
+          "path_index": 0
+        }
+      },
+      "new": {
+        "full_footprint_free": true,
+        "static_footprint_free": true,
+        "full_overlap_geometry": [],
+        "static_overlap_geometry": [],
+        "pose_check_seconds": 0.0001192519994219765,
+        "collision_resolution": 0.001999999999999974,
+        "path_guards": {
+          "position_error": 3.2130628761296906e-08,
+          "heading_error_deg": -0.3168977066674586,
+          "tracking_tolerance_passed": true,
+          "remaining_route_safe": true,
+          "remaining_route_check_seconds": 0.005767648000983172,
+          "path_index": 0
+        }
+      }
+    },
+    {
+      "time": 1791871629.45,
+      "label": "before_overlap",
+      "pose": [
+        0.5113055734427765,
+        -0.014190712877885092,
+        5.806976680891376
+      ],
+      "physical_right_wall_gap": 0.034026347172428195,
+      "padded_right_wall_gap": 0.023065888818859098,
+      "old": {
+        "full_footprint_free": true,
+        "static_footprint_free": true,
+        "full_overlap_geometry": [],
+        "static_overlap_geometry": [],
+        "pose_check_seconds": 2.810099977068603e-05,
+        "collision_resolution": 0.004999999999999893,
+        "path_guards": {
+          "position_error": 0.004680504828815666,
+          "heading_error_deg": -5.619190437864722,
+          "tracking_tolerance_passed": true,
+          "remaining_route_safe": true,
+          "remaining_route_check_seconds": 0.005870745999345672,
+          "path_index": 0
+        }
+      },
+      "new": {
+        "full_footprint_free": true,
+        "static_footprint_free": true,
+        "full_overlap_geometry": [],
+        "static_overlap_geometry": [],
+        "pose_check_seconds": 2.0043000404257327e-05,
+        "collision_resolution": 0.001999999999999974,
+        "path_guards": {
+          "position_error": 0.004411113777141549,
+          "heading_error_deg": -2.725464199830255,
+          "tracking_tolerance_passed": true,
+          "remaining_route_safe": true,
+          "remaining_route_check_seconds": 0.006067287000405486,
+          "path_index": 1
+        }
+      }
+    },
+    {
+      "time": 1791871629.61345,
+      "label": "first_logged_overlap",
+      "pose": [
+        0.5185020501602313,
+        -0.01291159495326416,
+        13.622115654184308
+      ],
+      "physical_right_wall_gap": 0.02152029922389173,
+      "padded_right_wall_gap": 0.00944642493191919,
+      "old": {
+        "full_footprint_free": false,
+        "static_footprint_free": false,
+        "full_overlap_geometry": [
+          [
+            0.41,
+            -0.15,
+            0.01,
+            0.01
+          ]
+        ],
+        "static_overlap_geometry": [
+          [
+            0.41,
+            -0.15,
+            0.01,
+            0.01
+          ]
+        ],
+        "pose_check_seconds": 0.00016072600010375027,
+        "collision_resolution": 0.004999999999999893,
+        "path_guards": {
+          "position_error": 0.0012926013034098192,
+          "heading_error_deg": -10.450174228184608,
+          "tracking_tolerance_passed": true,
+          "remaining_route_safe": true,
+          "remaining_route_check_seconds": 0.006179124000482261,
+          "path_index": 1
+        }
+      },
+      "new": {
+        "full_footprint_free": true,
+        "static_footprint_free": true,
+        "full_overlap_geometry": [],
+        "static_overlap_geometry": [],
+        "pose_check_seconds": 0.0001156979997176677,
+        "collision_resolution": 0.001999999999999974,
+        "path_guards": {
+          "position_error": 0.003049270866833822,
+          "heading_error_deg": -10.540603173123188,
+          "tracking_tolerance_passed": true,
+          "remaining_route_safe": true,
+          "remaining_route_check_seconds": 0.005766794998635305,
+          "path_index": 1
+        }
+      }
+    },
+    {
+      "time": 1791871629.8500001,
+      "label": "braking",
+      "pose": [
+        0.5274670851562265,
+        -0.010216080816290773,
+        19.119068912858097
+      ],
+      "physical_right_wall_gap": 0.015792141060828102,
+      "padded_right_wall_gap": 0.003068417750651975,
+      "old": {
+        "full_footprint_free": false,
+        "static_footprint_free": false,
+        "full_overlap_geometry": [
+          [
+            0.43,
+            -0.15,
+            0.01,
+            0.01
+          ],
+          [
+            0.45,
+            -0.15,
+            0.01,
+            0.01
+          ]
+        ],
+        "static_overlap_geometry": [
+          [
+            0.43,
+            -0.15,
+            0.01,
+            0.01
+          ],
+          [
+            0.45,
+            -0.15,
+            0.01,
+            0.01
+          ]
+        ],
+        "pose_check_seconds": 0.00021378400015237276,
+        "collision_resolution": 0.004999999999999893,
+        "path_guards": {
+          "position_error": 0.004983238982015871,
+          "heading_error_deg": -12.962972303885376,
+          "tracking_tolerance_passed": true,
+          "remaining_route_safe": true,
+          "remaining_route_check_seconds": 0.0058651850013120566,
+          "path_index": 2
+        }
+      },
+      "new": {
+        "full_footprint_free": true,
+        "static_footprint_free": true,
+        "full_overlap_geometry": [],
+        "static_overlap_geometry": [],
+        "pose_check_seconds": 0.00020881800082861446,
+        "collision_resolution": 0.001999999999999974,
+        "path_guards": {
+          "position_error": 0.004193862119321738,
+          "heading_error_deg": -13.14383019376251,
+          "tracking_tolerance_passed": true,
+          "remaining_route_safe": true,
+          "remaining_route_check_seconds": 0.00568352399932337,
+          "path_index": 2
+        }
+      }
+    },
+    {
+      "time": 1791871630.5,
+      "label": "settled",
+      "pose": [
+        0.5276104993409686,
+        -0.010166071654681558,
+        18.88666596803306
+      ],
+      "physical_right_wall_gap": 0.01617571218556335,
+      "padded_right_wall_gap": 0.0034771326856150586,
+      "old": {
+        "full_footprint_free": false,
+        "static_footprint_free": false,
+        "full_overlap_geometry": [
+          [
+            0.43,
+            -0.15,
+            0.01,
+            0.01
+          ],
+          [
+            0.45,
+            -0.15,
+            0.01,
+            0.01
+          ]
+        ],
+        "static_overlap_geometry": [
+          [
+            0.43,
+            -0.15,
+            0.01,
+            0.01
+          ],
+          [
+            0.45,
+            -0.15,
+            0.01,
+            0.01
+          ]
+        ],
+        "pose_check_seconds": 0.00021837900021637324,
+        "collision_resolution": 0.004999999999999893,
+        "path_guards": {
+          "position_error": 0.004894604775687559,
+          "heading_error_deg": -12.730569359060341,
+          "tracking_tolerance_passed": true,
+          "remaining_route_safe": true,
+          "remaining_route_check_seconds": 0.006194710000272607,
+          "path_index": 2
+        }
+      },
+      "new": {
+        "full_footprint_free": true,
+        "static_footprint_free": true,
+        "full_overlap_geometry": [],
+        "static_overlap_geometry": [],
+        "pose_check_seconds": 0.0002064910004264675,
+        "collision_resolution": 0.001999999999999974,
+        "path_guards": {
+          "position_error": 0.004324895733001087,
+          "heading_error_deg": -12.911427248937475,
+          "tracking_tolerance_passed": true,
+          "remaining_route_safe": true,
+          "remaining_route_check_seconds": 0.006529017999127973,
+          "path_index": 2
+        }
+      }
+    }
+  ],
+  "planning": {
+    "old": {
+      "seconds": 9.7399224159999,
+      "found": true,
+      "expanded_nodes": 3707
+    },
+    "new": {
+      "seconds": 15.358090248000735,
+      "found": true,
+      "expanded_nodes": 4144
+    }
+  }
+}

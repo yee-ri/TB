@@ -73,14 +73,20 @@ class TunnelProfileTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'profile'):
             load_config(CONFIG, 'typo-fast')
 
-    def entry_run(self, profile, obstacle=None):
-        config = load_config(CONFIG, profile)
+    def entry_run(self, profile='normal', obstacle=None, config=None):
+        # Isolate the velocity law from wall alignment and real map geometry.
+        config = copy.deepcopy(config) if config is not None else load_config(CONFIG, profile)
+        config.pop('localization', None)
         config['grid'].pop('static_map')
         config['grid'].pop('static_hit_exclusion_radius')
+        # This one-dimensional fixture isolates speed/braking. The physical
+        # heading bias and swept body checks have separate 2-D entry tests.
+        config['entry']['heading_offset_deg'] = 0.
         mission = TunnelMission(config)
         self.addCleanup(mission.close)
         pose, linear, now = 0., 0., 10.
         dt = config['control']['period']
+        acceleration = config['entry'].get('linear_acceleration', config['control']['linear_acceleration'])
         trace = []
         with patch.object(mission, '_grid', side_effect=AssertionError('entry grid guard')):
             for _ in range(700):
@@ -92,7 +98,7 @@ class TunnelProfileTests(unittest.TestCase):
                 trace.append((pose, linear, command, mission.state))
                 self.assertEqual(angular, 0.)
                 self.assertFalse(complete)
-                self.assertLessEqual(command-linear, config['control']['linear_acceleration']*dt+1e-9)
+                self.assertLessEqual(command-linear, acceleration*dt+1e-9)
                 self.assertLessEqual(linear-command, config['control']['linear_deceleration']*dt+1e-9)
                 if mission.state == 'PLANNING':
                     self.assertEqual(command, 0.)
@@ -116,6 +122,8 @@ class TunnelProfileTests(unittest.TestCase):
 
     def test_fast_straight_entry_accelerates_and_brakes_before_distance_goal(self):
         config, commands, trace = self.entry_run('fast')
+        self.assertNotIn('linear_acceleration', config['entry'])
+        self.assertAlmostEqual(commands[0], .35 * config['control']['period'])
         self.assertGreater(max(commands), .25)
         self.assertLess(commands[-2], .04)
         self.assertGreater(np.count_nonzero(np.diff(commands) < -1e-6), 5)
@@ -128,8 +136,61 @@ class TunnelProfileTests(unittest.TestCase):
         self.assertLess(trace[-1][0], config['entry']['distance']-.3)
 
     def test_normal_entry_keeps_its_previous_speed_cap(self):
-        _, commands, _ = self.entry_run('normal')
+        config, commands, _ = self.entry_run('normal')
+        self.assertNotIn('linear_acceleration', config['entry'])
+        self.assertAlmostEqual(commands[0], .15 * config['control']['period'])
         self.assertAlmostEqual(max(commands), .04)
+
+    def test_physical_entry_uses_gentler_acceleration_and_still_brakes(self):
+        for directory in ('stepbystep', 'final_codes'):
+            physical = load_config(ROOT / 'codes' / directory / 'tunnel.real.yaml')
+            for obstacle in (None, .85):
+                with self.subTest(directory=directory, obstacle=obstacle):
+                    config, commands, trace = self.entry_run(config=physical, obstacle=obstacle)
+                    dt = config['control']['period']
+                    self.assertAlmostEqual(commands[0], .10 * dt)
+                    self.assertLessEqual(max(np.diff(np.r_[0., commands])), .10 * dt + 1e-9)
+                    self.assertLessEqual(max(commands), .25 + 1e-9)
+                    self.assertEqual(config['control']['cruise_velocity'], .32)
+                    self.assertEqual(config['control']['linear_acceleration'], .15)
+                    self.assertGreater(np.count_nonzero(np.diff(commands) < -1e-6), 5)
+                    if obstacle is None:
+                        self.assertAlmostEqual(max(commands), .25)
+                    else:
+                        self.assertLess(trace[-1][0], config['entry']['distance'] - .3)
+
+    def test_entry_distance_ramp_uses_its_own_acceleration(self):
+        config = load_config(CONFIG, 'fast')
+        config['entry']['linear_acceleration'] = .10
+        config['grid'].pop('static_map')
+        config['grid'].pop('static_hit_exclusion_radius')
+        mission = TunnelMission(config)
+        self.addCleanup(mission.close)
+        dt = config['control']['period']
+        command = 0.
+        # Odometry advances 5 cm then stays there. Let the command rate limit
+        # settle so the distance-based reference, rather than that limit,
+        # determines the eventual speed (about .106 m/s at a=.10 m/s²).
+        for tick in range(60):
+            now = 10. + tick * dt
+            pose = (0. if tick == 0 else .05, 0., 0.)
+            mission.update_odometry(pose, command, 0., now)
+            mission.update_scan([math.inf], 0., 1., .05, 40.,
+                                (0., 0., 0.), pose, now)
+            command, angular, complete = mission.step(now)
+            self.assertEqual(mission.state, 'ENTRY')
+            self.assertEqual(angular, 0.)
+            self.assertFalse(complete)
+        self.assertGreater(command, .10)
+        self.assertLess(command, .11)
+
+    def test_invalid_entry_acceleration_is_rejected(self):
+        for value in (0., -.10, math.nan, math.inf, None, True, '0.10'):
+            with self.subTest(value=value):
+                config = load_config(CONFIG)
+                config['entry']['linear_acceleration'] = value
+                with self.assertRaisesRegex(ValueError, 'entry.*linear_acceleration'):
+                    TunnelMission(config)
 
     def goal_mission(self):
         config = load_config(CONFIG, 'fast')
