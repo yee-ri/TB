@@ -28,7 +28,7 @@ class TemplateMatch:
         cx=width//2
         cy=height//2
         depth=depth_image[cy,cx]
-        if depth>0: rospy.loginfo("CENTER DEPTH: %.3f m",depth/1000.0)
+        # if depth>0: rospy.loginfo("CENTER DEPTH: %.3f m",depth/1000.0)
 
     def image_callback(self,msg):
         image=self.bridge.imgmsg_to_cv2(msg,'bgr8')
