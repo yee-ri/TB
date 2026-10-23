@@ -65,7 +65,7 @@ class turtlebot():
         
 
 ############## 구간별 테스트 설정 ##############
-        self.step=int(rospy.get_param('~start_step',1))
+        self.step=int(rospy.get_param('~start_step',0))
         self.standalone_gate_start=self.step==8
         # Full-course odometry uses its original heading. A fresh step8 run
         # instead captures the approach heading when the lane ends.
@@ -95,8 +95,8 @@ class turtlebot():
         self.prev_v_l=0.0
         self.prev_v_r=0.0
 
-        self.wheel_radius=0.0475
-        self.wheel_separation=0.19 #0.148이었던것
+        self.wheel_radius=0.04775
+        self.wheel_separation=0.148 #0.148이었던것
 
 ############## tf setting 관련 변수 ##############
         self.tf_buffer=tf2_ros.Buffer()
@@ -792,7 +792,7 @@ class turtlebot():
 
         return False
 
-    def detect_curve(self,white_mask,yellow_mask,threshold=105):
+    def detect_curve(self,white_mask,yellow_mask,threshold=95):
         curve_values=[]
 
         for mask in [white_mask,yellow_mask]:
@@ -815,8 +815,8 @@ class turtlebot():
         is_curve=curve>threshold
 
 
-        # rospy.loginfo("LANE: %s / CURVE VALUE: %.1f / THRESHOLD: %d",
-        #             "CURVE" if is_curve else "STRAIGHT",curve,threshold)
+        rospy.loginfo("LANE: %s / CURVE VALUE: %.1f / THRESHOLD: %d",
+                    "CURVE" if is_curve else "STRAIGHT",curve,threshold)
 
         return is_curve
 
@@ -830,7 +830,7 @@ class turtlebot():
         yellow_mask=cv2.inRange(hsv,np.array([15,100,100]),np.array([50,255,255]))
         if self.turn_direction=='left':
             yellow_mask[:,width//2:]=0
-            yellow_mask[:1*height//2,:] = 0
+            yellow_mask[:1*height//3,:] = 0
             white_mask[:1*height//4,:] = 0
 
         elif self.turn_direction=='right':
@@ -919,7 +919,7 @@ class turtlebot():
                         offset+=min((curve-170)*0.80,100) #0.8
                 else:
                     if curve>170: #170
-                        offset+=min((curve-170)*0.4,100) #0.82 -->3.2
+                        offset+=min((curve-170)*0.8,100) #0.82 -->3.2
 
             target_x=cx_w-offset
 
@@ -945,7 +945,7 @@ class turtlebot():
                         offset+=min((curve-160)*0.82,100) #0.8
                 else:                    
                     if curve>170: # 작을수록 직선에 가깝고 클수록 곡선으로 봄 #160
-                        offset+=min((curve-170)*0.4,100) #0.8
+                        offset+=min((curve-170)*0.8,100) #0.8
 
             target_x=cx_y+offset
 
@@ -966,39 +966,56 @@ class turtlebot():
             if self.speed==1: #gate bar 포착되면 속도 늦추는 거임
                 Kp=0.15
                 Kd=0.008
-                linear=10.0
+                linear=7.0
                 max_angular=45.0
-            elif self.step==2 or self.step ==7: #회전 인식후 3시작 전까지
-                Kp=0.25
-                Kd=0.012
-                linear=18.0
-                max_angular=85.0
+            # elif self.step ==7: #회전 인식후 3시작 전까지
+            #     Kp=0.25
+            #     Kd=0.012
+            #     linear=17.0
+            #     max_angular=90.0
 
 
-            elif (self.speed ==2 and self.step ==3) or self.step ==6 : # 장애물 구간에서 피하는 속도
+            elif (self.speed ==2 and self.step ==3)  : # 장애물 구간에서 피하는 속도
                 Kp=0.15
                 Kd=0.008
                 linear=15.0
-                max_angular=50.0
+                max_angular=58.0
                 # rospy.loginfo("speed 2 active")
                 # Kp 증가: 차선 중심에서 벗어났을 때 더 강하게 회전함.
                 # Kd 증가: 오차가 빠르게 변할 때 반응을 더 크게 만듦. 급격한 흔들림이 생길 수도 있음.
+            elif self.step ==6:
+                Kp=0.15
+                Kd=0.015
+                linear=18.0
+                max_angular=30.0
             else:
-                if is_curve and self.step!=7:
-                    Kp=0.2
-                    Kd=0.01
-                    linear=15.0
-                    max_angular=60.0
+                if is_curve and self.step not in (2,4,5,7):
+                    Kp=0.15
+                    Kd=0.015
+                    linear=21.0
+                    max_angular=32.0
+                    # Kp=0.1
+                    # Kd=0.005
+                    # linear=14.0
+                    # max_angular=45.0
                     rospy.loginfo("LANE: CURVE")
-                # Kp=0.15
-                # Kd=0.008
-                # linear=15.0
-                # max_angular=50.0
+                elif self.step in (4,5,6,7) :
+                    Kp=0.15
+                    Kd=0.008
+                    linear=20.0
+                    max_angular=50.0
+                                    
+                elif self.step ==2:
+                    Kp=0.15
+                    Kd=0.008
+                    linear=19.0 #17
+                    max_angular=50.0
+                    rospy.loginfo("IMHERE")
                 else:
-                    Kp=0.10 #0.23 -> 0.17 ->0.13
-                    Kd=0.002 #0.008 -> 0.0025 ->0.004
-                    linear=30.0 #22.0 ->25
-                    max_angular=100.0 #0.85 ->95 ->100 
+                    Kp=0.05 #0.23 -> 0.17 ->0.10
+                    Kd=0.02 #0.008 -> 0.0025 ->0.002
+                    linear=32.0 #22.0 ->30
+                    max_angular=85.0 #0.85 ->95 ->85
                     rospy.loginfo("LANE: STRAIGHT")
 
             angular=-(Kp*err_x+Kd*diff_x)
@@ -1022,7 +1039,7 @@ class turtlebot():
                 err=-1.57-self.yaw
                 err=math.atan2(math.sin(err),math.cos(err))
                 angular=np.clip(err*1.5,-0.15,0.15)
-                self.move(0.06,angular)
+                self.move(0.1,angular) #0.06
                 return
 
             rospy.loginfo("LANE LOST -> SLOW STRAIGHT")
@@ -1061,9 +1078,9 @@ class turtlebot():
 
             if self.set_yaw(3): # yaw 3 is 0.0
                 #linear,angular,duration)
-                self.move_time(0.06,0,1.4)
+                self.move_time(0.1,0,0.9) #(0.06,0,1.4)
                 rospy.sleep(0.04)
-                self.move_time(-0.06,0,1.4)
+                self.move_time(-0.1,0,0.9)
                 rospy.sleep(0.01)
                 
                 
@@ -1074,9 +1091,9 @@ class turtlebot():
             rospy.loginfo("IM HERE22")
 
             if self.set_yaw(2): # yaw 2 is 3.14
-                self.move_time(0.06,0,1.4)
+                self.move_time(0.1,0,0.9)
                 rospy.sleep(0.01)
-                self.move_time(-0.06,0,1.4)
+                self.move_time(-0.1,0,0.9)
                 rospy.sleep(0.01)
                 
                 self.sequence=2
@@ -1084,7 +1101,7 @@ class turtlebot():
    
         if self.parking_end==None and self.sequence==2:
             if self.set_yaw(1):
-                self.move_time_yaw_hold(0.04,1.565,2.5)
+                self.move_time_yaw_hold(0.09,1.565,1.8)
                 self.parking_end=1
                 self.step=6
                 return
@@ -1390,8 +1407,8 @@ class turtlebot():
     def publish_velocity(self,v_l,v_r): # 속도 퍼블리시 
         msg=Twist()
         if (self.step ==3 and self.speed ==2) or self.step ==6 :
-            msg.linear.x=(self.wheel_radius*(v_r+v_l)/2.0)*0.1
-            msg.angular.z=(self.wheel_radius*(v_r-v_l)/self.wheel_separation)*0.2
+            msg.linear.x=(self.wheel_radius*(v_r+v_l)/2.0)*0.1 #0.1
+            msg.angular.z=(self.wheel_radius*(v_r-v_l)/self.wheel_separation)*0.156 #0.2
         else:
             msg.linear.x=(self.wheel_radius*(v_r+v_l)/2.0)*0.12 #0.13
             msg.angular.z=(self.wheel_radius*(v_r-v_l)/self.wheel_separation)*0.35 #0.28
