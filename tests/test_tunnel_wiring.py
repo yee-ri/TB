@@ -1,6 +1,7 @@
 """TB adapter tests with mocked ROS transport; not a robot-driving test."""
 import importlib.util
 import math
+import os
 from pathlib import Path
 import struct
 import sys
@@ -75,6 +76,10 @@ class Mission:
         self.update_lane = Mock()
 
 
+class MissionV2(Mission):
+    pass
+
+
 def module(name, **members):
     result = types.ModuleType(name)
     result.__dict__.update(members)
@@ -83,6 +88,9 @@ def module(name, **members):
 
 class TunnelWiringTests(unittest.TestCase):
     def setUp(self):
+        version_environment = patch.dict(os.environ, {'TB_TUNNEL_VERSION': 'v1'})
+        version_environment.start()
+        self.addCleanup(version_environment.stop)
         self.config = {
             "control": {"period": 0.05},
             "sensors": {"base_frame": "base_footprint", "z_min": 0.03,
@@ -153,6 +161,7 @@ class TunnelWiringTests(unittest.TestCase):
             "tf2_sensor_msgs.tf2_sensor_msgs": cloud_tf,
             "tunnel": module("tunnel", mission=mission,
                              __path__=[str(ROOT / 'codes/stepbystep/tunnel')]), "tunnel.mission": mission,
+            "tunnel.mission_v2": module("tunnel.mission_v2", TunnelMissionV2=MissionV2),
         }
         self.module_patch = patch.dict(sys.modules, modules)
         self.module_patch.start()
@@ -161,6 +170,37 @@ class TunnelWiringTests(unittest.TestCase):
         self.target = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.target)
         self.node = self.target.turtlebot()
+
+    def test_version_defaults_to_v1_and_explicit_ros_choice_wins_over_environment(self):
+        self.assertEqual(self.node.tunnel_version, 'v1')
+        self.assertIs(type(self.node.tunnel), Mission)
+        with patch.dict(os.environ, {'TB_TUNNEL_VERSION': 'v2'}):
+            selected = self.target.turtlebot()
+            self.assertEqual(selected.tunnel_version, 'v2')
+            self.assertIs(type(selected.tunnel), MissionV2)
+            self.assertIs(selected.tunnel.config, self.config)
+            self.assertEqual(selected.tunnel.clock(), 42.)
+            self.target.rospy.loginfo.assert_any_call(
+                'Tunnel version: %s; config: %s', 'v2', self.load_config.call_args.args[0])
+            self.params['~tunnel_version'] = 'v1'
+            self.assertIs(type(self.target.turtlebot().tunnel), Mission)
+
+    def test_unknown_version_fails_before_adding_a_command_publisher(self):
+        count = len(self.publishers)
+        self.params['~tunnel_version'] = 'v3'
+        with self.assertRaisesRegex(ValueError, 'tunnel_version'):
+            self.target.turtlebot()
+        self.assertEqual(len(self.publishers), count)
+
+    def test_v2_uses_the_same_single_command_owner(self):
+        self.params['~tunnel_version'] = 'v2'
+        before = len(self.publishers)
+        node = self.target.turtlebot()
+        self.assertEqual([p.topic for p in self.publishers[before:]], ['/cmd_vel'])
+        node.step = 9
+        node.tunnel_tick(None)
+        node.tunnel.step.assert_called_once()
+        node.cmd_pub.publish.assert_called_once()
 
     def test_missing_rosout_option_is_set_before_drive_callbacks(self):
         self.target.rospy.set_param.assert_called_once_with(

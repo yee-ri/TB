@@ -15,7 +15,8 @@ from nav_msgs.msg import Odometry
 from std_msgs.msg import UInt8
 import tf2_ros
 import tf2_sensor_msgs.tf2_sensor_msgs
-from tunnel.mission import TunnelMission, load_config
+from tunnel.mission import load_config
+from tunnel.versions import create_mission
 from tunnel.odometry import read_linear_scale, read_angular_command_scale, scale_pose
 from tunnel.cloud import tunnel_cloud_xy
 from tunnel.motor import arm_motor_torque
@@ -53,7 +54,10 @@ class turtlebot():
             raise ValueError('~lidar_type must be pointcloud2 or laserscan')
         self.lidar_topic=rospy.get_param('~lidar_topic',
                                        '/livox/lidar' if self.lidar_type=='pointcloud2' else '/scan_mid360_raw')
-        self.tunnel=TunnelMission(self.tunnel_config,clock=lambda:rospy.Time.now().to_sec())
+        self.tunnel_version=rospy.get_param('~tunnel_version',os.environ.get('TB_TUNNEL_VERSION','v1'))
+        self.tunnel=create_mission(self.tunnel_config,version=self.tunnel_version,
+                                   clock=lambda:rospy.Time.now().to_sec())
+        rospy.loginfo("Tunnel version: %s; config: %s",self.tunnel_version,config_path)
         self.cmd_pub=rospy.Publisher('/cmd_vel',Twist,queue_size=10)
         self.bridge=CvBridge()
         image_dir=Path(__file__).resolve().parents[2]/'images'

@@ -423,6 +423,9 @@ def check_remote(trial):
 def start(config_path, start_step=9):
     if type(start_step) is not int or start_step not in (0, 8, 9):
         raise ValueError('Physical trial start_step must be 0, 8 or 9')
+    tunnel_version = os.environ.get('TB_TUNNEL_VERSION', 'v1')
+    if tunnel_version not in ('v1', 'v2'):
+        raise ValueError('TB_TUNNEL_VERSION must be v1 or v2')
     config, map_path = check_config(config_path)
     trial, metadata = current_trial()
     if not metadata.get('recording_active') or not owned_process(metadata, 'rosbag_process', 'record'):
@@ -466,14 +469,16 @@ def start(config_path, start_step=9):
         raise RuntimeError('Recording stopped during diagnostics; controller start refused')
     command = [sys.executable, str(ROOT / 'codes/stepbystep/try_maze.py'),
                '__name:=tb_controller', '_start_step:=' + str(start_step), '_tunnel_profile:=normal',
+               '_tunnel_version:=' + tunnel_version,
                '_enable_motor_torque:=true',
                '_tunnel_config:=' + str(config_path), '_lidar_type:=pointcloud2', '_lidar_topic:=/livox/lidar']
     metadata['controller_command'] = command
+    metadata['tunnel_version'] = tunnel_version
     metadata['start_step'] = start_step
     metadata['start_condition'] = {0: 'traffic_light', 8: 'gate_already_open', 9: 'tunnel_entry'}[start_step]
     metadata['lane_controller'] = 'original_try_maze_e0b970f'
     metadata['controller_status'] = 'starting'
-    start_message = 'Controller /tb_controller, normal step{}. Completion continues into step11 lane driving.'.format(start_step)
+    start_message = 'Controller /tb_controller, tunnel {} normal step{}. Completion continues into step11 lane driving.'.format(tunnel_version, start_step)
     start_message += ' Lane tracking: restored try_maze e0b970f (default command 0.07125 m/s).'
     if start_step == 0:
         start_message += ' Full course: wait for the green traffic light before step1.'

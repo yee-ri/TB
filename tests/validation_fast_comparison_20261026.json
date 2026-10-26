@@ -1,0 +1,656 @@
+{
+  "date": "2026-10-26",
+  "scope": "Matched fresh Gazebo tunnel-only FAST comparisons. No official-start or physical-robot completion claim.",
+  "conclusion": "Current V1 FAST reached STEP11 in both matched trials (16.820 and 17.113 simulated seconds). Current V2 FAST shortened the initial exact-zero planning rest but did not reach STEP11 during 86.167 simulated seconds after first motion; it is not a demonstrated speed improvement.",
+  "comparison_setup": {
+    "runner": "records/fast_comparison_20261026/run_trial.sh",
+    "runner_sha256": "870e6710cf920de08b7ca1b387b73904c621e39d830b097c2c1079c6a6eac630",
+    "fresh_ros_and_gazebo_per_trial": true,
+    "start_step": 9,
+    "prior_missions_enabled": false,
+    "world_layout": "layout_a",
+    "world_sha256": "c9e975c97b377f02a534359ac37a32a361b154c9c4a86c7fe0784de31fa9ed94",
+    "start_world_pose": [
+      -1.74759,
+      0.14,
+      -1.5708000000000002
+    ],
+    "renderer": "NVIDIA GeForce RTX 5060 Ti/PCIe/SSE2",
+    "GL_version": "4.6.0 NVIDIA 595.91.07",
+    "controller_executable": "/target/codes/stepbystep/try_maze.py through unique launch wrapper",
+    "cmd_vel_owner": "/tb_controller",
+    "recorded_topics": [
+      "/clock",
+      "/cmd_vel",
+      "/gazebo/model_states",
+      "/gazebo/link_states",
+      "/odometry/filtered",
+      "/scan_mid360_raw",
+      "/rosout_agg"
+    ],
+    "camera_observer": "Header-only passive receive statistics; camera frames excluded from raw bags",
+    "raw_parameters_equal_except": [
+      "/tb_controller/tunnel_version",
+      "/run_id",
+      "/roslaunch/uris (ephemeral ports)"
+    ],
+    "normalized_parameters_equal": true,
+    "shared_source_manifest": "records/fast_comparison_20261026/source_manifest.json",
+    "source_manifest_sha256": "570e2e6053999d61e239fcfc53e2a0872e6a5a8274643ac2f3f3c303535b0a47",
+    "manifest_matches_current_files_after_trials": true,
+    "algorithm_changed_between_matched_trials": false,
+    "selected_profile_settings": {
+      "grid": {
+        "endpoint_clear_guard_radius": 0.0
+      },
+      "planner": {
+        "goal_heading_tolerance": 0.1745329252,
+        "keep_in_rectangles": [
+          [
+            -0.42,
+            -0.2724105,
+            0.34,
+            0.2075895
+          ],
+          [
+            0.12,
+            -0.1524105,
+            2.08,
+            1.7675895
+          ],
+          [
+            1.64,
+            1.5875895,
+            2.16,
+            2.1975895
+          ]
+        ]
+      },
+      "entry": {
+        "cruise_velocity": 0.32
+      },
+      "control": {
+        "cruise_velocity": 0.32,
+        "minimum_velocity": 0.035,
+        "entry_velocity": 0.035,
+        "exit_velocity": 0.32,
+        "maximum_angular_velocity": 1.4,
+        "maximum_lateral_acceleration": 0.3,
+        "linear_acceleration": 0.35,
+        "angular_acceleration": 8.0,
+        "safety_linear_deceleration": 0.4,
+        "safety_reaction_time": 0.15
+      }
+    },
+    "v2_settings": {
+      "local_horizon": 0.75,
+      "minimum_prefix_length": 0.25,
+      "minimum_global_progress": 0.04,
+      "continuation_distance": 0.15,
+      "maximum_iterations": 1500,
+      "planning_time_budget": 0.2,
+      "goal_capture_distance": 1.2,
+      "goal_planning_horizon": 2.5,
+      "goal_planning_time_budget": 3.0,
+      "goal_maximum_iterations": 10000,
+      "extension_trigger_distance": 0.9,
+      "replan_period": 0.1
+    }
+  },
+  "timing_method": {
+    "primary": "First observed /cmd_vel with linear.x > 0 to first /tb_controller camera STEP11 log, using ROS receipt/simulated timestamps.",
+    "initial_wait": "Initial sensor wait before first positive command is reported separately and excluded from elapsed driving time.",
+    "zero_intervals": "Piecewise held exact-zero Twist until the next nonzero command, or censored at the final received command. No unobserved silence is extended.",
+    "midrun_stops": "Exact-zero intervals after first FOLLOWING report and before terminal WAIT_STOP; V2 timeout is not classified as a successful terminal stop.",
+    "known_monitor_field_difference": "monitor.json uses abs(v),abs(w)<=0.005; this report recomputes exact zero from complete JSONL. The monitor zero_time...handoff field on failed trials means observed duration, not an actual handoff.",
+    "wall_time": "Planner durations are separately reported wall-clock log values; they are not added to simulated elapsed times."
+  },
+  "runs": [
+    {
+      "trial": "v1_fast_1",
+      "version": "v1",
+      "profile": "fast",
+      "scope": "tunnel-only, start_step=9",
+      "result": "reached_STEP11_and_observed_lane_control_continuation",
+      "artifact_directory": "records/fast_comparison_20261026/v1_fast_1",
+      "first_positive_command_sim": 116.744,
+      "first_step11_camera_log_sim": 133.857,
+      "first_motion_to_step11_sim_s": 17.113,
+      "last_command_observed_sim": 137.891,
+      "observation_after_first_motion_sim_s": 17.113,
+      "observer_wall_seconds": 25.14889717299957,
+      "observer_end_reason": "STEP11 observation window complete",
+      "entry_first_motion_to_first_exact_zero_sim_s": 3.993,
+      "first_planning_rest_exact_zero_sim_s": 0.966,
+      "after_first_planning_rest_to_step11_sim_s": 12.154,
+      "exact_zero_definition": "linear.x == 0.0 and angular.z == 0.0; no tolerance",
+      "exact_zero_intervals": [
+        {
+          "start_sim": 116.484,
+          "end_sim": 116.744,
+          "duration_sim_s": 0.26,
+          "end_observed_as_nonzero_command": true,
+          "classification": "initial_input_wait"
+        },
+        {
+          "start_sim": 120.737,
+          "end_sim": 121.703,
+          "duration_sim_s": 0.966,
+          "end_observed_as_nonzero_command": true,
+          "classification": "first_planning_rest"
+        },
+        {
+          "start_sim": 133.784,
+          "end_sim": 133.858,
+          "duration_sim_s": 0.074,
+          "end_observed_as_nonzero_command": true,
+          "classification": "terminal_stop"
+        }
+      ],
+      "exact_zero_first_motion_to_handoff_or_last_command_sim_s": 1.039,
+      "midrun_exact_zero_interval_count": 0,
+      "midrun_exact_zero_sim_s": 0,
+      "initial_input_wait_exact_zero_sim_s": 0.26,
+      "terminal_exact_zero_clipped_at_step11_sim_s": 0.073,
+      "observed_local_extension_report_count_lower_bound": 0,
+      "observed_local_extension_report_sim_times": [],
+      "maximum_command_receipt_gap_sim_s": 0.1599999999999966,
+      "maximum_commanded_forward_velocity_mps": 0.32,
+      "maximum_measured_body_forward_velocity_mps": 0.32222805462054743,
+      "raw_counts_match_summary": true,
+      "model_samples": 21371,
+      "command_samples": 471,
+      "first_world_pose": [
+        -1.74759,
+        0.14,
+        -1.5708000000000002
+      ],
+      "last_world_pose": [
+        0.5858042202865263,
+        -1.7616074339128265,
+        -0.017391695241120348
+      ],
+      "maximum_pose_receipt_gap_sim_s": 0.02600000000001046,
+      "geometry": {
+        "minimum_wall_clearance_m": 0.02254671609719345,
+        "minimum_cylinder_clearance_m": 0.08082074677674159,
+        "wall_overlap_samples": 0,
+        "cylinder_overlap_samples": 0,
+        "samples": 21371,
+        "window_start_sim": 116.484
+      },
+      "lane_tail_sim_s": 4.031000000000006,
+      "lane_tail_distance_m": 0.4152629137401045,
+      "positive_lane_commands": 122,
+      "sensor_observer_statistics": {
+        "/odometry/filtered": {
+          "count": 641,
+          "maximum_age_sim_s": 0.004000000000019099,
+          "maximum_source_gap_s": 0.036000000000001364,
+          "first_source": 116.551,
+          "last_source": 137.884,
+          "source_rate_hz": 30.000468757324356
+        },
+        "/scan_mid360_raw": {
+          "count": 213,
+          "maximum_age_sim_s": 0.0010000000000047748,
+          "maximum_source_gap_s": 0.10000000000002274,
+          "first_source": 116.617,
+          "last_source": 137.817,
+          "source_rate_hz": 9.999999999999998
+        },
+        "/camera/color/image_raw": {
+          "count": 637,
+          "maximum_age_sim_s": 0.09399999999999409,
+          "maximum_source_gap_s": 0.09199999999999875,
+          "first_source": 116.629,
+          "last_source": 137.888,
+          "source_rate_hz": 29.916741144926853
+        }
+      },
+      "command_publishers": [
+        "/tb_controller"
+      ],
+      "reported_initial_plan_wall_seconds": 0.89,
+      "evidence_sha256": {
+        "monitor.json": "0e8494b656012533bfce689415f58deca691444f3bb084f671724d2c6a9e699f",
+        "monitor.samples.jsonl": "f4ea3a58237eb99bf71d1f8ccfbea5af34707089a3b3a3d8fb13eb76aa6057c2",
+        "parameters.yaml": "f548bffc441a92f208f2a8ae01337389aa3bd7a355a7091c5c8be66a52230dc3",
+        "runtime_identity.txt": "a94302431b0cd7ac7730b1f2100285f85a3126c52efd6cc8d21a6eae9eb2a003",
+        "runtime.bag": "8fdf22c01f76f0229fb130ea8612802ba1a6d370bb7ce60bd27c54222fe3ce0f"
+      }
+    },
+    {
+      "trial": "v1_fast_2",
+      "version": "v1",
+      "profile": "fast",
+      "scope": "tunnel-only, start_step=9",
+      "result": "reached_STEP11_and_observed_lane_control_continuation",
+      "artifact_directory": "records/fast_comparison_20261026/v1_fast_2",
+      "first_positive_command_sim": 117.088,
+      "first_step11_camera_log_sim": 133.908,
+      "first_motion_to_step11_sim_s": 16.82,
+      "last_command_observed_sim": 137.941,
+      "observation_after_first_motion_sim_s": 16.82,
+      "observer_wall_seconds": 24.924139120999826,
+      "observer_end_reason": "STEP11 observation window complete",
+      "entry_first_motion_to_first_exact_zero_sim_s": 3.995,
+      "first_planning_rest_exact_zero_sim_s": 0.974,
+      "after_first_planning_rest_to_step11_sim_s": 11.851,
+      "exact_zero_definition": "linear.x == 0.0 and angular.z == 0.0; no tolerance",
+      "exact_zero_intervals": [
+        {
+          "start_sim": 116.433,
+          "end_sim": 117.088,
+          "duration_sim_s": 0.655,
+          "end_observed_as_nonzero_command": true,
+          "classification": "initial_input_wait"
+        },
+        {
+          "start_sim": 121.083,
+          "end_sim": 122.057,
+          "duration_sim_s": 0.974,
+          "end_observed_as_nonzero_command": true,
+          "classification": "first_planning_rest"
+        },
+        {
+          "start_sim": 133.833,
+          "end_sim": 133.908,
+          "duration_sim_s": 0.075,
+          "end_observed_as_nonzero_command": true,
+          "classification": "terminal_stop"
+        }
+      ],
+      "exact_zero_first_motion_to_handoff_or_last_command_sim_s": 1.049,
+      "midrun_exact_zero_interval_count": 0,
+      "midrun_exact_zero_sim_s": 0,
+      "initial_input_wait_exact_zero_sim_s": 0.655,
+      "terminal_exact_zero_clipped_at_step11_sim_s": 0.075,
+      "observed_local_extension_report_count_lower_bound": 0,
+      "observed_local_extension_report_sim_times": [],
+      "maximum_command_receipt_gap_sim_s": 0.15499999999998693,
+      "maximum_commanded_forward_velocity_mps": 0.32,
+      "maximum_measured_body_forward_velocity_mps": 0.3214306938557569,
+      "raw_counts_match_summary": true,
+      "model_samples": 21226,
+      "command_samples": 473,
+      "first_world_pose": [
+        -1.74759,
+        0.14,
+        -1.5708000000000002
+      ],
+      "last_world_pose": [
+        0.579006509132173,
+        -1.7567614215510634,
+        -0.015121135682253102
+      ],
+      "maximum_pose_receipt_gap_sim_s": 0.018000000000000682,
+      "geometry": {
+        "minimum_wall_clearance_m": 0.028598012627575303,
+        "minimum_cylinder_clearance_m": 0.06158217331177249,
+        "wall_overlap_samples": 0,
+        "cylinder_overlap_samples": 0,
+        "samples": 21226,
+        "window_start_sim": 116.433
+      },
+      "lane_tail_sim_s": 4.03400000000002,
+      "lane_tail_distance_m": 0.40982380138205665,
+      "positive_lane_commands": 122,
+      "sensor_observer_statistics": {
+        "/scan_mid360_raw": {
+          "count": 212,
+          "maximum_age_sim_s": 0.0,
+          "maximum_source_gap_s": 0.10000000000002274,
+          "first_source": 116.816,
+          "last_source": 137.916,
+          "source_rate_hz": 10.000000000000004
+        },
+        "/odometry/filtered": {
+          "count": 634,
+          "maximum_age_sim_s": 0.02600000000001046,
+          "maximum_source_gap_s": 0.05700000000000216,
+          "first_source": 116.816,
+          "last_source": 137.937,
+          "source_rate_hz": 29.97017186686235
+        },
+        "/camera/color/image_raw": {
+          "count": 632,
+          "maximum_age_sim_s": 0.0940000000000083,
+          "maximum_source_gap_s": 0.09300000000000352,
+          "first_source": 116.844,
+          "last_source": 137.937,
+          "source_rate_hz": 29.915137723415327
+        }
+      },
+      "command_publishers": [
+        "/tb_controller"
+      ],
+      "reported_initial_plan_wall_seconds": 0.9,
+      "evidence_sha256": {
+        "monitor.json": "eeec6f983f58ea22b794dbda3a8791aba76965d8e1313464c4c95c185338cc9b",
+        "monitor.samples.jsonl": "90c460fc8f8b39435d0fb7b114edb9ef4cd336ace33b4e465261c2f8873882df",
+        "parameters.yaml": "3c5648041ccecf5c1b57145c0ab15b7dcf6de5482f73b325230694f693ed4670",
+        "runtime_identity.txt": "c892cb8dd1c5b1f3142e014ed19e5a9d19f14bd0d521a0743d120279d150c524",
+        "runtime.bag": "bee9d97359cd24c99f18feaebc9e5017b2e4fe08a1b4f752cd1d9f0daae230bb"
+      }
+    },
+    {
+      "trial": "v2_fast_1",
+      "version": "v2",
+      "profile": "fast",
+      "scope": "tunnel-only, start_step=9",
+      "result": "did_not_reach_goal_or_STEP11_before_observer_timeout",
+      "artifact_directory": "records/fast_comparison_20261026/v2_fast_1",
+      "first_positive_command_sim": 117.059,
+      "first_step11_camera_log_sim": null,
+      "first_motion_to_step11_sim_s": null,
+      "last_command_observed_sim": 203.226,
+      "observation_after_first_motion_sim_s": 86.167,
+      "observer_wall_seconds": 90.95419553300053,
+      "observer_end_reason": "wall timeout",
+      "entry_first_motion_to_first_exact_zero_sim_s": 3.994,
+      "first_planning_rest_exact_zero_sim_s": 0.416,
+      "after_first_planning_rest_to_step11_sim_s": null,
+      "exact_zero_definition": "linear.x == 0.0 and angular.z == 0.0; no tolerance",
+      "exact_zero_intervals": [
+        {
+          "start_sim": 116.453,
+          "end_sim": 117.059,
+          "duration_sim_s": 0.606,
+          "end_observed_as_nonzero_command": true,
+          "classification": "initial_input_wait"
+        },
+        {
+          "start_sim": 121.053,
+          "end_sim": 121.469,
+          "duration_sim_s": 0.416,
+          "end_observed_as_nonzero_command": true,
+          "classification": "first_planning_rest"
+        },
+        {
+          "start_sim": 122.572,
+          "end_sim": 122.736,
+          "duration_sim_s": 0.164,
+          "end_observed_as_nonzero_command": true,
+          "classification": "midrun_stop"
+        },
+        {
+          "start_sim": 125.197,
+          "end_sim": 125.205,
+          "duration_sim_s": 0.008,
+          "end_observed_as_nonzero_command": true,
+          "classification": "midrun_stop"
+        },
+        {
+          "start_sim": 126.148,
+          "end_sim": 126.211,
+          "duration_sim_s": 0.063,
+          "end_observed_as_nonzero_command": true,
+          "classification": "midrun_stop"
+        },
+        {
+          "start_sim": 126.567,
+          "end_sim": 126.73,
+          "duration_sim_s": 0.163,
+          "end_observed_as_nonzero_command": true,
+          "classification": "midrun_stop"
+        },
+        {
+          "start_sim": 127.22,
+          "end_sim": 127.226,
+          "duration_sim_s": 0.006,
+          "end_observed_as_nonzero_command": true,
+          "classification": "midrun_stop"
+        },
+        {
+          "start_sim": 127.732,
+          "end_sim": 203.226,
+          "duration_sim_s": 75.494,
+          "end_observed_as_nonzero_command": false,
+          "classification": "midrun_stop"
+        }
+      ],
+      "exact_zero_first_motion_to_handoff_or_last_command_sim_s": 76.314,
+      "midrun_exact_zero_interval_count": 6,
+      "midrun_exact_zero_sim_s": 75.898,
+      "initial_input_wait_exact_zero_sim_s": 0.606,
+      "terminal_exact_zero_clipped_at_step11_sim_s": 0,
+      "observed_local_extension_report_count_lower_bound": 1,
+      "observed_local_extension_report_sim_times": [
+        121.469
+      ],
+      "maximum_command_receipt_gap_sim_s": 0.2109999999999843,
+      "maximum_commanded_forward_velocity_mps": 0.32,
+      "maximum_measured_body_forward_velocity_mps": 0.3211392577223993,
+      "raw_counts_match_summary": true,
+      "model_samples": 86530,
+      "command_samples": 1601,
+      "first_world_pose": [
+        -1.74759,
+        0.14,
+        -1.5708000000000002
+      ],
+      "last_world_pose": [
+        -1.1542700124693466,
+        -0.9136686095834932,
+        0.08459788924604564
+      ],
+      "maximum_pose_receipt_gap_sim_s": 0.031999999999982265,
+      "geometry": {
+        "minimum_wall_clearance_m": 0.02960904824593493,
+        "minimum_cylinder_clearance_m": 0.09227220342780015,
+        "wall_overlap_samples": 0,
+        "cylinder_overlap_samples": 0,
+        "samples": 86530,
+        "window_start_sim": 116.453
+      },
+      "lane_tail_sim_s": null,
+      "lane_tail_distance_m": null,
+      "positive_lane_commands": 0,
+      "sensor_observer_statistics": {
+        "/scan_mid360_raw": {
+          "count": 865,
+          "maximum_age_sim_s": 0.012999999999976808,
+          "maximum_source_gap_s": 0.10000000000002274,
+          "first_source": 116.815,
+          "last_source": 203.215,
+          "source_rate_hz": 10.0
+        },
+        "/odometry/filtered": {
+          "count": 2593,
+          "maximum_age_sim_s": 0.018000000000000682,
+          "maximum_source_gap_s": 0.045000000000001705,
+          "first_source": 116.815,
+          "last_source": 203.227,
+          "source_rate_hz": 29.99583391195667
+        },
+        "/camera/color/image_raw": {
+          "count": 2593,
+          "maximum_age_sim_s": 0.09300000000000352,
+          "maximum_source_gap_s": 0.09199999999999875,
+          "first_source": 116.821,
+          "last_source": 203.249,
+          "source_rate_hz": 29.990280927477208
+        }
+      },
+      "command_publishers": [
+        "/tb_controller"
+      ],
+      "reported_initial_plan_wall_seconds": 0.291,
+      "evidence_sha256": {
+        "monitor.json": "3f211973b8e65738453ae91ff1b1c76e64408d608b38f2aa698e83af316b568b",
+        "monitor.samples.jsonl": "0c0a1d393a1c1e4b6552e06f798e97f083a7e35e4c45e1539f6366d474a3315a",
+        "parameters.yaml": "a5138cd9b5a4a2f2b4b07f61d5e80f7e9e4ed83007e832853fba58bbe1f4c258",
+        "runtime_identity.txt": "1033a59d95c0d911a0db5063a864f380f5e802be1d587bcfb1c4881ccaa2a635",
+        "runtime.bag": "f5c80242ee02f7e494f2e9ad7035bc29e671396b9877293dfbb0e4f4b8268c44"
+      },
+      "failure_evidence": {
+        "first_no_feasible_extension_log_sim": 124.787,
+        "first_expired_during_control_log_sim": 122.589,
+        "first_path_report_to_final_zero_sampled_gt_distance_m": 0.6980014134867257,
+        "final_continuous_exact_zero_sim_s": 75.494,
+        "latest_tunnel_log": {
+          "sim_receipt": 203.129,
+          "source_stamp": 203.122,
+          "node": "/tb_controller",
+          "text": "TUNNEL: FOLLOWING following local path; no feasible local extension"
+        },
+        "interpretation": "Consistent with reaching the available first local prefix without obtaining a feasible extension. Short earlier zero commands coincide with checked-input expiry logs. Prefix geometry and worker dispatch times were not recorded, so a precise root cause is not established."
+      }
+    }
+  ],
+  "aggregate": {
+    "v1_successful_tunnel_handoffs": 2,
+    "v1_trials": 2,
+    "v1_elapsed_sim_s": [
+      17.113,
+      16.82
+    ],
+    "v1_elapsed_sim_s_mean": 16.9665,
+    "v2_successful_tunnel_handoffs": 0,
+    "v2_trials": 1,
+    "v2_first_planning_rest_reduction_vs_v1_trial1_sim_s": 0.55,
+    "full_tunnel_speedup_demonstrated": false
+  },
+  "historical_fast_reference": {
+    "source": "tests/gazebo_fast_profile_20261009.json",
+    "source_sha256": "966db4e2410f0249f7f751f1a744424ec63b5da6e328f6e884bf7b0a3161053c",
+    "source_left_unchanged": true,
+    "recorded_elapsed_first_motion_to_step11_sim_s": [
+      18.777,
+      19.078999999999994,
+      20.139999999999986
+    ],
+    "mean_sim_s": 19.331999999999994,
+    "retained_as_valid_historical_baseline": true,
+    "same_conditions": [
+      "FAST cruise/entry cap 0.32 m/s",
+      "same surveyed tunnel staging",
+      "start_step=9 and previous missions disabled",
+      "layout_a and identical world SHA256",
+      "first positive command to camera STEP11 timing definition",
+      "tracking.py and costmap.py production hashes match"
+    ],
+    "differences_limiting_causal_comparison": [
+      "Historical renderer was Xephyr :90 with llvmpipe; current runs use NVIDIA hardware rendering.",
+      "Planner optimization and mission safety/stop-confirmation implementations changed since October 9.",
+      "Historical exit used deceleration followed by WAIT_LANE with three fresh lane frames; current V1 and V2 use WAIT_STOP with fresh measured odometry stop confirmation.",
+      "Historical raw temporary bags were not reanalyzed here; historic values are the preserved tracked report.",
+      "Recording workload and sampling gaps differ; simultaneous environment changes prevent attributing current-vs-historical elapsed differences to a single code change."
+    ],
+    "launch_selection_note": "Current unique wrapper removes duplicate executable resolution ambiguity. No evidence here invalidates the historical report, whose mission source hash matches historical commit 230d0ae.",
+    "no_causal_performance_gain_claim_vs_historical_renderer": true
+  },
+  "excluded_context": {
+    "earlier_v2_fast_trial": "/tmp/tb-v2-gazebo-20261026/tunnel_fast had another noncompletion; it is separate context and is not pooled into this matched comparison.",
+    "v2_normal_trial": "The earlier 72.140-second normal-profile success has different speed settings and is not compared against FAST as a speed regression estimate.",
+    "official_start_trials": "Excluded from this tunnel-only comparison, per the requested scope.",
+    "future_diagnostic_runs": "Any extra instrumented diagnostic run is not a matched benchmark unless separately identified."
+  },
+  "limitations": [
+    "Two current V1 trials and one matched V2 trial are limited evidence, not a reliability estimate or physical validation.",
+    "Zero Twist describes requested motion; physical dynamics may cause small residual movement.",
+    "Planar nominal-body clearance at received GT samples is not a contact-sensor or continuously interpolated collision proof.",
+    "Positive STEP11 lane commands and GT continuation do not establish lane-boundary compliance or full-course completion.",
+    "Observer receive statistics differ from controller callback/control-cycle freshness; fresh observer data does not disprove control-computation expiry.",
+    "Throttled logs only bound observed extension counts; actual path snapshots and worker dispatch/completion traces are absent.",
+    "0.75 m / 0.32 m/s = 2.34375 s is only a nominal straight-line budget. Actual prefix length, curvature speed limits and dispatch timing are not known, so this quotient does not prove buffer starvation."
+  ],
+  "separate_diagnostic_trials": [
+    {
+      "directory": "records/fast_comparison_20261026/v2_diagnostic",
+      "instrumented": true,
+      "included_in_matched_benchmark": false,
+      "result": "STEP11 and 4-second lane continuation observed",
+      "time_first_motion_to_step11_sim_s": 16.799999999999997,
+      "plans": [
+        {
+          "number": 1,
+          "found": true,
+          "result_termination": "horizon",
+          "expanded": 14,
+          "global_duration": 0.2605484960004105,
+          "local_seconds": 0.0042218139988108305,
+          "path_length": 0.7499457905814071,
+          "terminal": [
+            1.1328313492738944,
+            0.6336450720989529,
+            0.9724860869035172
+          ]
+        },
+        {
+          "number": 2,
+          "found": true,
+          "result_termination": "goal",
+          "expanded": 238,
+          "global_duration": 0.3053696900005889,
+          "local_seconds": 0.46943017200101167,
+          "path_length": 1.3167812900941425,
+          "terminal": [
+            1.8805605590049579,
+            1.5679237221220184,
+            1.5280416424590726
+          ]
+        }
+      ],
+      "failed_planner_return_count": 0,
+      "limitations": "Logging and snapshot writes alter execution timing; cannot merge with uninstrumented performance trials. Failed planner return was not reproduced."
+    },
+    {
+      "directory": "records/fast_comparison_20261026/v2_diagnostic_2",
+      "instrumented": true,
+      "included_in_matched_benchmark": false,
+      "result": "STEP11 and 4-second lane continuation observed",
+      "time_first_motion_to_step11_sim_s": 16.97800000000001,
+      "plans": [
+        {
+          "number": 1,
+          "found": true,
+          "result_termination": "horizon",
+          "expanded": 10,
+          "global_duration": 0.27067010600148933,
+          "local_seconds": 0.01423163399886107,
+          "path_length": 0.749954720954854,
+          "terminal": [
+            1.0827203794758595,
+            0.6406607492536422,
+            1.2444509634778136
+          ]
+        },
+        {
+          "number": 2,
+          "found": true,
+          "result_termination": "goal",
+          "expanded": 805,
+          "global_duration": 0.2692594130003272,
+          "local_seconds": 0.9820947600001091,
+          "path_length": 1.3514626887670442,
+          "terminal": [
+            1.8848610942243136,
+            1.5677601990208172,
+            1.5222287412555913
+          ]
+        }
+      ],
+      "failed_planner_return_count": 0,
+      "limitations": "Logging and snapshot writes alter execution timing; cannot merge with uninstrumented performance trials. Failed planner return was not reproduced."
+    }
+  ],
+  "failure_analysis": {
+    "direct_observed_failure": "Uninstrumented V2 accepted an initial prefix, failed to acquire any extension, exhausted usable path, then remained stopped.",
+    "previous_failure_distinction": "Earlier V2 trial accepted a second path, later cut a blocked suffix, and finally exceeded tracking tolerance; the tracking error was not its first stop cause.",
+    "confirmed_design_limits": [
+      "Initial path horizon is 0.75m; continuation test checks only a further 0.15m, not vehicle-feasible reachability to the exit.",
+      "Extension is searched from the retained prefix endpoint and heading; failed searches repeat from that endpoint.",
+      "Remaining safe path shrinks, so braking cap reduces velocity to zero before an unchecked section.",
+      "V1 already uses a 2D goal-distance field as a heuristic; using that field in V2 alone does not prove reduced total work."
+    ],
+    "unknowns": [
+      "Original failed planner returns did not record precise termination reason; budget exhaustion, infeasible pose/geometry, and search exhaustion cannot be uniquely distinguished.",
+      "Instrumented trials both succeeded, so a single deterministic failure root cause has not been isolated."
+    ],
+    "operating_conclusion": "Use V1 FAST as the measured baseline; V2 is an unstable experimental candidate with no demonstrated completion-time advantage.",
+    "future_test_scope": "Tunnel-entry standalone only, as requested by user; no official-start runs during this phase."
+  },
+  "source_unchanged_after_diagnostics": true
+}

@@ -1,0 +1,158 @@
+{
+  "date": "2026-10-26",
+  "repository": "/home/sj/TB_tunnel_gazebo",
+  "head": "80c069d7bb674f13666982d4806edd8bf11e3ffd",
+  "working_tree_includes_uncommitted_v2": true,
+  "overall_verdict": "Not fully validated: normal tunnel-only trial passed once; FAST failed; official-start run did not reach tunnel.",
+  "final_project_acceptance": false,
+  "physical_robot_tested": false,
+  "v1_algorithm_files_unchanged": true,
+  "environment": {
+    "image": "custom-autorace:noetic",
+    "network_mode": "none",
+    "gazebo_fresh_each_trial": true,
+    "gui": false,
+    "renderer": "NVIDIA GeForce RTX 5060 Ti/PCIe/SSE2",
+    "driver": "595.91.07",
+    "obstacle_layout": "layout_a",
+    "original_workspace_mount": "/home/sj/tb3_autorace_noetic_ws:/workspace:ro",
+    "cmd_vel_publisher": "/tb_controller",
+    "entrypoint": "codes/stepbystep/try_maze.py",
+    "version": "v2",
+    "odometry": "world odometry + encoder/IMU EKF, /odometry/filtered"
+  },
+  "normal_tunnel_only": {
+    "verdict": "PASS for one tunnel-entry diagnostic run, not official-start acceptance",
+    "start_step": 9,
+    "start_world_pose": [
+      -1.7475895,
+      0.14,
+      -1.5707963267948966
+    ],
+    "profile": "normal",
+    "first_motion_to_step11_sim_seconds": 72.13999999999999,
+    "first_plan_command_stop_sim_seconds": 0.366,
+    "initial_path_calculation_wall_seconds": 0.289,
+    "next_extension_calculation_wall_seconds": 0.828,
+    "observed_path_acceptances": 2,
+    "exact_zero_commands_during_following_before_goal_stop": 0,
+    "near_zero_positive_command": {
+      "sim_interval": [
+        149.873,
+        149.905
+      ],
+      "linear_velocity": 0.00469729500789129,
+      "meaning": "brief near-stop; not an exact zero command; cause not established"
+    },
+    "lane_control_tail_sim_seconds": 4.0190000000000055,
+    "lane_control_tail_distance_m": 0.41116068896443386,
+    "geometry": {
+      "minimum_wall_clearance_m": 0.027369832683815556,
+      "minimum_cylinder_clearance_m": 0.0946197275525281,
+      "wall_overlap_samples": 0,
+      "cylinder_overlap_samples": 0,
+      "samples": 76436,
+      "window_start_sim": 116.405
+    },
+    "repeat_count": 1,
+    "evidence": "records/gazebo_v2_20261026/tunnel_normal/"
+  },
+  "fast_tunnel_only": {
+    "verdict": "FAIL: did not reach goal or STEP11; stopped with tracking tolerance exceeded",
+    "start_step": 9,
+    "profile": "fast",
+    "first_motion_sim": 117.052,
+    "latest_state": {
+      "sim_receipt": 171.196,
+      "source_stamp": 171.195,
+      "node": "/tb_controller",
+      "text": "TUNNEL: FOLLOWING tracking tolerance exceeded; path retained"
+    },
+    "first_path_calculation_wall_seconds": 0.322,
+    "second_accepted_path_calculation_wall_seconds": 3.149,
+    "continuous_zero_command_from_sim": 132.075,
+    "continuous_zero_command_through_sim": 171.895,
+    "observed_sequence": [
+      "input expired during control calculation",
+      "no feasible local extension",
+      "insufficient safe path for measured stopping distance",
+      "second extension accepted",
+      "blocked suffix removed",
+      "obsolete candidate ignored",
+      "zero command persisted",
+      "tracking tolerance exceeded; path retained"
+    ],
+    "geometry": {
+      "minimum_wall_clearance_m": 0.027907566230988865,
+      "minimum_cylinder_clearance_m": 0.0524612754699634,
+      "wall_overlap_samples": 0,
+      "cylinder_overlap_samples": 0,
+      "samples": 55201,
+      "window_start_sim": 116.453
+    },
+    "caveat": "No-feasible log does not distinguish impossible path from exhausted search budget. FAST changes multiple settings, not only speed.",
+    "raw_export_note": "Observer summary finished, but its raw JSONL export was interrupted; retained as monitor.samples.partial.jsonl. Complete runtime.bag verified readable (169364 messages); 1063 cmd_vel messages exported to bag_commands.json.",
+    "evidence": "records/gazebo_v2_20261026/tunnel_fast/"
+  },
+  "official_start": {
+    "verdict": "NOT COMPLETE: preceding stage 5 stalled before any tunnel execution",
+    "start_step": 0,
+    "start_world_pose": [
+      0.8,
+      -1.747,
+      0.0
+    ],
+    "profile": "normal",
+    "observed_steps": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "green_light_recognized": true,
+    "tunnel_entry_observed": false,
+    "human_intervention_before_stop": false,
+    "test_terminated_after_sustained_stall": true,
+    "stall": {
+      "window_start_sim": 216.007,
+      "window_end_sim": 308.526,
+      "duration_sim": 92.519,
+      "xy_min": [
+        1.5059563919699122,
+        1.3459618114105014
+      ],
+      "xy_max": [
+        1.5109353773196936,
+        1.346312939636775
+      ],
+      "net_displacement_m": 0.0046948624168792795,
+      "positive_linear_commands": 2777,
+      "command_count": 2777
+    },
+    "obstacle": "barrier_3 at [1.49,1.464], collision box [0.25,0.10,0.30]; body/front geometry and near-zero progress support obstacle blockage; no contact-sensor proof",
+    "evidence": "records/gazebo_v2_20261026/full_repeat/"
+  },
+  "wiring_fix": {
+    "problem": "roslaunch type=try_maze.py selected final_codes/try_maze.py, which ignores start_step",
+    "change": "Unique scripts/tb_tunnel_controller.py symlink points to existing stepbystep source; launch selects unique name",
+    "validation": "7 simulation wiring tests passed; Noetic find_node/create_local_process_args and actual argv resolve stepbystep source",
+    "algorithm_changed_during_this_validation": false
+  },
+  "excluded_runs": {
+    "invalid_wrong_entrypoint": "Wrong controller selected, not requested trial",
+    "invalid_relative_entrypoint": "roslaunch rejects node type containing path; no controller launched",
+    "full_start": "Correct controller recognized green and reached step3 but operator ended too early; not a pass or failure verdict"
+  },
+  "limitations": [
+    "Only layout_a and one run per profile.",
+    "No same-condition V1 performance comparison in this validation.",
+    "Sampled nominal planar body clearance is not a contact-sensor or continuous collision proof.",
+    "STEP11 plus motion confirms lane-controller handoff, not full-course lane-boundary compliance.",
+    "Observer was corrected for shutdown reason/controller log filtering after normal trial; controller source hashes stayed unchanged."
+  ],
+  "source_manifest": "records/gazebo_v2_20261026/source_manifest.json",
+  "artifacts_root": "/home/sj/TB_tunnel_gazebo/records/gazebo_v2_20261026",
+  "all_created_simulators_stopped": true
+}
