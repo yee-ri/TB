@@ -15,6 +15,15 @@ class SimulationWiringTests(unittest.TestCase):
         self.assertEqual(entrypoint.read_text().splitlines()[0], '#!/usr/bin/env python3')
         self.assertTrue(entrypoint.stat().st_mode & 0o111)
 
+    def test_launch_resolves_the_stepbystep_controller_unambiguously(self):
+        launch = ET.parse(ROOT / 'launch/tunnel_gazebo.launch').getroot()
+        node_type = launch.find('node').get('type')
+        matches = [path for path in ROOT.rglob(node_type)
+                   if path.is_file() and path.stat().st_mode & 0o111]
+        self.assertEqual(matches, [ROOT / 'scripts/tb_tunnel_controller.py'])
+        self.assertTrue(matches[0].is_symlink())
+        self.assertEqual(matches[0].resolve(), ROOT / 'codes/stepbystep/try_maze.py')
+
     def test_container_has_no_external_ros_network_or_writable_source(self):
         service = yaml.safe_load((ROOT / 'compose.gazebo.yaml').read_text())['services']['gazebo']
         self.assertEqual(service['network_mode'], 'none')
@@ -34,12 +43,15 @@ class SimulationWiringTests(unittest.TestCase):
                          '$(find custom_autorace_description)/launch/gazebo_autorace.launch')
         nodes = launch.findall('.//node')
         self.assertEqual(len(nodes), 1)
-        self.assertEqual(nodes[0].get('type'), 'try_maze.py')
+        self.assertEqual(nodes[0].get('type'), 'tb_tunnel_controller.py')
         params = {p.get('name'): p.get('value') for p in nodes[0].findall('param')}
         self.assertEqual(params['start_step'], '9')
         self.assertEqual(params['lidar_type'], 'laserscan')
         self.assertEqual(params['lidar_topic'], '/scan_mid360_raw')
         self.assertEqual(params['tunnel_profile'], '$(arg tunnel_profile)')
+        self.assertEqual(params['tunnel_version'], '$(arg tunnel_version)')
+        self.assertEqual(launch.find("arg[@name='tunnel_version']").get('default'),
+                         '$(optenv TB_TUNNEL_VERSION v1)')
         self.assertEqual(launch.find("arg[@name='tunnel_profile']").get('default'), 'normal')
         self.assertEqual(nodes[0].find('remap').attrib,
                          {'from': '/odom', 'to': '/odometry/filtered'})
@@ -58,6 +70,10 @@ class SimulationWiringTests(unittest.TestCase):
         service = yaml.safe_load((ROOT / 'compose.gazebo.yaml').read_text())['services']['gazebo']
         self.assertIn('tunnel_obstacle_layout:=${TB_TUNNEL_LAYOUT:-layout_a}',
                       service['command'][-1])
+
+    def test_compose_defaults_to_v1_and_allows_explicit_v2_selection(self):
+        service = yaml.safe_load((ROOT / 'compose.gazebo.yaml').read_text())['services']['gazebo']
+        self.assertIn('tunnel_version:=${TB_TUNNEL_VERSION:-v1}', service['command'][-1])
 
 
 if __name__ == '__main__':

@@ -392,6 +392,19 @@ class NucTrialSafetyTests(unittest.TestCase):
             with self.subTest(start_step=start_step):
                 self.assert_physical_start(start_step)
 
+    def test_v2_choice_is_pinned_in_command_and_recorded_without_an_extra_controller(self):
+        with patch.dict(os.environ, {'TB_TUNNEL_VERSION': 'v2'}):
+            self.assert_physical_start(9)
+
+    def test_unknown_tunnel_version_fails_before_configuration_or_runtime(self):
+        with patch.dict(os.environ, {'TB_TUNNEL_VERSION': 'v3'}), \
+                patch.object(self.cli, 'check_config') as config, \
+                patch.object(self.cli.subprocess, 'Popen') as process:
+            with self.assertRaisesRegex(ValueError, 'TB_TUNNEL_VERSION'):
+                self.cli.start(PRACTICE)
+        config.assert_not_called()
+        process.assert_not_called()
+
     def assert_physical_start(self, start_step):
         path = self.config_file(self.practice)
         metadata = self.start_metadata(path)
@@ -406,6 +419,7 @@ class NucTrialSafetyTests(unittest.TestCase):
             self.assertIn('_enable_motor_torque:=true', command)
             self.assertIn('_start_step:=' + str(start_step), command)
             self.assertIn('_tunnel_profile:=normal', command)
+            self.assertIn('_tunnel_version:=' + os.environ.get('TB_TUNNEL_VERSION', 'v1'), command)
             self.assertNotEqual(kwargs['stdout'], subprocess.PIPE)
             self.assertEqual(Path(kwargs['stdout'].name), self.directory / 'controller.log')
             return process
@@ -429,6 +443,7 @@ class NucTrialSafetyTests(unittest.TestCase):
         saved = json.loads((self.directory / 'trial.json').read_text())
         self.assertEqual(saved['controller_status'], 'exited')
         self.assertIn('_enable_motor_torque:=true', saved['controller_command'])
+        self.assertEqual(saved['tunnel_version'], os.environ.get('TB_TUNNEL_VERSION', 'v1'))
         self.assertEqual(saved['start_step'], start_step)
         self.assertEqual(saved['lane_controller'], 'original_try_maze_e0b970f')
         self.assertEqual(saved['start_condition'],

@@ -1,6 +1,7 @@
 <launch>
   <arg name="gui" default="true"/>
   <arg name="tunnel_profile" default="normal"/>
+  <arg name="tunnel_version" default="$(optenv TB_TUNNEL_VERSION v1)"/>
   <arg name="tunnel_obstacle_layout" default="layout_a"/>
   <!-- Diagnostic tunnel-only start; this is NOT the official course start. -->
   <include file="$(find custom_autorace_description)/launch/gazebo_autorace.launch">
@@ -15,13 +16,14 @@
     <arg name="fuse_imu" value="true"/>
   </include>
   <!-- No original lane/mission controller is launched. TB owns cmd_vel. -->
-  <node pkg="tb_tunnel_sim" type="try_maze.py" name="tb_controller"
+  <node pkg="tb_tunnel_sim" type="tb_tunnel_controller.py" name="tb_controller"
         output="screen" required="true">
     <param name="start_step" value="9"/>
     <param name="lidar_type" value="laserscan"/>
     <param name="lidar_topic" value="/scan_mid360_raw"/>
     <param name="tunnel_config" value="$(find tb_tunnel_sim)/codes/stepbystep/tunnel.yaml"/>
     <param name="tunnel_profile" value="$(arg tunnel_profile)"/>
+    <param name="tunnel_version" value="$(arg tunnel_version)"/>
     <remap from="/odom" to="/odometry/filtered"/>
   </node>
 </launch>
