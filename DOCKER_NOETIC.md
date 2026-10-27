@@ -67,34 +67,12 @@ docker compose -f compose.gazebo.yaml down
 docker compose -f compose.gazebo.yaml run --rm --no-deps gazebo bash -lc 'python3 -m unittest discover -s tests -v && python3 tests/ros_smoke.py'
 ```
 
-# 실차 V2 터널 단독 실행
+# 실차 V2 실행
 
-NUC 센서 실행.
+센서를 켠 뒤 `try_maze.py`만 직접 실행하는 명령은 [기본 주행 실행](README.md)에 정리했다.
+직접 실행은 ROS 환경을 자동으로 준비하고 기본 V2·실물 설정·STEP 1을 사용한다.
+`_start_step:=9`를 붙이면 터널 단독으로 시작한다.
+이 NUC의 저장소는 `/home/sj/ParkCars/TB-tunnel-nuc`이며 다른 컴퓨터에서는 해당 저장소 경로를 쓴다.
 
-```bash
-cd /home/sj/Desktop/TB
-bash scripts/nuc_sensors.sh --mounts --depth
-```
-
-두 번째 터미널에서 실차 환경·기록 시작.
-
-```bash
-cd /home/sj/Desktop/TB
-source scripts/nuc_env.sh
-python3 scripts/nuc_trial.py record
-```
-
-세 번째 터미널에서 V2 STEP 9 주행 시작.
-
-```bash
-cd /home/sj/Desktop/TB
-source scripts/nuc_env.sh
-TB_TUNNEL_VERSION=v2 python3 scripts/nuc_trial.py start
-```
-
-주행 터미널의 Ctrl+C 후 모터 정지 요청, 실제 정지 확인 후 기록 종료.
-
-```bash
-python3 scripts/nuc_trial.py stop
-python3 scripts/nuc_trial.py stop-record
-```
+STEP 9 시작 위치와 `nuc_trial.py`의 기록·정지·저장 순서는 [터널 테스트 안내](README_TUNNEL_TEST.md)를 따른다.
+위 Gazebo 명령의 시뮬레이션 설정과 실행 방식은 그대로 유지한다.

@@ -79,13 +79,27 @@ class EntranceLocalizer:
 
     def _distances(self, points, nearest=True):
         """Squared finite-segment distances and nearest segment for each hit."""
+        if not nearest:
+            # Each rectangle contributes consecutive parallel faces with the
+            # same finite extent.  Coarse search needs only their minimum:
+            # share the endpoint-distance calculation between the two faces
+            # instead of allocating every face for every pose and hit.
+            first, second = self.segments[::2], self.segments[1::2]
+            axes = self.axes[::2]
+            normal = points[..., axes]
+            normal_first = normal-first[:, 1]
+            normal_second = normal-second[:, 1]
+            tangent = points[..., 1-axes]
+            outside = np.maximum(first[:, 2]-tangent,
+                                 np.maximum(tangent-first[:, 3], 0.))
+            square = np.minimum(normal_first*normal_first,
+                                normal_second*normal_second) + outside*outside
+            return np.min(square, axis=-1)
         normal = points[..., self.axes] - self.segments[:, 1]
         tangent = points[..., self.tangents]
         outside = np.maximum(self.segments[:, 2]-tangent,
                              np.maximum(tangent-self.segments[:, 3], 0.))
         square = normal*normal + outside*outside
-        if not nearest:
-            return np.min(square, axis=-1)
         indices = np.argmin(square, axis=-1)
         return np.take_along_axis(square, indices[..., None], axis=-1)[..., 0], indices
 

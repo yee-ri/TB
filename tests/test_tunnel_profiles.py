@@ -148,14 +148,15 @@ class TunnelProfileTests(unittest.TestCase):
                 with self.subTest(directory=directory, obstacle=obstacle):
                     config, commands, trace = self.entry_run(config=physical, obstacle=obstacle)
                     dt = config['control']['period']
-                    self.assertAlmostEqual(commands[0], .10 * dt)
-                    self.assertLessEqual(max(np.diff(np.r_[0., commands])), .10 * dt + 1e-9)
-                    self.assertLessEqual(max(commands), .25 + 1e-9)
-                    self.assertEqual(config['control']['cruise_velocity'], .32)
-                    self.assertEqual(config['control']['linear_acceleration'], .15)
+                    acceleration = config['entry']['linear_acceleration']
+                    speed = config['entry']['cruise_velocity']
+                    self.assertAlmostEqual(commands[0], acceleration * dt)
+                    self.assertLessEqual(max(np.diff(np.r_[0., commands])), acceleration * dt + 1e-9)
+                    self.assertLessEqual(max(commands), speed + 1e-9)
+                    self.assertLess(acceleration, config['control']['linear_acceleration'])
                     self.assertGreater(np.count_nonzero(np.diff(commands) < -1e-6), 5)
                     if obstacle is None:
-                        self.assertAlmostEqual(max(commands), .25)
+                        self.assertAlmostEqual(max(commands), speed)
                     else:
                         self.assertLess(trace[-1][0], config['entry']['distance'] - .3)
 

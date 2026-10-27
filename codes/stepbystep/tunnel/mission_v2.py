@@ -29,6 +29,59 @@ class TunnelMissionV2(TunnelMission):
             raise ValueError('v2/replan_period must be finite and positive')
         super().__init__(config, clock)
         self.local_planner = GlobalLocalPlanner(self.planner, self.v2)
+        self.exit_crossing = self._exit_crossing_geometry(config['goal'].get('exit_crossing'))
+
+    def _exit_crossing_geometry(self, segment):
+        """Surveyed opening; the outside guide selects its outward side."""
+        if segment is None:
+            return None
+        if (not isinstance(segment, (list, tuple)) or len(segment) != 2
+                or any(not isinstance(point, (list, tuple)) or len(point) != 2
+                       for point in segment)
+                or any(isinstance(value, bool) or not isinstance(value, (int, float))
+                       or not math.isfinite(value) for point in segment for value in point)):
+            raise ValueError('goal/exit_crossing must contain two finite XY endpoints')
+        (x, y), (end_x, end_y) = segment
+        width = math.hypot(end_x-x, end_y-y)
+        if width <= 1e-9:
+            raise ValueError('goal/exit_crossing must have positive width')
+        tx, ty = (end_x-x)/width, (end_y-y)/width
+        nx, ny = -ty, tx
+        dx, dy = self.goal.x-x, self.goal.y-y
+        side = nx*dx+ny*dy
+        if abs(side) <= 1e-9 or not 0. <= tx*dx+ty*dy <= width:
+            raise ValueError('goal must be off the exit plane and laterally within exit_crossing')
+        if side < 0.:
+            nx, ny = -nx, -ny
+        return x, y, tx, ty, nx, ny, width
+
+    def _goal_reached(self, pose):
+        if self.exit_crossing is None:
+            return (math.hypot(self.goal.x-pose.x, self.goal.y-pose.y)
+                    <= self.config['goal']['position_tolerance'])
+        x, y, tx, ty, nx, ny, width = self.exit_crossing
+        forward = nx*(pose.x-x)+ny*(pose.y-y)
+        lateral = tx*(pose.x-x)+ty*(pose.y-y)
+        previous = self.exit_previous_position
+        self.exit_previous_position = forward, lateral
+        if previous is not None:
+            old_forward, old_lateral = previous
+            if old_forward <= 0. <= forward and forward-old_forward > 1e-9:
+                fraction = -old_forward/(forward-old_forward)
+                crossing = old_lateral+fraction*(lateral-old_lateral)
+                self.exit_crossed = 0. <= crossing <= width
+            elif old_forward >= 0. > forward:
+                # Returning inside requires a new outward passage through
+                # this opening; an earlier passage cannot qualify another exit.
+                self.exit_crossed = False
+        if not self.exit_crossed:
+            return False
+        cx, cy, c, s, half_length, half_width = self.planner._footprint_geometry(pose)
+        forward = nx*(cx-x)+ny*(cy-y)
+        forward_extent = half_length*abs(nx*c+ny*s)+half_width*abs(-nx*s+ny*c)
+        # Once every corner is outside, the aperture does not extend into an
+        # imaginary corridor. The goal point/yaw no longer owns the handoff.
+        return forward-forward_extent >= 0.
 
     def reset(self):
         super().reset()
@@ -37,6 +90,8 @@ class TunnelMissionV2(TunnelMission):
             self.pending_route = None
             self.global_updates = 0
             self.global_report = 'waiting for first global route'
+            self.exit_previous_position = None
+            self.exit_crossed = False
 
     def _request_global_plan(self, pose, now):
         if (self.worker is not None and self.worker.is_alive()) or self.pending_route is not None:
@@ -83,11 +138,22 @@ class TunnelMissionV2(TunnelMission):
         self.global_report = 'global route %d updated in %.3fs' % (self.global_updates, duration)
 
     def _finish_goal(self, pose, elapsed, now, grid):
-        """Preserve the existing outside position, heading and stop contract."""
+        """Hand off after physical passage; retain endpoint alignment otherwise."""
+        # Once reached, finish even if momentum changes the accepted pose.
+        self.state = 'FINISHING'
         cfg = self.control
+        measured_linear, measured_angular = self.odom[3:5]
+        if self.exit_crossing is not None:
+            # End tunnel ownership now. The adapter clears old lane commands
+            # and lets the next image drive; no measured-stop wait is needed.
+            command = SimpleNamespace(linear_velocity=0., angular_velocity=0.)
+            if not self.local_planner.command_is_safe(
+                    grid, pose, command, cfg, measured_linear, measured_angular):
+                return self._zero('exit crossing stopping sweep is blocked')
+            self.state = 'COMPLETE'
+            return self._zero('exit crossed; handing control to lane tracking')
         heading_error = normalize_angle(self.goal.yaw-pose.yaw)
         heading_ok = abs(heading_error) <= math.radians(self.config['goal']['heading_tolerance_deg'])
-        measured_linear, measured_angular = self.odom[3:5]
         if (self.last_linear > 1e-9
                 or abs(measured_linear) > cfg['planning_stopped_linear']):
             command = self._stop_command(elapsed)
@@ -119,8 +185,9 @@ class TunnelMissionV2(TunnelMission):
 
     def step(self, now):
         with self.lock:
-            # Entry registration and final handoff stay identical to V1.
-            if self.state in ('LOCALIZING', 'ENTRY', 'WAIT_STOP', 'COMPLETE') or self.anchor is None:
+            # Entry registration stays identical to V1. Only unconfigured
+            # exits retain the final stopped-heading alignment below.
+            if self.state in ('LOCALIZING', 'ENTRY', 'COMPLETE') or self.anchor is None:
                 return super().step(now)
             if self.clock is not None:
                 now = self.clock()
@@ -136,8 +203,15 @@ class TunnelMissionV2(TunnelMission):
             grid = self._grid()
             if not self.planner.pose_is_collision_free(grid, pose):
                 return self._zero('current footprint overlaps mapped obstacle')
-            distance = math.hypot(self.goal.x-pose.x, self.goal.y-pose.y)
-            if distance <= self.config['goal']['position_tolerance']:
+            if self.state == 'WAIT_STOP':
+                stopped = (self.odom[-1] > self.completion_started
+                           and abs(self.odom[3]) <= self.control['planning_stopped_linear']
+                           and abs(self.odom[4]) <= self.control['planning_stopped_angular'])
+                heading_error = abs(normalize_angle(self.goal.yaw-pose.yaw))
+                if stopped and heading_error > math.radians(self.config['goal']['heading_tolerance_deg']):
+                    return self._finish_goal(pose, elapsed, now, grid)
+                return super().step(now)
+            if self.state == 'FINISHING' or self._goal_reached(pose):
                 return self._finish_goal(pose, elapsed, now, grid)
             self._accept_global_plan(pose, grid)
             self._request_global_plan(pose, now)

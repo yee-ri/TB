@@ -193,7 +193,6 @@ class TunnelMission:
             self.entry_start_x = 0.
             self.entry_start_yaw = 0.
             self.entry_phase = 'WAIT_STOP' if self.entry_heading_offset else 'DRIVE'
-            self.entry_alignment_stop_stamp = None
             self.entry_drive_yaw = None
             self.initial_map_updates = 0
 
@@ -338,12 +337,13 @@ class TunnelMission:
         if self.scan is not None:
             self._map_scan()
 
-    def _invalidate_localization(self):
+    def _invalidate_localization(self, clear_observations=True):
         self.localization_epoch += 1
         self.localization_candidate = self.localization_result = None
         self.localization_confirmations = 0
         self.localization_anchors = []
-        self.localization_history = []
+        if clear_observations:
+            self.localization_history = []
 
     def _localize(self, now):
         """Fit the stopped robot to the surveyed map, never move the map with it."""
@@ -357,8 +357,13 @@ class TunnelMission:
             self.localization_result = None
             moved = (math.hypot(self.odom[0]-scan_odom[0], self.odom[1]-scan_odom[1]) > .005
                      or abs(normalize_angle(self.odom[2]-scan_odom[2])) > math.radians(.5))
-            if now-stamp > self.sensors['maximum_age'] or moved or not result.accepted:
-                self._invalidate_localization()
+            expired = now-stamp > self.sensors['maximum_age']
+            if expired or moved or not result.accepted:
+                # Discard an expired fit and all confirmations, but a slow
+                # worker does not invalidate fresh stopped scans collected
+                # meanwhile. Recheck their poses before the next fit below.
+                self._invalidate_localization(
+                    clear_observations=not (expired and not moved and result.accepted))
                 self.reason = ('wall alignment input expired or robot moved' if moved or
                                now-stamp > self.sensors['maximum_age'] else result.reason)
                 return False
@@ -516,7 +521,7 @@ class TunnelMission:
         return self.last_linear, self.last_angular, False
 
     def _align_entry(self, pose, elapsed, now):
-        """Turn once toward the entry heading, stop, then drive straight."""
+        """Turn once; return None to begin straight entry in this same tick."""
         cfg = self.control
         measured_linear, measured_angular = self.odom[3:5]
         stopped = (abs(measured_linear) <= cfg['planning_stopped_linear']
@@ -529,20 +534,14 @@ class TunnelMission:
             if not stopped:
                 return self._zero('waiting for measured rest before entry heading turn')
             self.entry_phase = 'ALIGN'
-        if self.entry_phase == 'SETTLE':
-            if self.odom[-1] <= self.entry_alignment_stop_stamp or not stopped:
-                return self._zero('waiting for measured stop after entry heading turn')
-            # Accept the stopped heading once; correcting overshoot here
-            # makes a small entry turn oscillate instead of driving forward.
+        if remaining <= tolerance:
+            # Latch the reached heading once and start forward acceleration
+            # without waiting for angular rest. Moving entry corrects drift.
             self.entry_drive_yaw = pose.yaw
             self.entry_phase = 'DRIVE'
-            return self._zero('entry heading aligned; ready for straight entry')
+            return None
         if abs(measured_linear) > cfg['planning_stopped_linear']:
             return self._zero('waiting for measured rest before entry heading turn')
-        if remaining <= tolerance:
-            self.entry_phase = 'SETTLE'
-            self.entry_alignment_stop_stamp = max(now, self.odom[-1])
-            return self._zero('waiting for measured stop after entry heading turn')
 
         acceleration = self.entry_alignment_angular_acceleration
         deceleration = min(acceleration, cfg['safety_angular_deceleration'])
@@ -559,7 +558,9 @@ class TunnelMission:
         if self.entry_heading_offset and not self.planner.pose_is_collision_free(self._grid(), pose):
             return self._zero('current body overlaps mapped obstacle; physical contact not measured')
         if self.entry_phase != 'DRIVE':
-            return self._align_entry(pose, elapsed, now)
+            alignment_command = self._align_entry(pose, elapsed, now)
+            if alignment_command is not None:
+                return alignment_command
         cfg, entry = self.control, self.config['entry']
         entry_name = 'aligned straight entry' if self.entry_heading_offset else 'straight entry'
         traveled = max(0., (pose.x-self.entry_start_x)/math.cos(self.entry_start_yaw))

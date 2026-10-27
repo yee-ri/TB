@@ -445,14 +445,14 @@ class NucTrialSafetyTests(unittest.TestCase):
         self.assertIn('_enable_motor_torque:=true', saved['controller_command'])
         self.assertEqual(saved['tunnel_version'], os.environ.get('TB_TUNNEL_VERSION', 'v1'))
         self.assertEqual(saved['start_step'], start_step)
-        self.assertEqual(saved['lane_controller'], 'original_try_maze_e0b970f')
+        self.assertEqual(saved['lane_controller'], 'codes/stepbystep/try_maze.py')
         self.assertEqual(saved['start_condition'],
                          {0: 'traffic_light', 8: 'gate_already_open', 9: 'tunnel_entry'}[start_step])
         self.assertTrue(saved['recording_active'])
         self.assertEqual(saved['config_sha256'], self.cli.digest(path))
         log = (self.directory / 'controller.log').read_text()
         self.assertIn('normal step{}.'.format(start_step), log)
-        self.assertIn('Lane tracking: restored try_maze e0b970f', log)
+        self.assertIn('Lane tracking: codes/stepbystep/try_maze.py', log)
         if start_step == 8:
             self.assertIn('step8 does not check the gate', log)
         elif start_step == 0:

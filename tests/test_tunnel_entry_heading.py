@@ -1,4 +1,4 @@
-"""Turn-then-drive entry, recorded stopping drift, and actual-body checks."""
+"""Direct turn-to-drive entry, legacy settling, and actual-body checks."""
 
 import copy
 import importlib
@@ -14,6 +14,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'codes/stepbystep'))
 from tunnel import mission as step_mission
+from tunnel.mission_v2 import TunnelMissionV2
 
 # Exercise the deployed final copy as well as the step-by-step implementation.
 spec = importlib.util.spec_from_file_location(
@@ -24,6 +25,8 @@ sys.modules[spec.name] = package
 spec.loader.exec_module(package)
 final_mission = importlib.import_module('entry_test_final_tunnel.mission')
 IMPLEMENTATIONS = (('stepbystep', step_mission), ('final_codes', final_mission))
+LEGACY_IMPLEMENTATIONS = (('final_codes', final_mission),)
+DIRECT_MISSIONS = (('v1', step_mission.TunnelMission), ('v2', TunnelMissionV2))
 
 
 def integrate(pose, linear, angular, period):
@@ -45,8 +48,9 @@ class TunnelEntryHeadingTest(unittest.TestCase):
         config['planner']['keep_in_rectangles'] = None
         return config
 
-    def make_mission(self, folder, module, config=None, start_yaw=0.):
-        mission = module.TunnelMission(self.configuration(folder) if config is None else config)
+    def make_mission(self, folder, module, config=None, start_yaw=0., mission_type=None):
+        mission_type = module.TunnelMission if mission_type is None else mission_type
+        mission = mission_type(self.configuration(folder) if config is None else config)
         self.addCleanup(mission.close)
         mission._initialize(anchor=(0., 0., 0.))
         mission.entry_start_x, mission.entry_start_yaw = 0., start_yaw
@@ -71,7 +75,7 @@ class TunnelEntryHeadingTest(unittest.TestCase):
                 cells[row * 100 + column] = [box]
         return module.OccupancyGrid(data, .02, -1., -1., static_cell_rectangles=cells)
 
-    def test_physical_entry_turns_then_stops_before_straight_acceleration(self):
+    def test_physical_entry_turns_then_drives_with_expected_handoff(self):
         for folder, module in IMPLEMENTATIONS:
             with self.subTest(folder=folder):
                 config = self.configuration(folder)
@@ -89,8 +93,9 @@ class TunnelEntryHeadingTest(unittest.TestCase):
                     command, turn, complete = mission.step(now)
                     self.assertFalse(complete)
                     self.assertGreaterEqual(command, 0.)
-                    self.assertLessEqual(command, .25 + 1e-9)
-                    self.assertLessEqual(command - linear, .10 * period + 1e-9)
+                    self.assertLessEqual(command, config['entry']['cruise_velocity'] + 1e-9)
+                    self.assertLessEqual(command - linear,
+                                         config['entry']['linear_acceleration'] * period + 1e-9)
                     phases.add(mission.entry_phase)
                     if first_forward is None:
                         self.assertAlmostEqual(pose[0], 0.)
@@ -99,7 +104,12 @@ class TunnelEntryHeadingTest(unittest.TestCase):
                         self.assertEqual(mission.entry_phase, 'DRIVE')
                         if first_forward is None:
                             first_forward = pose
-                            self.assertLessEqual(abs(angular), mission.control['planning_stopped_angular'])
+                            if folder == 'final_codes':
+                                self.assertLessEqual(abs(angular), mission.control['planning_stopped_angular'])
+                            else:
+                                # Forward motion starts while the previous
+                                # pivot command is still present in feedback.
+                                self.assertGreater(abs(angular), 0.)
                             self.assertLessEqual(abs(pose[2] - math.radians(5.)),
                                                  math.radians(config['entry']['alignment_tolerance_deg']))
                         # The accepted heading is frozen: ideal straight
@@ -120,15 +130,18 @@ class TunnelEntryHeadingTest(unittest.TestCase):
                 self.assertEqual(mission.state, 'PLANNING')
                 self.assertEqual(mission.plans, 0)
                 self.assertIn('ALIGN', phases)
-                self.assertIn('SETTLE', phases)
+                if folder == 'final_codes':
+                    self.assertIn('SETTLE', phases)
+                else:
+                    self.assertNotIn('SETTLE', phases)
                 self.assertIsNotNone(first_forward)
-                self.assertAlmostEqual(maximum_speed, .25)
+                self.assertAlmostEqual(maximum_speed, config['entry']['cruise_velocity'])
                 self.assertGreater(pose[1], .01)
                 self.assertGreater(pose[2], math.radians(1.))
                 self.assertLessEqual(pose[0], .7)
 
-    def test_rotation_waits_for_rest_and_requires_new_stopped_feedback(self):
-        for folder, module in IMPLEMENTATIONS:
+    def test_legacy_rotation_waits_for_rest_and_requires_new_stopped_feedback(self):
+        for folder, module in LEGACY_IMPLEMENTATIONS:
             with self.subTest(folder=folder):
                 mission = self.make_mission(folder, module)
                 self.feed(mission, (0., 0., 0.), 10., .03, .1)
@@ -158,8 +171,8 @@ class TunnelEntryHeadingTest(unittest.TestCase):
                 self.assertGreater(linear, 0.)
                 self.assertAlmostEqual(angular, 0., places=12)
 
-    def test_recorded_stopping_drift_does_not_restart_or_reverse_the_turn(self):
-        for folder, module in IMPLEMENTATIONS:
+    def test_legacy_recorded_stopping_drift_does_not_restart_or_reverse_the_turn(self):
+        for folder, module in LEGACY_IMPLEMENTATIONS:
             with self.subTest(folder=folder):
                 mission = self.make_mission(folder, module)
                 self.feed(mission, (0., 0., 0.), 10.)
@@ -196,8 +209,8 @@ class TunnelEntryHeadingTest(unittest.TestCase):
                 self.assertGreater(linear, 0.)
                 self.assertAlmostEqual(angular, 0.)
 
-    def test_skipped_heading_target_stops_without_reversal_in_either_direction(self):
-        for folder, module in IMPLEMENTATIONS:
+    def test_legacy_skipped_heading_target_stops_without_reversal_in_either_direction(self):
+        for folder, module in LEGACY_IMPLEMENTATIONS:
             for sign in (-1, 1):
                 with self.subTest(folder=folder, direction=sign):
                     config = self.configuration(folder)
@@ -225,6 +238,98 @@ class TunnelEntryHeadingTest(unittest.TestCase):
                     linear, angular, _ = mission.step(10.15)
                     self.assertGreater(linear, 0.)
                     self.assertAlmostEqual(angular, 0.)
+
+    def test_direct_entry_retains_initial_rest_but_moves_on_the_target_tick(self):
+        for version, mission_type in DIRECT_MISSIONS:
+            with self.subTest(version=version):
+                mission = self.make_mission('stepbystep', step_mission, mission_type=mission_type)
+                self.feed(mission, (0., 0., 0.), 10., .03, .1)
+                self.assertEqual(mission.step(10.), (0., 0., False))
+                self.assertEqual(mission.entry_phase, 'WAIT_STOP')
+                self.feed(mission, (0., 0., 0.), 10.05)
+                linear, angular, _ = mission.step(10.05)
+                self.assertEqual(linear, 0.)
+                self.assertGreater(angular, 0.)
+                self.assertEqual(mission.entry_phase, 'ALIGN')
+
+                target = (0., 0., math.radians(5.))
+                self.feed(mission, target, 10.10, linear=.015, angular=.248)
+                linear, angular, complete = mission.step(10.10)
+                self.assertFalse(complete)
+                self.assertGreater(linear, 0., mission.reason)
+                self.assertLessEqual(linear, mission.entry_linear_acceleration * .05 + 1e-9)
+                self.assertAlmostEqual(angular, 0.)
+                self.assertEqual(mission.entry_phase, 'DRIVE')
+                self.assertAlmostEqual(mission.entry_drive_yaw, target[2])
+
+    def test_direct_entry_coasting_does_not_restart_an_in_place_turn(self):
+        for version, mission_type in DIRECT_MISSIONS:
+            with self.subTest(version=version):
+                mission = self.make_mission('stepbystep', step_mission, mission_type=mission_type)
+                self.feed(mission, (0., 0., 0.), 10.)
+                self.assertGreater(mission.step(10.)[1], 0.)
+                reached = (0., 0., math.radians(4.997))
+                self.feed(mission, reached, 10.05, angular=.248)
+                linear, angular, _ = mission.step(10.05)
+                self.assertGreater(linear, 0.)
+                self.assertAlmostEqual(angular, 0.)
+                self.assertEqual(mission.entry_phase, 'DRIVE')
+
+                # Replay the observed coasting yaw. Gentle moving corrections
+                # are allowed, but the pivot must not restart or wait for rest.
+                for now, yaw, measured_angular in ((10.10, 6.5, .15), (10.15, 7.966, 0.)):
+                    self.feed(mission, (.001, 0., math.radians(yaw)), now,
+                              linear=linear, angular=measured_angular)
+                    linear, angular, _ = mission.step(now)
+                    self.assertGreater(linear, 0., mission.reason)
+                    self.assertLessEqual(angular, 0.)
+                    self.assertLessEqual(abs(angular), linear * mission.entry_maximum_curvature + 1e-9)
+                    self.assertEqual(mission.entry_phase, 'DRIVE')
+                    self.assertAlmostEqual(mission.entry_drive_yaw, reached[2])
+
+    def test_direct_entry_crossed_target_moves_immediately_in_both_wrap_directions(self):
+        for version, mission_type in DIRECT_MISSIONS:
+            for sign in (-1, 1):
+                with self.subTest(version=version, direction=sign):
+                    config = self.configuration('stepbystep')
+                    config['entry']['heading_offset_deg'] = sign * 5.
+                    start = math.radians(sign * 179.)
+                    mission = self.make_mission('stepbystep', step_mission, config,
+                                                start_yaw=start, mission_type=mission_type)
+                    self.feed(mission, (0., 0., start), 10.)
+                    self.assertGreater(sign * mission.step(10.)[1], 0.)
+                    crossed = (0., 0., math.radians(-sign * 174.))
+                    self.feed(mission, crossed, 10.05, angular=sign * .10)
+                    linear, angular, _ = mission.step(10.05)
+                    self.assertGreater(linear, 0., mission.reason)
+                    self.assertAlmostEqual(angular, 0.)
+                    self.assertEqual(mission.entry_phase, 'DRIVE')
+                    self.assertAlmostEqual(mission.entry_drive_yaw, crossed[2])
+
+    def test_direct_entry_transition_keeps_freshness_body_and_front_stop_gates(self):
+        for version, mission_type in DIRECT_MISSIONS:
+            for gate in ('stale', 'body', 'front'):
+                with self.subTest(version=version, gate=gate):
+                    mission = self.make_mission('stepbystep', step_mission, mission_type=mission_type)
+                    self.feed(mission, (0., 0., 0.), 10.)
+                    self.assertGreater(mission.step(10.)[1], 0.)
+                    reached = (0., 0., math.radians(5.))
+                    if gate == 'stale':
+                        mission.update_odometry(reached, 0., .08, 10.5)
+                        self.assertEqual(mission.step(10.5), (0., 0., False))
+                        self.assertIn('waiting for fresh', mission.reason)
+                    else:
+                        self.feed(mission, reached, 10.05, angular=.08)
+                        if gate == 'body':
+                            grid = self.box_grid(step_mission, (-.01, -.01, .01, .01))
+                            with patch.object(mission, '_grid', return_value=grid):
+                                self.assertEqual(mission.step(10.05), (0., 0., False))
+                            self.assertIn('current body overlaps', mission.reason)
+                        else:
+                            mission.front_clearance = mission.config['entry']['obstacle_clearance']
+                            self.assertEqual(mission.step(10.05), (0., 0., False))
+                            self.assertEqual(mission.state, 'PLANNING')
+                            self.assertIn('front clearance', mission.reason)
 
     def test_initial_rotation_does_not_predict_rear_corner_overlap(self):
         for folder, module in IMPLEMENTATIONS:
@@ -301,7 +406,8 @@ class TunnelEntryHeadingTest(unittest.TestCase):
                         linear, angular, _ = mission._enter(pose, .05, 10.)
                     sweep.assert_not_called()
                     self.assertGreater(linear, 0.)
-                    self.assertAlmostEqual(linear, .13 if braking else .155)
+                    self.assertAlmostEqual(linear, .13 if braking else
+                                           .15 + mission.entry_linear_acceleration * .05)
                     self.assertAlmostEqual(angular, 0.)
                     self.assertEqual(mission.state, 'ENTRY')
 

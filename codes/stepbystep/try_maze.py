@@ -1,10 +1,32 @@
 #!/usr/bin/env python3
+import os
+import sys
+from pathlib import Path
+
+
+def prepare_nuc_environment():
+    """Use the sensor launch environment for a direct physical invocation."""
+    # roslaunch and nuc_trial already select their own runtime/configuration.
+    if any(argument.startswith('__name:=') for argument in sys.argv[1:]):
+        return
+    root = Path(__file__).resolve().parents[2]
+    os.environ['TB_NUC_DIRECT_START'] = str(root)
+    if os.environ.get('TB_NUC_ENV_ROOT') == str(root):
+        return
+    os.execv('/bin/bash', [
+        'bash', '-c', 'source "$1" && shift && exec "$@"', 'tb-nuc-start',
+        str(root / 'scripts/nuc_env.sh'), sys.executable,
+        str(Path(__file__).resolve()), *sys.argv[1:],
+    ])
+
+
+if __name__ == '__main__':
+    prepare_nuc_environment()
+
 import rospy
 import cv2
 import math
-import os
 import numpy as np
-from pathlib import Path
 from threading import RLock
 from tf.transformations import euler_from_quaternion,quaternion_matrix
 from sensor_msgs.msg import Image,PointCloud2,LaserScan
@@ -31,7 +53,8 @@ class turtlebot():
         rospy.get_param_cached('/rosout_disable_topics_generation',False)
         self.command_lock=RLock()
         self.shutting_down=False
-        self.enable_motor_torque=rospy.get_param('~enable_motor_torque',False)
+        direct_nuc=os.environ.get('TB_NUC_DIRECT_START')==str(Path(__file__).resolve().parents[2])
+        self.enable_motor_torque=rospy.get_param('~enable_motor_torque',direct_nuc)
         if type(self.enable_motor_torque) is not bool:
             raise ValueError('~enable_motor_torque must be a boolean')
         self.show_lane_debug=rospy.get_param('~show_lane_debug',False)
@@ -54,7 +77,7 @@ class turtlebot():
             raise ValueError('~lidar_type must be pointcloud2 or laserscan')
         self.lidar_topic=rospy.get_param('~lidar_topic',
                                        '/livox/lidar' if self.lidar_type=='pointcloud2' else '/scan_mid360_raw')
-        self.tunnel_version=rospy.get_param('~tunnel_version',os.environ.get('TB_TUNNEL_VERSION','v1'))
+        self.tunnel_version=rospy.get_param('~tunnel_version',os.environ.get('TB_TUNNEL_VERSION','v2'))
         self.tunnel=create_mission(self.tunnel_config,version=self.tunnel_version,
                                    clock=lambda:rospy.Time.now().to_sec())
         rospy.loginfo("Tunnel version: %s; config: %s",self.tunnel_version,config_path)
@@ -161,8 +184,8 @@ class turtlebot():
         self.depth_sub=rospy.Subscriber('/camera/depth/image_rect_raw',Image,self.depth_callback,queue_size=1,buff_size=2**24)
         rospy.on_shutdown(self.shutdown)
         if self.enable_motor_torque:
-            if self.step not in (0,8,9,10):
-                raise ValueError('Physical torque startup requires start step 0, 8, 9 or 10')
+            if self.step not in range(12):
+                raise ValueError('Physical torque startup requires start step 0 through 11')
             with arm_motor_torque(self.cmd_pub,Twist,
                                   lambda:self.shutting_down or self.arming_cancelled,
                                   self.shutdown,self.command_lock):
