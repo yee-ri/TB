@@ -79,8 +79,11 @@ def wall_returns(pose, bounds=(-.4, -.65, 1.4, 1.1), bins=720,
 
 
 class TunnelMissionPortTest(unittest.TestCase):
-    def make_mission(self, goal=(.65, 0., 0.)):
-        mission = TunnelMission(configuration(goal))
+    def make_mission(self, goal=(.65, 0., 0.), sensors=None):
+        config = configuration(goal)
+        if sensors is not None:
+            config['sensors'].update(sensors)
+        mission = TunnelMission(config)
         self.addCleanup(mission.close)
         return mission
 
@@ -509,6 +512,59 @@ class TunnelMissionPortTest(unittest.TestCase):
         self.assertEqual(mission.step(10.), (0., 0., False))
         self.assertIsNone(mission.anchor)
 
+    def test_lidar_age_limit_defaults_and_explicit_values(self):
+        for settings, expected in (({}, .3), ({'lidar_maximum_age': .4}, .4),
+                                   ({'lidar_maximum_age': None}, math.inf)):
+            with self.subTest(settings=settings):
+                mission = self.make_mission(sensors=settings)
+                self.assertEqual(mission.lidar_maximum_age, expected)
+                self.assertEqual(mission.sensors['maximum_age'], .3)
+        for value in (True, False, '0.3', 0, -.3, math.inf, -math.inf, math.nan):
+            with self.subTest(invalid=value):
+                config = configuration()
+                config['sensors']['lidar_maximum_age'] = value
+                with self.assertRaises(ValueError):
+                    TunnelMission(config)
+
+    def test_entry_lidar_expiry_can_be_disabled_without_changing_odometry_age(self):
+        for age in (.305, .335):
+            for settings in ({}, {'lidar_maximum_age': None}):
+                with self.subTest(age=age, settings=settings):
+                    mission = self.make_mission(sensors=settings)
+                    self.feed(mission, 10.)
+                    mission.update_odometry((0., 0., 0.), 0., 0., 10.+age)
+                    linear, angular, complete = mission.step(10.+age)
+                    if settings:
+                        self.assertGreater(linear, 0., mission.reason)
+                        self.assertEqual(mission.state, 'ENTRY')
+                    else:
+                        self.assertEqual((linear, angular), (0., 0.))
+                        self.assertIn('waiting for fresh', mission.reason)
+                    self.assertFalse(complete)
+
+    def test_finite_lidar_override_keeps_its_own_expiry_boundary(self):
+        for age in (.335, .405):
+            with self.subTest(age=age):
+                mission = self.make_mission(sensors={'lidar_maximum_age': .4})
+                self.feed(mission, 10.)
+                mission.update_odometry((0., 0., 0.), 0., 0., 10.+age)
+                linear, _, complete = mission.step(10.+age)
+                self.assertEqual(linear > 0., age < .4, mission.reason)
+                self.assertFalse(complete)
+
+    def test_disabled_lidar_expiry_does_not_extend_wall_alignment_result_lifetime(self):
+        mission = self.make_mission(sensors={'lidar_maximum_age': None})
+        self.feed(mission, 10.)
+        mission.update_odometry((0., 0., 0.), 0., 0., 10.335)
+        # The fit has already completed; only its independent acceptance
+        # lifetime is under test, not the geometric wall-fitting algorithm.
+        mission.localizer = SimpleNamespace()
+        mission.localization_result = (SimpleNamespace(accepted=True),
+                                       (0., 0., 0.), 10.)
+        self.assertEqual(mission.step(10.335), (0., 0., False))
+        self.assertIsNone(mission.anchor)
+        self.assertIn('wall alignment input expired', mission.reason)
+
     def test_clock_refresh_after_waiting_for_lock_rejects_expired_inputs(self):
         mission = self.make_mission()
         self.feed(mission, 10.)
@@ -517,22 +573,31 @@ class TunnelMissionPortTest(unittest.TestCase):
         self.assertIsNone(mission.anchor)
 
     def test_odometry_expiring_during_calculation_is_not_used_to_drive(self):
-        mission = self.make_mission()
-        self.feed(mission, 10.)
-        readings = iter((10., 10.2))
-        mission.clock = lambda: next(readings)
-        self.assertEqual(mission.step(10.), (0., 0., False))
-        self.assertIn('expired during', mission.reason)
+        for settings in ({}, {'lidar_maximum_age': None}):
+            with self.subTest(settings=settings):
+                mission = self.make_mission(sensors=settings)
+                self.feed(mission, 10.)
+                readings = iter((10., 10.2))
+                mission.clock = lambda: next(readings)
+                self.assertEqual(mission.step(10.), (0., 0., False))
+                self.assertIn('expired during', mission.reason)
 
-    def test_scan_expiring_during_calculation_is_not_used_to_drive(self):
-        mission = self.make_mission()
-        self.feed(mission, 10.)
-        mission.update_odometry((0., 0., 0.), 0., 0., 10.2)
-        mission.control['safety_reaction_time'] = .5
-        readings = iter((10.2, 10.35))
-        mission.clock = lambda: next(readings)
-        self.assertEqual(mission.step(10.2), (0., 0., False))
-        self.assertIn('expired during', mission.reason)
+    def test_scan_expiring_during_calculation_respects_lidar_age_limit(self):
+        for settings in ({}, {'lidar_maximum_age': None}):
+            with self.subTest(settings=settings):
+                mission = self.make_mission(sensors=settings)
+                self.feed(mission, 10.)
+                mission.update_odometry((0., 0., 0.), 0., 0., 10.2)
+                mission.control['safety_reaction_time'] = .5
+                readings = iter((10.2, 10.35))
+                mission.clock = lambda: next(readings)
+                result = mission.step(10.2)
+                if settings:
+                    self.assertGreater(result[0], 0., mission.reason)
+                    self.assertFalse(result[2])
+                else:
+                    self.assertEqual(result, (0., 0., False))
+                    self.assertIn('expired during', mission.reason)
 
     def test_current_body_overlap_holds_existing_path_then_resumes_after_measured_clearance(self):
         mission = self.make_mission()

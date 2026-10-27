@@ -41,6 +41,9 @@ def integrate(pose, linear, angular, period):
 class TunnelEntryHeadingTest(unittest.TestCase):
     def configuration(self, folder):
         config = step_mission.load_config(ROOT / 'codes' / folder / 'tunnel.real.yaml')
+        # Exercise the normal freshness guard independently of an active
+        # physical diagnostic override; null behavior has dedicated tests.
+        config['sensors'].pop('lidar_maximum_age', None)
         config.pop('localization', None)
         config['grid'].pop('static_map', None)
         config['grid'].pop('static_hit_exclusion_radius', None)

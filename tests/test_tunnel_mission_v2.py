@@ -21,8 +21,11 @@ from test_tunnel_mission import configuration, integrate, wall_returns
 
 
 class GlobalLocalMissionTest(unittest.TestCase):
-    def make_mission(self, goal=(2.5, 0., 0.), velocity=.12, exit_crossing=None):
+    def make_mission(self, goal=(2.5, 0., 0.), velocity=.12, exit_crossing=None,
+                     sensors=None):
         config = configuration(goal=goal)
+        if sensors is not None:
+            config['sensors'].update(sensors)
         if exit_crossing is not None:
             config['goal']['exit_crossing'] = exit_crossing
             config['footprint']['padding'] = 0.  # Surveyed physical outline.
@@ -106,13 +109,13 @@ class GlobalLocalMissionTest(unittest.TestCase):
         self.assertEqual(local.call_args.args[1], Pose2D(*pose))
         self.assertEqual(local.call_args.args[4:6], (.12, 0.))
 
-    def test_guidance_update_does_not_bypass_latest_local_stopping_check(self):
+    def test_guidance_update_does_not_bypass_latest_candidate_collision_check(self):
         mission = self.make_mission(velocity=.2)
         replacement = self.route()
         mission.pending_route = (replacement, '', Pose2D(.1, 0., 0.), .01)
         self.feed(mission, 10.05, velocity=.2)
         grid = self.wall_grid(.31)
-        # The body fits now, but a new wall lies inside its braking sweep.
+        # The body fits now, but the current 30 cm candidates reach this wall.
         self.assertTrue(mission.planner.pose_is_collision_free(grid, Pose2D(.2, 0., 0.)))
         with patch.object(mission, '_grid', return_value=grid), patch.object(
                 mission.local_planner, 'local_command',
@@ -129,6 +132,89 @@ class GlobalLocalMissionTest(unittest.TestCase):
             self.assertEqual(mission.step(11.), (0., 0., False))
         local.assert_not_called()
         self.assertIn('lidar', mission.reason.lower())
+
+    def test_recorded_lidar_delays_can_use_existing_map_for_real_local_commands(self):
+        for age in (.305, .335):
+            for settings in ({}, {'lidar_maximum_age': None}):
+                with self.subTest(age=age, settings=settings):
+                    mission = self.make_mission(sensors=settings)
+                    route, grid = mission.global_path, mission._grid()
+                    mission.update_odometry((.2, 0., 0.), .12, 0., 10.+age)
+                    with patch.object(mission.local_planner, 'local_command',
+                                      wraps=mission.local_planner.local_command) as local:
+                        result = mission.step(10.+age)
+                    if settings:
+                        self.assertGreater(result[0], 0., mission.reason)
+                        self.assertEqual(local.call_count, 1)
+                        self.assertIs(local.call_args.args[0], grid)
+                        self.assertEqual(local.call_args.args[1], Pose2D(.2, 0., 0.))
+                    else:
+                        self.assertEqual(result, (0., 0., False))
+                        local.assert_not_called()
+                        self.assertIn('waiting for fresh', mission.reason)
+                    self.assertFalse(result[2])
+                    self.assertIs(mission.global_path, route)
+                    self.assertEqual(mission.scan[-1], 10.)
+
+    def test_disabled_lidar_expiry_keeps_missing_data_odometry_and_future_input_stops(self):
+        for invalid in ('old_odometry', 'future_odometry', 'future_lidar',
+                        'missing_odometry', 'missing_lidar'):
+            with self.subTest(invalid=invalid):
+                mission = self.make_mission(sensors={'lidar_maximum_age': None})
+                now = 10.335
+                if invalid != 'old_odometry':
+                    stamp = now+.1 if invalid == 'future_odometry' else now
+                    mission.update_odometry((.2, 0., 0.), .12, 0., stamp)
+                if invalid == 'future_lidar':
+                    mission.update_cloud(wall_returns((.2, 0., 0.)),
+                                         (-.033073, 0., 0.), (.2, 0., 0.), now+.1)
+                elif invalid == 'missing_odometry':
+                    mission.odom = None
+                elif invalid == 'missing_lidar':
+                    mission.scan = None
+                with patch.object(mission.local_planner, 'local_command') as local:
+                    self.assertEqual(mission.step(now), (0., 0., False))
+                local.assert_not_called()
+
+    def test_disabled_lidar_expiry_preserves_body_and_candidate_collision_stops(self):
+        for collision in ('body', 'candidate'):
+            with self.subTest(collision=collision):
+                mission = self.make_mission(velocity=.2,
+                                            sensors={'lidar_maximum_age': None})
+                now = 10.335
+                pose = Pose2D(.2, 0., 0.)
+                mission.update_odometry((pose.x, pose.y, pose.yaw), .2, 0., now)
+                grid = self.wall_grid(.15 if collision == 'body' else .31)
+                self.assertEqual(mission.planner.pose_is_collision_free(grid, pose),
+                                 collision == 'candidate')
+                with patch.object(mission, '_grid', return_value=grid), patch.object(
+                        mission.local_planner, 'local_command',
+                        wraps=mission.local_planner.local_command) as local:
+                    self.assertEqual(mission.step(now), (0., 0., False))
+                if collision == 'body':
+                    local.assert_not_called()
+                    self.assertIn('footprint overlaps', mission.reason)
+                else:
+                    self.assertEqual(local.call_count, 1)
+                    self.assertIn('no safe local motion', mission.reason)
+
+    def test_measured_momentum_alone_does_not_reject_a_clear_local_candidate(self):
+        commands = []
+        for measured_velocity in (0., .6):
+            with self.subTest(measured_velocity=measured_velocity):
+                mission = self.make_mission()
+                self.feed(mission, 10.05, (.2, 0., 0.), measured_velocity)
+                grid = self.wall_grid(.65)
+                # A 30 cm forward candidate fits before this wall, while the
+                # previous .6 m/s stopping extrapolation reached beyond it.
+                self.assertTrue(mission.planner.primitive_is_collision_free(
+                    grid, Pose2D(.2, 0., 0.), 0., mission.local_planner.local_horizon))
+                with patch.object(mission, '_grid', return_value=grid):
+                    result = mission.step(10.05)
+                self.assertGreater(result[0], 0., mission.reason)
+                self.assertFalse(result[2])
+                commands.append(result)
+        self.assertEqual(commands[0], commands[1])
 
     def test_current_body_collision_stops_with_free_centre_cell(self):
         mission = self.make_mission()
@@ -292,15 +378,11 @@ class GlobalLocalMissionTest(unittest.TestCase):
         mission.last_angular = .3
         self.feed(mission, 10.05, (.56, .05, math.radians(25.)), .12, .3)
         with patch.object(mission.local_planner, 'local_command') as local, patch.object(
-                mission.local_planner, 'command_is_safe',
-                wraps=mission.local_planner.command_is_safe) as safe:
+                mission.local_planner, 'command_is_collision_free') as check:
             self.assertEqual(mission.step(10.05), (0., 0., True))
             local.assert_not_called()
         self.assertEqual(mission.state, 'COMPLETE')
-        self.assertEqual(safe.call_count, 1)
-        command = safe.call_args.args[2]
-        self.assertEqual((command.linear_velocity, command.angular_velocity), (0., 0.))
-        self.assertEqual(safe.call_args.args[-2:], (.12, .3))
+        check.assert_not_called()
 
     def test_unconfigured_exit_keeps_original_position_trigger(self):
         mission = self.make_mission(goal=(.6, 0., 0.), velocity=0.)
@@ -386,36 +468,45 @@ class GlobalLocalMissionTest(unittest.TestCase):
         self.assertEqual(mission.state, 'FINISHING')
         self.assertIn('footprint overlaps', mission.reason)
 
-    def test_finishing_still_checks_measured_braking_sweep(self):
+    def test_generic_finishing_checks_actual_command_collision(self):
         mission = self.make_mission(goal=(.6, 0., 0.), velocity=.12)
         self.feed(mission, 10.05, (.59, 0., 0.), .12)
-        with patch.object(mission.local_planner, 'command_is_safe', return_value=False) as safe:
+        with patch.object(mission.local_planner, 'command_is_collision_free',
+                          return_value=False) as check:
             self.assertEqual(mission.step(10.05), (0., 0., False))
         self.assertEqual(mission.state, 'FINISHING')
-        self.assertIn('sweep is blocked', mission.reason)
-        self.assertEqual(safe.call_args.args[-2:], (.12, 0.))
+        self.assertEqual(mission.reason, 'outside goal command overlaps mapped obstacle')
+        self.assertEqual(len(check.call_args.args), 4)
+        self.assertIs(check.call_args.args[3], mission.control)
 
-    def test_physical_exit_keeps_sensor_collision_and_measured_braking_checks(self):
+    def test_generic_goal_turn_uses_angular_limits_without_predictive_braking_cap(self):
+        mission = self.make_mission(goal=(.6, 0., 0.), velocity=0.)
+        mission.last_angular = .5
+        self.feed(mission, 10.05, (.6, 0., -.3), 0., .5)
+        linear, angular, complete = mission.step(10.05)
+        expected = min(mission.control['maximum_angular_velocity'],
+                       .5+mission.control['angular_acceleration']*.05)
+        self.assertEqual(linear, 0.)
+        self.assertAlmostEqual(angular, expected)
+        self.assertFalse(complete)
+        self.assertEqual(mission.state, 'FINISHING')
+
+    def test_physical_exit_keeps_sensor_and_current_body_collision_checks(self):
         mission = self.make_mission(goal=(.6, 0., 90.), velocity=0.,
                                     exit_crossing=((.4, -.15), (.4, .15)))
         mission._goal_reached(Pose2D(.39, 0., 0.))
         self.feed(mission, 10.05, (.54, 0., .2), .12, .3)
-        with patch.object(mission.local_planner, 'command_is_safe', return_value=False) as safe:
-            self.assertEqual(mission.step(10.05), (0., 0., False))
-        self.assertEqual(mission.state, 'FINISHING')
-        self.assertEqual(mission.reason, 'exit crossing stopping sweep is blocked')
-        self.assertEqual(safe.call_args.args[-2:], (.12, .3))
         mission.update_odometry((.55, 0., .2), 0., 0., 11.)
         self.assertEqual(mission.step(11.), (0., 0., False))
         self.assertIn('lidar', mission.reason.lower())
         self.feed(mission, 11.05, (.55, 0., .2), 0.)
         with patch.object(mission, '_grid', return_value=self.wall_grid(.55)):
             self.assertEqual(mission.step(11.05), (0., 0., False))
-        self.assertEqual(mission.state, 'FINISHING')
+        self.assertEqual(mission.state, 'FOLLOWING')
         self.assertIn('footprint overlaps', mission.reason)
         # Recovery completes on the very first safe fresh frame, even while
         # moving, without returning to the old route or waiting for rest.
-        self.feed(mission, 11.10, (.55, 0., .2), .12, .3)
+        self.feed(mission, 11.10, (.55, 0., .2), .6, 1.4)
         with patch.object(mission.local_planner, 'local_command') as local:
             self.assertEqual(mission.step(11.10), (0., 0., True))
             local.assert_not_called()

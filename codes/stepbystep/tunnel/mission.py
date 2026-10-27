@@ -59,6 +59,15 @@ class TunnelMission:
         self.config = config
         self.clock = clock
         self.control, self.sensors = config['control'], config['sensors']
+        lidar_age = self.sensors.get('lidar_maximum_age', self.sensors['maximum_age'])
+        if lidar_age is not None and (
+                isinstance(lidar_age, (bool, np.bool_))
+                or not isinstance(lidar_age, (int, float, np.integer, np.floating))
+                or not math.isfinite(lidar_age) or lidar_age <= 0.):
+            raise ValueError('sensors/lidar_maximum_age must be null or finite and positive')
+        # Null is an explicit diagnostic override, not a change to odometry,
+        # timestamp ordering/validity, or the initial wall-fit lifetime.
+        self.lidar_maximum_age = math.inf if lidar_age is None else float(lidar_age)
         for key in ('period', 'linear_acceleration', 'linear_deceleration',
                     'angular_acceleration', 'safety_linear_deceleration',
                     'safety_angular_deceleration', 'safety_reaction_time',
@@ -514,7 +523,7 @@ class TunnelMission:
     def _command(self, command, now, reason):
         published_at = self.clock() if self.clock is not None else now
         if (published_at - self.odom[-1] > self.control['safety_reaction_time']
-                or published_at - self.scan[-1] > self.sensors['maximum_age']):
+                or published_at - self.scan[-1] > self.lidar_maximum_age):
             return self._zero('checked inputs expired during control calculation')
         self.last_linear, self.last_angular = command.linear_velocity, command.angular_velocity
         self.reason = reason
@@ -633,14 +642,21 @@ class TunnelMission:
         status = self._planning_status() if self.state == 'PLANNING' else ''
         return reason + ('; ' + status if status else '')
 
+    def _sensor_times_valid(self, now):
+        ages = (now-self.odom[-1], now-self.scan[-1])
+        limits = (self.sensors['maximum_age'], self.lidar_maximum_age)
+        return all(-self.sensors['maximum_future_stamp'] <= age <= limit
+                   for age, limit in zip(ages, limits))
+
     def _stale_sensor_reason(self, now):
         # Numeric diagnostics refresh once per second. A changed failing
         # sensor or completed worker is reported immediately; gates still
         # evaluate the exact timestamps on every control tick.
         ages = (now-self.odom[-1], now-self.scan[-1])
+        limits = (self.sensors['maximum_age'], self.lidar_maximum_age)
         failures = tuple('future' if age < -self.sensors['maximum_future_stamp']
-                         else 'stale' if age > self.sensors['maximum_age'] else 'fresh'
-                         for age in ages)
+                         else 'stale' if age > limit else 'fresh'
+                         for age, limit in zip(ages, limits))
         status = self._planning_status() if self.state == 'PLANNING' else ''
         key = (int(time.monotonic()), failures, status)
         if self.freshness_report is None or self.freshness_report[0] != key:
@@ -694,8 +710,7 @@ class TunnelMission:
                 return self._zero(self.reason)
             if self.odom is None or self.scan is None:
                 return self._zero('waiting for odometry and lidar')
-            if any(not -self.sensors['maximum_future_stamp'] <= now-stamp <= self.sensors['maximum_age']
-                   for stamp in (self.odom[-1], self.scan[-1])):
+            if not self._sensor_times_valid(now):
                 if self.localizer is not None and self.anchor is None:
                     self._invalidate_localization()
                 return self._zero(self._stale_sensor_reason(now))

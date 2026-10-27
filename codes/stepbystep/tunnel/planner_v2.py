@@ -62,10 +62,9 @@ class GlobalLocalPlanner:
             'local_rotation_gain': 2.,
         }
         defaults.update(settings or {})
-        defaults.setdefault('local_speed_horizon', defaults['local_horizon'])
         for key in ('global_clearance', 'global_clearance_distance',
                     'global_clearance_weight', 'global_soft_cost_weight',
-                    'local_lookahead', 'local_horizon', 'local_speed_horizon', 'local_heading_weight',
+                    'local_lookahead', 'local_horizon', 'local_heading_weight',
                     'local_steering_weight', 'local_rotation_gain'):
             value = defaults[key]
             if isinstance(value, bool) or not math.isfinite(float(value)) or value < 0:
@@ -80,8 +79,6 @@ class GlobalLocalPlanner:
             raise ValueError('local_steering_samples must be odd and at least three')
         if min(self.local_lookahead, self.local_horizon, self.local_rotation_gain) <= 0:
             raise ValueError('local lookahead, horizon and rotation gain must be positive')
-        if self.local_speed_horizon < self.local_horizon:
-            raise ValueError('local_speed_horizon must cover local_horizon')
         if self.global_clearance_distance < self.global_clearance:
             raise ValueError('global_clearance_distance must cover global_clearance')
 
@@ -279,31 +276,25 @@ class GlobalLocalPlanner:
         tangent = math.atan2(edges[target_index, 1], edges[target_index, 0])
         return float(target[0]), float(target[1]), float(station[-1]-current), tangent
 
-    def _twist_is_safe(self, grid, pose, linear, angular, control):
-        """Reaction then curvature-preserving braking within both decel limits.
+    def command_is_collision_free(self, grid, pose, command, control):
+        """Check the limited command's swept body over one control period.
 
-        A shared stopping time ensures neither assumed linear nor angular
-        deceleration exceeds its configured braking limit. Both requested and
-        measured twists are checked by command_is_safe to account for lag.
+        The candidate arc has its own distance check. This check covers the
+        motion changed by command rate limits, without extrapolating a stop.
         """
-        if not all(math.isfinite(v) for v in (linear, angular)):
+        pose = self._pose(pose)
+        try:
+            linear = float(command.linear_velocity)
+            angular = float(command.angular_velocity)
+            duration = float(control['period'])
+        except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
             return False
-        reaction = control['safety_reaction_time'] + control['period']
-        linear_decel = min(control['linear_deceleration'], control['safety_linear_deceleration'])
-        angular_decel = control['safety_angular_deceleration']
-        if min(linear_decel, angular_decel) <= 0.:
+        if (pose is None or linear < 0. or duration <= 0.
+                or not all(math.isfinite(v) for v in (linear, angular, duration))):
             return False
-        stopping_time = max(abs(linear)/linear_decel, abs(angular)/angular_decel)
-        duration = reaction + .5*stopping_time
-        if abs(linear) > 1e-9:
-            travel = abs(linear)*duration + control['safety_distance_margin']
-            curvature = angular/linear
-            # A measured backward drift is checked, not clipped away. The
-            # reverse-time forward sweep has identical body poses and lets us
-            # reuse the public forward-only geometry checker unchanged.
-            start = (pose if linear >= 0. else
-                     self.planner._propagate(pose, curvature, -travel))
-            return self.planner.primitive_is_collision_free(grid, start, curvature, travel)
+        if linear > 1e-9:
+            return self.planner.primitive_is_collision_free(
+                grid, pose, angular/linear, linear*duration)
         angle = angular*duration
         radius = math.hypot(max(self.planner.footprint.front, self.planner.footprint.rear)
                             + self.planner.footprint.padding,
@@ -313,24 +304,13 @@ class GlobalLocalPlanner:
         return all(self.planner.pose_is_collision_free(
             grid, Pose2D(pose.x, pose.y, pose.yaw+angle*i/count)) for i in range(count+1))
 
-    def command_is_safe(self, grid, pose, command, control,
-                        measured_linear=0., measured_angular=0.):
-        """Check the actual limited command, measured motion, and braking sweep."""
-        pose = self._pose(pose)
-        if pose is None or command.linear_velocity < 0.:
-            return False
-        return (self._twist_is_safe(grid, pose, command.linear_velocity, command.angular_velocity, control)
-                and self._twist_is_safe(grid, pose, measured_linear, measured_angular, control))
-
     def _rotation_command(self, grid, pose, target, error, control, last_linear,
-                          last_angular, elapsed, measured_linear, measured_angular):
+                          last_angular, elapsed):
         if abs(error) <= self.planner.goal_heading_tolerance:
             return None
-        reaction = control['safety_reaction_time'] + control['period']
-        decel = min(control['angular_acceleration'], control['safety_angular_deceleration'])
-        cap = math.sqrt((decel*reaction)**2+2.*decel*abs(error))-decel*reaction
         desired = math.copysign(min(control['maximum_angular_velocity'],
-                                   self.local_rotation_gain*abs(error), cap), error)
+                                   self.local_rotation_gain*abs(error)), error)
+        # Preserve the existing actual-command deceleration ramp.
         linear = max(0., last_linear-min(control['linear_deceleration'],
                                         control['safety_linear_deceleration'])*elapsed)
         # The transition can still have forward momentum. Limit lateral
@@ -343,12 +323,12 @@ class GlobalLocalPlanner:
         angular = float(np.clip(desired, last_angular-delta, last_angular+delta))
         angular = float(np.clip(angular, -angular_limit, angular_limit))
         command = LocalCommand(linear, angular, 'turning toward route', 0., target)
-        if self.command_is_safe(grid, pose, command, control, measured_linear, measured_angular):
+        if self.command_is_collision_free(grid, pose, command, control):
             return command
         return None
 
     def local_command(self, grid, pose, route, control, last_linear, last_angular,
-                      elapsed, measured_linear=0., measured_angular=0.):
+                      elapsed):
         """Choose a short checked arc from the current pose, or a checked turn.
 
         Candidate scoring has no path-end commitment. Invalid geometry returns
@@ -356,7 +336,7 @@ class GlobalLocalPlanner:
         command. The caller owns completion and final goal-heading alignment.
         """
         pose = self._pose(pose)
-        values = (last_linear, last_angular, elapsed, measured_linear, measured_angular)
+        values = (last_linear, last_angular, elapsed)
         if (pose is None or not all(math.isfinite(float(v)) for v in values)
                 or not self.planner.pose_is_collision_free(grid, pose)):
             return None
@@ -367,12 +347,11 @@ class GlobalLocalPlanner:
         bearing_error = normalize_angle(math.atan2(dy, dx)-pose.yaw)
         if abs(bearing_error) >= math.pi/2.:
             return self._rotation_command(grid, pose, target, bearing_error, control,
-                last_linear, last_angular, elapsed, measured_linear, measured_angular)
+                last_linear, last_angular, elapsed)
         distance = min(self.local_horizon, max(remaining, math.hypot(dx, dy)))
         if distance <= 1e-9:
             command = LocalCommand(0., 0., 'at route endpoint', 0., target)
-            return command if self.command_is_safe(grid, pose, command, control,
-                                                   measured_linear, measured_angular) else None
+            return command if self.command_is_collision_free(grid, pose, command, control) else None
         maximum = 1./self.planner.minimum_turning_radius
         desired = 2.*(-math.sin(pose.yaw)*dx+math.cos(pose.yaw)*dy)/max(dx*dx+dy*dy, 1e-12)
         previous = last_angular/last_linear if last_linear > 1e-6 else 0.
@@ -385,35 +364,21 @@ class GlobalLocalPlanner:
                      + self.local_heading_weight*abs(normalize_angle(tangent-endpoint.yaw))
                      + self.local_steering_weight*abs(curvature-previous)/maximum)
             ranked.append((score, abs(curvature), float(curvature)))
+        # Preserve the existing actual-command deceleration ramp.
         decel = min(control['linear_deceleration'], control['safety_linear_deceleration'])
-        reaction = control['safety_reaction_time']+control['period']
-        usable = max(0., distance-control['safety_distance_margin'])
-        speed_cap = math.sqrt((decel*reaction)**2+2.*decel*usable)-decel*reaction
-        target_speed = min(control['cruise_velocity'], speed_cap)
-        target_speeds = [target_speed]
-        if self.local_speed_horizon > self.local_horizon:
-            speed_distance = min(self.local_speed_horizon, max(remaining, math.hypot(dx, dy)))
-            usable = max(0., speed_distance-control['safety_distance_margin'])
-            speed_cap = math.sqrt((decel*reaction)**2+2.*decel*usable)-decel*reaction
-            faster_speed = min(control['cruise_velocity'], speed_cap)
-            if faster_speed > target_speed:
-                target_speeds.insert(0, faster_speed)
+        target_speed = control['cruise_velocity']
         for _, _, curvature in sorted(ranked):
             if not self.planner.primitive_is_collision_free(grid, pose, curvature, distance):
                 continue
-            # A longer speed horizon never changes the steering geometry.
-            # Check its actual braking sweep, then retain the existing slower
-            # candidate on this same curve before trying a different curve.
-            for target_speed in target_speeds:
-                command = limit_tracking_command(
-                    target_speed, max(target_speed, 1e-6), target_speed*curvature,
-                    last_linear, last_angular, elapsed, control['linear_acceleration'], decel,
-                    control['angular_acceleration'], control['maximum_angular_velocity'],
-                    control['maximum_lateral_acceleration'])
-                if command.linear_velocity <= 1e-9:
-                    continue
-                if self.command_is_safe(grid, pose, command, control, measured_linear, measured_angular):
-                    return LocalCommand(command.linear_velocity, command.angular_velocity,
-                                        'following current-pose local arc', distance, target)
+            command = limit_tracking_command(
+                target_speed, max(target_speed, 1e-6), target_speed*curvature,
+                last_linear, last_angular, elapsed, control['linear_acceleration'], decel,
+                control['angular_acceleration'], control['maximum_angular_velocity'],
+                control['maximum_lateral_acceleration'])
+            if command.linear_velocity <= 1e-9:
+                continue
+            if self.command_is_collision_free(grid, pose, command, control):
+                return LocalCommand(command.linear_velocity, command.angular_velocity,
+                                    'following current-pose local arc', distance, target)
         return self._rotation_command(grid, pose, target, bearing_error, control,
-            last_linear, last_angular, elapsed, measured_linear, measured_angular)
+            last_linear, last_angular, elapsed)

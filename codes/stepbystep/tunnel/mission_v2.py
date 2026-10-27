@@ -1,8 +1,8 @@
 """Reference-style 2-D global guidance and current-pose local control.
 
 The global worker never owns motor commands. Each control tick checks local
-motion against the latest map, including the actual rate-limited command and
-its braking sweep. Updating guidance does not reset speed or require a stop.
+paths and the actual rate-limited command against the latest map. Updating
+guidance does not reset speed or require a stop.
 """
 
 import math
@@ -142,16 +142,12 @@ class TunnelMissionV2(TunnelMission):
         # Once reached, finish even if momentum changes the accepted pose.
         self.state = 'FINISHING'
         cfg = self.control
-        measured_linear, measured_angular = self.odom[3:5]
         if self.exit_crossing is not None:
             # End tunnel ownership now. The adapter clears old lane commands
             # and lets the next image drive; no measured-stop wait is needed.
-            command = SimpleNamespace(linear_velocity=0., angular_velocity=0.)
-            if not self.local_planner.command_is_safe(
-                    grid, pose, command, cfg, measured_linear, measured_angular):
-                return self._zero('exit crossing stopping sweep is blocked')
             self.state = 'COMPLETE'
             return self._zero('exit crossed; handing control to lane tracking')
+        measured_linear = self.odom[3]
         heading_error = normalize_angle(self.goal.yaw-pose.yaw)
         heading_ok = abs(heading_error) <= math.radians(self.config['goal']['heading_tolerance_deg'])
         if (self.last_linear > 1e-9
@@ -160,12 +156,9 @@ class TunnelMissionV2(TunnelMission):
             reason = 'stopping at outside goal'
         elif not heading_ok:
             # Goal alignment happens only at the already-required final stop.
-            # A limited angular command must pass the same swept-body and
-            # braking check as every local driving command.
-            decel = cfg['safety_angular_deceleration']
-            reaction = cfg['safety_reaction_time'] + cfg['period']
-            cap = math.sqrt((decel*reaction)**2 + 2.*decel*abs(heading_error)) - decel*reaction
-            target = math.copysign(min(cfg['maximum_angular_velocity'], cap,
+            # Check the actual next command's swept body, without extending
+            # it by an assumed reaction or braking time.
+            target = math.copysign(min(cfg['maximum_angular_velocity'],
                                       self.v2['local_rotation_gain']*abs(heading_error)), heading_error)
             change = cfg['angular_acceleration']*min(elapsed, cfg['period'])
             angular = max(self.last_angular-change, min(self.last_angular+change, target))
@@ -178,9 +171,8 @@ class TunnelMissionV2(TunnelMission):
                 self.state = 'WAIT_STOP'
                 self.completion_started = max(now, self.odom[-1])
                 return self._zero('waiting for measured stop at outside goal')
-        if not self.local_planner.command_is_safe(
-                grid, pose, command, cfg, measured_linear, measured_angular):
-            return self._zero('outside goal stopping or rotation sweep is blocked')
+        if not self.local_planner.command_is_collision_free(grid, pose, command, cfg):
+            return self._zero('outside goal command overlaps mapped obstacle')
         return self._command(command, now, reason)
 
     def step(self, now):
@@ -195,8 +187,7 @@ class TunnelMissionV2(TunnelMission):
             self.last_time = now
             if self.odom is None or self.scan is None:
                 return self._zero('waiting for odometry and lidar')
-            if any(not -self.sensors['maximum_future_stamp'] <= now-stamp <= self.sensors['maximum_age']
-                   for stamp in (self.odom[-1], self.scan[-1])):
+            if not self._sensor_times_valid(now):
                 return self._zero(self._stale_sensor_reason(now))
             self.freshness_report = None
             pose = relative_pose(self.odom[:3], self.anchor)
@@ -219,8 +210,7 @@ class TunnelMissionV2(TunnelMission):
                 return self._zero('waiting for first global route; ' + self.global_report)
             command = self.local_planner.local_command(
                 grid, pose, self.global_path, self.control,
-                self.last_linear, self.last_angular, elapsed,
-                measured_linear=self.odom[3], measured_angular=self.odom[4])
+                self.last_linear, self.last_angular, elapsed)
             if command is None:
                 return self._zero('no safe local motion; ' + self.global_report)
             return self._command(command, now, command.reason + '; ' + self.global_report)
