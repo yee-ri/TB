@@ -105,20 +105,18 @@ class GlobalLocalPlannerTest(unittest.TestCase):
         pose = Pose2D(.6, .08, .1)
         with patch.object(self.base, 'primitive_is_collision_free',
                           wraps=self.base.primitive_is_collision_free) as check:
-            command = self.planner.local_command(grid, pose, route, CONTROL, .1, .2, .05,
-                                                 measured_linear=.09, measured_angular=.18)
+            command = self.planner.local_command(grid, pose, route, CONTROL, .1, .2, .05)
         self.assertIsNotNone(command)
         self.assertGreater(command.linear_velocity, 0.)
         self.assertLessEqual(command.linear_velocity, .1+CONTROL['linear_acceleration']*.05+1e-9)
         self.assertLessEqual(abs(command.angular_velocity-.2), CONTROL['angular_acceleration']*.05+1e-9)
         self.assertTrue(all(call.args[1] == pose for call in check.call_args_list))
-        self.assertTrue(self.planner.command_is_safe(grid, pose, command, CONTROL, .09, .18))
+        self.assertTrue(self.planner.command_is_collision_free(grid, pose, command, CONTROL))
 
     def test_latest_wall_cannot_be_ignored_by_old_route(self):
         route = GlobalRoute(np.array(((0., 0.), (2., 0.))))
         grid = grid_with(((.18, -1.25, .23, 1.25),))
-        command = self.planner.local_command(grid, (0., 0., 0.), route, CONTROL, .25, 0., .05,
-                                             measured_linear=.25)
+        command = self.planner.local_command(grid, (0., 0., 0.), route, CONTROL, .25, 0., .05)
         self.assertIsNone(command)
 
     def test_target_behind_uses_checked_rotation_instead_of_fixed_tail_retry(self):
@@ -129,67 +127,70 @@ class GlobalLocalPlannerTest(unittest.TestCase):
         self.assertEqual(command.linear_velocity, 0.)
         self.assertNotEqual(command.angular_velocity, 0.)
         self.assertEqual(command.reason, 'turning toward route')
-        self.assertTrue(self.planner.command_is_safe(grid, (0., 0., 0.), command, CONTROL))
+        self.assertTrue(self.planner.command_is_collision_free(grid, (0., 0., 0.), command, CONTROL))
 
-    def test_braking_sweep_rejects_obstacle_beyond_one_command_tick(self):
+    def test_next_command_tick_and_fixed_candidate_distance_are_separate_checks(self):
         grid = grid_with(((.21, -.1, .24, .1),))
         pose = Pose2D(0., 0., 0.)
         command = LimitedCommand(.32, 0.)
         self.assertTrue(self.base.primitive_is_collision_free(grid, pose, 0., .32*.05))
-        self.assertFalse(self.planner.command_is_safe(grid, pose, command, CONTROL))
+        self.assertTrue(self.planner.command_is_collision_free(grid, pose, command, CONTROL))
+        self.assertFalse(self.base.primitive_is_collision_free(
+            grid, pose, 0., self.planner.local_horizon))
 
-    def test_speed_horizon_increases_clear_straight_speed_without_longer_steering_arc(self):
+    def test_clear_straight_reaches_configured_cruise_with_actual_acceleration_limit(self):
         control = dict(CONTROL, cruise_velocity=.4, linear_acceleration=.25,
                        safety_linear_deceleration=.15, safety_reaction_time=.10)
-        planner = GlobalLocalPlanner(self.base, {'local_speed_horizon': .60})
         grid, pose = grid_with(), Pose2D(0., 0., 0.)
         route = GlobalRoute(np.array(((0., 0.), (2., 0.))))
-        original = self.planner.local_command(grid, pose, route, control, .27, 0., .05)
-        faster = planner.local_command(grid, pose, route, control, .27, 0., .05)
-        self.assertGreater(faster.linear_velocity, original.linear_velocity)
-        self.assertLessEqual(faster.linear_velocity, .27+control['linear_acceleration']*.05)
-        self.assertEqual(faster.angular_velocity, original.angular_velocity)
-        self.assertEqual(faster.target, original.target)
-        self.assertEqual(faster.safe_distance, original.safe_distance)
-        self.assertTrue(planner.command_is_safe(grid, pose, faster, control))
+        velocity = .27
+        for _ in range(12):
+            command = self.planner.local_command(grid, pose, route, control,
+                                                 velocity, 0., control['period'])
+            self.assertIsNotNone(command)
+            self.assertGreaterEqual(command.linear_velocity, velocity)
+            self.assertLessEqual(command.linear_velocity-velocity,
+                                 control['linear_acceleration']*control['period']+1e-12)
+            self.assertAlmostEqual(command.safe_distance, .30)
+            self.assertAlmostEqual(command.angular_velocity, 0.)
+            pose = Pose2D(pose.x+command.linear_velocity*control['period'], 0., 0.)
+            velocity = command.linear_velocity
+        self.assertAlmostEqual(velocity, control['cruise_velocity'])
 
-    def test_speed_horizon_falls_back_to_original_curve_when_faster_braking_hits_wall(self):
+    def test_wall_beyond_candidate_does_not_add_predictive_braking_speed_cap(self):
         control = dict(CONTROL, cruise_velocity=.4, linear_acceleration=.25,
                        safety_linear_deceleration=.15, safety_reaction_time=.10)
-        planner = GlobalLocalPlanner(self.base, {'local_speed_horizon': .60})
-        # The normal 30 cm arc fits. The faster actual command's full braking
-        # footprint reaches the wall, whereas the original speed still stops.
+        # The full body fits along the 30 cm candidate and the actual next
+        # command tick; the earlier velocity-based stopping sweep went farther.
         grid, pose = grid_with(((.40, -1.25, .425, 1.25),)), Pose2D(0., 0., 0.)
         route = GlobalRoute(np.array(((0., 0.), (2., 0.))))
-        original = self.planner.local_command(grid, pose, route, control, .27, 0., .05,
-                                              measured_linear=.27)
-        self.assertIsNotNone(original)
-        self.assertFalse(planner.command_is_safe(grid, pose, LimitedCommand(.2825, 0.),
-                                                control, measured_linear=.27))
-        fallback = planner.local_command(grid, pose, route, control, .27, 0., .05,
-                                         measured_linear=.27)
-        self.assertEqual(fallback, original)
-        # A higher measured speed still prevents both options; lowering the
-        # requested speed cannot erase the actual momentum check.
-        self.assertIsNone(planner.local_command(grid, pose, route, control, .27, 0., .05,
-                                                measured_linear=.4))
+        command = self.planner.local_command(grid, pose, route, control, .4, 0., .05)
+        self.assertIsNotNone(command)
+        self.assertAlmostEqual(command.linear_velocity, .4)
+        self.assertTrue(self.planner.command_is_collision_free(grid, pose, command, control))
 
-    def test_speed_horizon_keeps_endpoint_slowdown_and_default_geometry_behavior(self):
+    def test_geometry_horizon_and_endpoint_distance_do_not_add_speed_caps(self):
         control = dict(CONTROL, cruise_velocity=.4, safety_linear_deceleration=.15)
-        planner = GlobalLocalPlanner(self.base, {'local_speed_horizon': .60})
         route = GlobalRoute(np.array(((0., 0.), (.20, 0.))))
-        args = (grid_with(), Pose2D(0., 0., 0.), route, control, .20, 0., .05)
-        self.assertEqual(planner.local_command(*args), self.planner.local_command(*args))
-        # Without an override the speed horizon follows the selected geometry
-        # horizon, preserving existing V2 configurations.
-        inherited = GlobalLocalPlanner(self.base, {'local_horizon': .42})
-        self.assertEqual(inherited.local_speed_horizon, .42)
+        for horizon in (.1, .3, .42):
+            with self.subTest(horizon=horizon):
+                planner = GlobalLocalPlanner(self.base, {'local_horizon': horizon})
+                command = planner.local_command(grid_with(), (0., 0., 0.), route,
+                                                 control, .4, 0., .05)
+                self.assertIsNotNone(command)
+                self.assertAlmostEqual(command.linear_velocity, .4)
+                self.assertAlmostEqual(command.safe_distance, min(horizon, .20))
+        endpoint = self.planner.local_command(grid_with(), (.2, 0., 0.), route,
+                                              control, 0., 0., .05)
+        self.assertEqual(endpoint.linear_velocity, 0.)
 
-    def test_speed_horizon_rejects_invalid_or_shorter_bounds(self):
-        for value in (True, float('nan'), float('inf'), 0., -.1, .29):
-            with self.subTest(value=value):
-                with self.assertRaises(ValueError):
-                    GlobalLocalPlanner(self.base, {'local_speed_horizon': value})
+    def test_actual_deceleration_remains_limited_when_cruise_is_lowered(self):
+        control = dict(CONTROL, cruise_velocity=.1, safety_linear_deceleration=.15)
+        route = GlobalRoute(np.array(((0., 0.), (2., 0.))))
+        command = self.planner.local_command(grid_with(), (0., 0., 0.), route,
+                                             control, .4, 0., .05)
+        self.assertIsNotNone(command)
+        self.assertAlmostEqual(command.linear_velocity, .4-.15*.05)
 
     def test_driving_to_rotation_transition_retains_lateral_limit(self):
         route = GlobalRoute(np.array(((0., 0.), (-.25, .01))))
@@ -202,16 +203,14 @@ class GlobalLocalPlannerTest(unittest.TestCase):
         self.assertLessEqual(abs(command.angular_velocity-.8),
                              CONTROL['angular_acceleration']*.05+1e-12)
 
-    def test_negative_measured_motion_checks_rear_sweep_without_clipping(self):
+    def test_forward_command_does_not_predict_a_reverse_sweep(self):
         pose = Pose2D(0., 0., 0.)
         command = LimitedCommand(.01, 0.)
-        self.assertTrue(self.planner.command_is_safe(grid_with(), pose, command, CONTROL,
-                                                     measured_linear=-.001))
         grid = grid_with(((-.25, -.15, -.20, .15),))
         self.assertTrue(self.base.pose_is_collision_free(grid, pose))
-        self.assertFalse(self.planner.command_is_safe(grid, pose, command, CONTROL,
-                                                      measured_linear=-.3))
-        self.assertFalse(self.planner.command_is_safe(grid_with(), pose, LimitedCommand(-.01, 0.), CONTROL))
+        self.assertTrue(self.planner.command_is_collision_free(grid, pose, command, CONTROL))
+        self.assertFalse(self.planner.command_is_collision_free(
+            grid_with(), pose, LimitedCommand(-.01, 0.), CONTROL))
 
     def test_route_has_no_terminal_heading_constraint(self):
         grid = grid_with()
@@ -246,7 +245,7 @@ class GlobalLocalPlannerTest(unittest.TestCase):
         np.testing.assert_allclose(route.points[-1], (mission.goal.x, mission.goal.y))
         command = planner.local_command(grid, pose, route, mission.control, 0., 0., .05)
         self.assertIsNotNone(command)
-        self.assertTrue(planner.command_is_safe(grid, pose, command, mission.control))
+        self.assertTrue(planner.command_is_collision_free(grid, pose, command, mission.control))
 
 
 if __name__ == '__main__':

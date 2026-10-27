@@ -66,6 +66,10 @@ sensors:
   range_max: 3.0
   angular_bins: 720
   maximum_age: 0.30
+  # User-tested physical setup: disable ONLY the in-mission LiDAR age stop.
+  # Set to 0.30 to re-enable it. Null also permits using the last map
+  # after LiDAR stops; odometry, TF, geometric collision and preflight stay checked.
+  lidar_maximum_age: null
   maximum_future_stamp: 0.06
   lane_maximum_age: 0.30
   minimum_lane_pixels: 30
@@ -124,7 +128,7 @@ planner:
   maximum_iterations: 60000
 control:
   period: 0.05
-  cruise_velocity: 0.40 # V2 may reach this only when the unchanged braking sweep is clear.
+  cruise_velocity: 0.40 # V2 target; local path geometry and command rate/turn limits still apply.
   minimum_velocity: 0.035
   entry_velocity: 0.04
   exit_velocity: 0.025
@@ -149,11 +153,6 @@ control:
   nearest_search_ahead: 0.40
   tracking_position_tolerance: 0.030
   tracking_heading_tolerance_deg: 20.0
-
-# V2 physical trial only: preserve the 0.30 m steering geometry. Try a faster
-# command when its full braking sweep is clear, falling back to the old cap.
-v2:
-  local_speed_horizon: 0.60
 
 # Physical normal uses the explicit values above, including FAST turn limits.
 # Entry and path tracking use their respective speed/acceleration settings above.

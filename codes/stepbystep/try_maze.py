@@ -81,6 +81,8 @@ class turtlebot():
         self.tunnel=create_mission(self.tunnel_config,version=self.tunnel_version,
                                    clock=lambda:rospy.Time.now().to_sec())
         rospy.loginfo("Tunnel version: %s; config: %s",self.tunnel_version,config_path)
+        if self.tunnel_config['sensors'].get('lidar_maximum_age', 0.) is None:
+            rospy.logwarn('Tunnel: LiDAR age stop disabled (sensors.lidar_maximum_age=null)')
         self.cmd_pub=rospy.Publisher('/cmd_vel',Twist,queue_size=10)
         self.bridge=CvBridge()
         image_dir=Path(__file__).resolve().parents[2]/'images'
