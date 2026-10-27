@@ -120,6 +120,42 @@ class EntranceLocalizationTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.matcher.estimate(np.zeros((10, 3)))
 
+    def test_coarse_distances_match_finite_segment_projection(self):
+        # Independently project onto the actual finite line segments.  Include
+        # thick rectangles contributing both horizontal and vertical pairs,
+        # endpoints, exterior points and batched coarse-search queries.
+        rng = np.random.default_rng(20261026)
+        for walls in (WALLS, [[0., 0., .5, 2.], [.5, 2., 2.5, 2.5]]):
+            matcher = EntranceLocalizer(walls)
+            points = rng.uniform(-1., 3., (7, 19, 2))
+            expected = np.full(points.shape[:-1], np.inf)
+            for axis, normal, low, high in matcher.segments:
+                axis = int(axis)
+                start, end = np.zeros(2), np.zeros(2)
+                start[axis] = end[axis] = normal
+                start[1-axis], end[1-axis] = low, high
+                direction = end-start
+                fraction = np.sum((points-start)*direction, axis=-1)/np.dot(direction, direction)
+                projection = start+np.clip(fraction, 0., 1.)[..., None]*direction
+                squared = np.sum((points-projection)**2, axis=-1)
+                expected = np.minimum(expected, squared)
+            np.testing.assert_allclose(matcher._distances(points, nearest=False),
+                                       expected, rtol=1e-14, atol=1e-14)
+            # The optimized minimum must also remain bit-exact with the
+            # original nearest-face calculation used by refinement/support.
+            for query in (points, points.reshape((-1, 2)), points[0, 0],
+                          np.empty((0, 2))):
+                np.testing.assert_array_equal(matcher._distances(query, nearest=False),
+                                              matcher._distances(query)[0])
+
+    def test_nearest_segment_ties_keep_first_face(self):
+        matcher = EntranceLocalizer([[0., 0., .5, 2.], [.5, 2., 2.5, 2.5]])
+        points = np.array(((.25, 1.), (-.25, -.5), (0., 0.)))
+        square, indices = matcher._distances(points)
+        np.testing.assert_array_equal(indices, (0, 0, 0))
+        np.testing.assert_array_equal(square, (.0625, .3125, 0.))
+        np.testing.assert_array_equal(matcher._distances(points, nearest=False), square)
+
 
 if __name__ == '__main__':
     unittest.main()

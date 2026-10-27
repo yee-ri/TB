@@ -21,10 +21,14 @@ odometry:
   # Divide ONLY tunnel angular commands; leave measured IMU yaw/rate unchanged.
   angular_command_scale: 3.3
 goal:
-  pose: [1.808, 1.868, 90.0] # 200 mm beyond the exit outer wall, on portal centreline.
+  pose: [1.808, 1.868, 90.0] # Route guide 200 mm outside; portal-mode V2 does not demand this final pose/yaw.
   planning_pose: [1.808, 1.488, 90.0] # Internal alignment target, unchanged 380 mm connector span.
   position_tolerance: 0.035
   heading_tolerance_deg: 10.0
+  # V2: after an outward crossing through this finite opening, hand control
+  # to camera lane tracking as soon as the entire body clears the wall.
+  # No measured-stop wait, outside goal recovery or final 90-degree alignment.
+  exit_crossing: [[1.658, 1.668], [1.958, 1.668]]
 exit_connector:
   tangent_ratio: 0.20
   minimum_tangent_length: 0.008
@@ -89,12 +93,12 @@ entry:
   obstacle_right_width: 0.0903
   obstacle_left_far_width: 0.30 # Left extent from the centreline at the far edge.
   obstacle_check_distance: 0.80 # Far edge ahead of the front bumper, in metres.
-  cruise_velocity: 0.25 # User-selected entry target after tunnel linear calibration.
-  linear_acceleration: 0.10 # Entry-only ramp in m/s^2 for a gentler start.
-  heading_offset_deg: 5.0 # First turn left in place, confirm rest, then drive straight.
-  alignment_angular_velocity: 0.10 # Initial pivot cap, rad/s.
-  alignment_angular_acceleration: 0.25 # Initial pivot ramp, rad/s^2.
-  alignment_tolerance_deg: 0.3 # Stop near/past the target once, then hold the stopped heading.
+  cruise_velocity: 0.30 # Faster physical trial; command still uses the common linear scale.
+  linear_acceleration: 0.20 # Entry-only ramp, m/s^2.
+  heading_offset_deg: 5.0 # Turn left in place, then drive immediately without a post-turn stop wait.
+  alignment_angular_velocity: 0.30 # Initial pivot cap, rad/s; target and 3.3 command scale unchanged.
+  alignment_angular_acceleration: 1.00 # Faster ramp for the short 5-degree pivot, rad/s^2.
+  alignment_tolerance_deg: 0.3 # Begin forward drive near/past the target, then hold the reached heading.
   maximum_curvature: 0.35 # Gentle drift corrections only during straight entry.
 planner:
   keep_in_rectangles: # Base-centre regions; padded body collision checks remain unchanged.
@@ -120,14 +124,14 @@ planner:
   maximum_iterations: 60000
 control:
   period: 0.05
-  cruise_velocity: 0.32 # User-selected physical cruise speed.
+  cruise_velocity: 0.40 # V2 may reach this only when the unchanged braking sweep is clear.
   minimum_velocity: 0.035
   entry_velocity: 0.04
   exit_velocity: 0.025
   # User-requested turn limits from tunnel.yaml's Docker/Gazebo FAST profile.
   maximum_angular_velocity: 1.4
   maximum_lateral_acceleration: 0.30
-  linear_acceleration: 0.15
+  linear_acceleration: 0.25
   linear_deceleration: 0.40
   angular_acceleration: 8.0
   safety_linear_deceleration: 0.15
@@ -146,8 +150,13 @@ control:
   tracking_position_tolerance: 0.030
   tracking_heading_tolerance_deg: 20.0
 
+# V2 physical trial only: preserve the 0.30 m steering geometry. Try a faster
+# command when its full braking sweep is clear, falling back to the old cap.
+v2:
+  local_speed_horizon: 0.60
+
 # Physical normal uses the explicit values above, including FAST turn limits.
-# Entry uses 0.15 m/s and 0.10 m/s^2; path tracking uses the control limits above.
+# Entry and path tracking use their respective speed/acceleration settings above.
 # Collision checks use the actual body/path, with no added body padding
 # and no predicted rear-corner/braking sweep during entry.
 profiles:

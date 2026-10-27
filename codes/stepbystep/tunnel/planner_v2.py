@@ -62,9 +62,10 @@ class GlobalLocalPlanner:
             'local_rotation_gain': 2.,
         }
         defaults.update(settings or {})
+        defaults.setdefault('local_speed_horizon', defaults['local_horizon'])
         for key in ('global_clearance', 'global_clearance_distance',
                     'global_clearance_weight', 'global_soft_cost_weight',
-                    'local_lookahead', 'local_horizon', 'local_heading_weight',
+                    'local_lookahead', 'local_horizon', 'local_speed_horizon', 'local_heading_weight',
                     'local_steering_weight', 'local_rotation_gain'):
             value = defaults[key]
             if isinstance(value, bool) or not math.isfinite(float(value)) or value < 0:
@@ -79,6 +80,8 @@ class GlobalLocalPlanner:
             raise ValueError('local_steering_samples must be odd and at least three')
         if min(self.local_lookahead, self.local_horizon, self.local_rotation_gain) <= 0:
             raise ValueError('local lookahead, horizon and rotation gain must be positive')
+        if self.local_speed_horizon < self.local_horizon:
+            raise ValueError('local_speed_horizon must cover local_horizon')
         if self.global_clearance_distance < self.global_clearance:
             raise ValueError('global_clearance_distance must cover global_clearance')
 
@@ -387,18 +390,30 @@ class GlobalLocalPlanner:
         usable = max(0., distance-control['safety_distance_margin'])
         speed_cap = math.sqrt((decel*reaction)**2+2.*decel*usable)-decel*reaction
         target_speed = min(control['cruise_velocity'], speed_cap)
+        target_speeds = [target_speed]
+        if self.local_speed_horizon > self.local_horizon:
+            speed_distance = min(self.local_speed_horizon, max(remaining, math.hypot(dx, dy)))
+            usable = max(0., speed_distance-control['safety_distance_margin'])
+            speed_cap = math.sqrt((decel*reaction)**2+2.*decel*usable)-decel*reaction
+            faster_speed = min(control['cruise_velocity'], speed_cap)
+            if faster_speed > target_speed:
+                target_speeds.insert(0, faster_speed)
         for _, _, curvature in sorted(ranked):
             if not self.planner.primitive_is_collision_free(grid, pose, curvature, distance):
                 continue
-            command = limit_tracking_command(
-                target_speed, max(target_speed, 1e-6), target_speed*curvature,
-                last_linear, last_angular, elapsed, control['linear_acceleration'], decel,
-                control['angular_acceleration'], control['maximum_angular_velocity'],
-                control['maximum_lateral_acceleration'])
-            if command.linear_velocity <= 1e-9:
-                continue
-            if self.command_is_safe(grid, pose, command, control, measured_linear, measured_angular):
-                return LocalCommand(command.linear_velocity, command.angular_velocity,
-                                    'following current-pose local arc', distance, target)
+            # A longer speed horizon never changes the steering geometry.
+            # Check its actual braking sweep, then retain the existing slower
+            # candidate on this same curve before trying a different curve.
+            for target_speed in target_speeds:
+                command = limit_tracking_command(
+                    target_speed, max(target_speed, 1e-6), target_speed*curvature,
+                    last_linear, last_angular, elapsed, control['linear_acceleration'], decel,
+                    control['angular_acceleration'], control['maximum_angular_velocity'],
+                    control['maximum_lateral_acceleration'])
+                if command.linear_velocity <= 1e-9:
+                    continue
+                if self.command_is_safe(grid, pose, command, control, measured_linear, measured_angular):
+                    return LocalCommand(command.linear_velocity, command.angular_velocity,
+                                        'following current-pose local arc', distance, target)
         return self._rotation_command(grid, pose, target, bearing_error, control,
             last_linear, last_angular, elapsed, measured_linear, measured_angular)

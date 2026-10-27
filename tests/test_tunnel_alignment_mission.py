@@ -276,6 +276,60 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
         self.assertIn('expired', mission.reason)
         self.join(mission)
 
+    def test_expired_fit_reuses_fresh_stopped_window_but_restarts_confirmations(self):
+        mission = self.mission(observation_window=1.)
+        for index in range(14):
+            self.feed(mission, 10.+index*.1)
+        # A slow worker finishes an earlier scan while fresh scans continue.
+        mission.localization_result = (mission.localizer.estimate.return_value,
+                                       (.04, 0., 0.), 10.9)
+        mission.localization_attempt_stamp = 10.9
+        mission.localization_candidate = (0., 0., 0.)
+        mission.localization_confirmations = 2
+        mission.localization_anchors = [(0., 0., 0.)]*2
+        history_stamps = [row[2] for row in mission.localization_history]
+        self.assertEqual(mission.step(11.3), (0., 0., False))
+        self.assertIsNone(mission.anchor)
+        self.assertIsNone(mission.localization_candidate)
+        self.assertEqual(mission.localization_confirmations, 0)
+        self.assertEqual(mission.localization_anchors, [])
+        self.assertEqual([row[2] for row in mission.localization_history], history_stamps)
+        mission.localizer.estimate.assert_not_called()
+
+        # Refit on the next tick, without another second of collection.
+        self.assertEqual(mission.step(11.35), (0., 0., False))
+        self.join(mission)
+        mission.localizer.estimate.assert_called_once()
+        self.assertEqual(mission.localization_attempt_stamp, 11.3)
+        self.assertEqual(mission.step(11.35), (0., 0., False))
+        self.assertEqual(mission.localization_confirmations, 1)
+        self.assertIsNone(mission.anchor)
+        for now in (11.4, 11.5):
+            self.feed(mission, now)
+            self.assertEqual(mission.step(now), (0., 0., False))
+            self.join(mission)
+            self.assertEqual(mission.step(now), (0., 0., False))
+            if now == 11.4:
+                self.assertIsNone(mission.anchor)
+        self.assertIsNotNone(mission.anchor)
+        self.assertEqual(mission.localizer.estimate.call_count, 3)
+
+    def test_expired_fit_still_clears_window_on_motion_or_rejected_geometry(self):
+        for failure in ('motion', 'rejected_geometry'):
+            with self.subTest(failure=failure):
+                mission = self.mission(observation_window=1.)
+                for index in range(14):
+                    self.feed(mission, 10.+index*.1)
+                scan_pose = (.034, 0., 0.) if failure == 'motion' else (.04, 0., 0.)
+                result = (mission.localizer.estimate.return_value if failure == 'motion'
+                          else AlignmentResult(False, reason='ambiguous wall alignment'))
+                mission.localization_result = (result, scan_pose, 10.9)
+                self.assertTrue(mission.localization_history)
+                self.assertEqual(mission.step(11.3), (0., 0., False))
+                self.assertEqual(mission.localization_history, [])
+                self.assertEqual(mission.localization_confirmations, 0)
+                self.assertIsNone(mission.anchor)
+
     def test_movement_since_acquisition_rejects_an_otherwise_good_result(self):
         mission = self.mission()
         self.feed(mission, 10.)

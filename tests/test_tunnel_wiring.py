@@ -1,10 +1,14 @@
 """TB adapter tests with mocked ROS transport; not a robot-driving test."""
 import importlib.util
+from contextlib import contextmanager
+import json
 import math
 import os
 from pathlib import Path
 import struct
+import subprocess
 import sys
+import tempfile
 import types
 import unittest
 from unittest.mock import Mock, patch
@@ -91,6 +95,7 @@ class TunnelWiringTests(unittest.TestCase):
         version_environment = patch.dict(os.environ, {'TB_TUNNEL_VERSION': 'v1'})
         version_environment.start()
         self.addCleanup(version_environment.stop)
+        os.environ.pop('TB_NUC_DIRECT_START', None)
         self.config = {
             "control": {"period": 0.05},
             "sensors": {"base_frame": "base_footprint", "z_min": 0.03,
@@ -171,9 +176,15 @@ class TunnelWiringTests(unittest.TestCase):
         spec.loader.exec_module(self.target)
         self.node = self.target.turtlebot()
 
-    def test_version_defaults_to_v1_and_explicit_ros_choice_wins_over_environment(self):
+    def test_version_defaults_to_v2_and_explicit_ros_choice_wins_over_environment(self):
+        # The fixture explicitly selects V1 for unrelated legacy wiring tests.
         self.assertEqual(self.node.tunnel_version, 'v1')
         self.assertIs(type(self.node.tunnel), Mission)
+        with patch.dict(os.environ):
+            os.environ.pop('TB_TUNNEL_VERSION', None)
+            selected = self.target.turtlebot()
+            self.assertEqual(selected.tunnel_version, 'v2')
+            self.assertIs(type(selected.tunnel), MissionV2)
         with patch.dict(os.environ, {'TB_TUNNEL_VERSION': 'v2'}):
             selected = self.target.turtlebot()
             self.assertEqual(selected.tunnel_version, 'v2')
@@ -184,6 +195,103 @@ class TunnelWiringTests(unittest.TestCase):
                 'Tunnel version: %s; config: %s', 'v2', self.load_config.call_args.args[0])
             self.params['~tunnel_version'] = 'v1'
             self.assertIs(type(self.target.turtlebot().tunnel), Mission)
+
+    def test_direct_start_arms_existing_publisher_before_enabling_callbacks(self):
+        for step in (0, 1, 3, 8, 9, 10, 11):
+            with self.subTest(step=step):
+                self.params['~start_step'] = step
+                before = len(self.publishers)
+                timers_before = len(self.timers)
+
+                @contextmanager
+                def handshake(publisher, zero, cancelled, abort, lock):
+                    node = self.subscribers[-1][1].__self__
+                    self.assertEqual(node.step, step)
+                    self.assertIs(node.cmd_pub, publisher)
+                    self.assertIsNone(node.tunnel_timer)
+                    self.assertFalse(node.drive_ready)
+                    self.assertEqual(len(self.timers), timers_before)
+                    node.move(.1, .2, tunnel=step in (9, 10))
+                    command = publisher.publish.call_args.args[0]
+                    self.assertEqual((command.linear.x, command.angular.z), (0., 0.))
+                    yield
+                    self.assertTrue(node.drive_ready)
+                    self.assertEqual(len(self.timers), timers_before + 1)
+
+                with patch.dict(os.environ, {'TB_NUC_DIRECT_START': str(ROOT)}), \
+                        patch.object(self.target, 'arm_motor_torque', side_effect=handshake) as arm:
+                    node = self.target.turtlebot()
+                arm.assert_called_once()
+                self.assertTrue(node.enable_motor_torque)
+                self.assertEqual([p.topic for p in self.publishers[before:]], ['/cmd_vel'])
+
+    def test_explicit_disabled_arming_and_other_repository_marker_are_respected(self):
+        for direct_root, explicit_false in ((str(ROOT), True), ('/another/repository', False)):
+            with self.subTest(direct_root=direct_root, explicit_false=explicit_false):
+                self.params.pop('~enable_motor_torque', None)
+                if explicit_false:
+                    self.params['~enable_motor_torque'] = False
+                with patch.dict(os.environ, {'TB_NUC_DIRECT_START': direct_root}), \
+                        patch.object(self.target, 'arm_motor_torque') as arm:
+                    node = self.target.turtlebot()
+                arm.assert_not_called()
+                self.assertFalse(node.enable_motor_torque)
+                self.assertTrue(node.drive_ready)
+
+    def test_direct_bootstrap_does_not_repeat_a_prepared_repository_environment(self):
+        with patch.dict(os.environ, {'TB_NUC_ENV_ROOT': str(ROOT)}), \
+                patch.object(sys, 'argv', [str(SOURCE), '_start_step:=9']), \
+                patch.object(os, 'execv') as execute:
+            self.target.prepare_nuc_environment()
+            execute.assert_not_called()
+            self.assertEqual(os.environ['TB_NUC_DIRECT_START'], str(ROOT))
+
+    def test_roslaunch_and_trial_entrypoints_keep_their_prepared_environment(self):
+        for name in ('__name:=tb_tunnel_controller', '__name:=tb_controller'):
+            with self.subTest(name=name), patch.dict(os.environ), \
+                    patch.object(sys, 'argv', [str(SOURCE), name, '_tunnel_version:=v1']), \
+                    patch.object(os, 'execv') as execute:
+                os.environ.pop('TB_NUC_DIRECT_START', None)
+                before = dict(os.environ)
+                self.target.prepare_nuc_environment()
+                execute.assert_not_called()
+                self.assertEqual(dict(os.environ), before)
+
+    def test_direct_bootstrap_sources_its_own_workspace_and_preserves_literal_arguments(self):
+        # Execute only a tiny fake entrypoint: no ROS imports, nodes or motors.
+        with tempfile.TemporaryDirectory(prefix="tb direct ' ") as directory:
+            root = Path(directory) / 'relocated TB'
+            entry = root / 'codes/stepbystep/try_maze.py'
+            entry.parent.mkdir(parents=True)
+            entry.write_text(
+                'import json, os, sys\n'
+                'print(json.dumps({"argv": sys.argv, "root": os.environ["TB_NUC_ENV_ROOT"], '
+                '"direct": os.environ["TB_NUC_DIRECT_START"], '
+                '"version": os.environ["TB_TUNNEL_VERSION"]}))\n')
+            setup = root / 'scripts/nuc_env.sh'
+            setup.parent.mkdir()
+            setup.write_text('export TB_NUC_ENV_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"\n')
+            marker = root / 'must_not_be_created'
+            arguments = ['_start_step:=9', "_tunnel_config:=file with ' spaces.yaml",
+                         '_literal:=$(touch "' + str(marker) + '")']
+            with patch.object(self.target, '__file__', str(entry)), \
+                    patch.object(sys, 'argv', [str(entry), *arguments]), \
+                    patch.dict(os.environ, {'TB_NUC_ENV_ROOT': '/another/repository',
+                                           'TB_TUNNEL_VERSION': 'v1'}), \
+                    patch.object(os, 'execv') as execute:
+                self.target.prepare_nuc_environment()
+                execute.assert_called_once()
+                executable, command = execute.call_args.args
+                environment = dict(os.environ)
+            completed = subprocess.run(command, executable=executable, env=environment,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                       text=True, check=True, timeout=5)
+            received = json.loads(completed.stdout)
+            self.assertEqual(received['argv'], [str(entry), *arguments])
+            self.assertEqual(received['root'], str(root))
+            self.assertEqual(received['direct'], str(root))
+            self.assertEqual(received['version'], 'v1')
+            self.assertFalse(marker.exists())
 
     def test_unknown_version_fails_before_adding_a_command_publisher(self):
         count = len(self.publishers)
@@ -265,7 +373,7 @@ class TunnelWiringTests(unittest.TestCase):
             header=types.SimpleNamespace(frame_id="base_scan", stamp=Stamp(41.7)))
 
     def test_startup_initializes_before_callbacks_and_uses_one_publisher(self):
-        self.assertEqual(self.node.step, 3)
+        self.assertEqual(self.node.step, 1)
         self.assertEqual(self.node.tunnel_linear_scale, 1.)
         self.assertEqual(self.node.tunnel_angular_command_scale, 1.)
         self.assertEqual([p.topic for p in self.publishers], ["/cmd_vel"])

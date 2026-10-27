@@ -138,6 +138,59 @@ class GlobalLocalPlannerTest(unittest.TestCase):
         self.assertTrue(self.base.primitive_is_collision_free(grid, pose, 0., .32*.05))
         self.assertFalse(self.planner.command_is_safe(grid, pose, command, CONTROL))
 
+    def test_speed_horizon_increases_clear_straight_speed_without_longer_steering_arc(self):
+        control = dict(CONTROL, cruise_velocity=.4, linear_acceleration=.25,
+                       safety_linear_deceleration=.15, safety_reaction_time=.10)
+        planner = GlobalLocalPlanner(self.base, {'local_speed_horizon': .60})
+        grid, pose = grid_with(), Pose2D(0., 0., 0.)
+        route = GlobalRoute(np.array(((0., 0.), (2., 0.))))
+        original = self.planner.local_command(grid, pose, route, control, .27, 0., .05)
+        faster = planner.local_command(grid, pose, route, control, .27, 0., .05)
+        self.assertGreater(faster.linear_velocity, original.linear_velocity)
+        self.assertLessEqual(faster.linear_velocity, .27+control['linear_acceleration']*.05)
+        self.assertEqual(faster.angular_velocity, original.angular_velocity)
+        self.assertEqual(faster.target, original.target)
+        self.assertEqual(faster.safe_distance, original.safe_distance)
+        self.assertTrue(planner.command_is_safe(grid, pose, faster, control))
+
+    def test_speed_horizon_falls_back_to_original_curve_when_faster_braking_hits_wall(self):
+        control = dict(CONTROL, cruise_velocity=.4, linear_acceleration=.25,
+                       safety_linear_deceleration=.15, safety_reaction_time=.10)
+        planner = GlobalLocalPlanner(self.base, {'local_speed_horizon': .60})
+        # The normal 30 cm arc fits. The faster actual command's full braking
+        # footprint reaches the wall, whereas the original speed still stops.
+        grid, pose = grid_with(((.40, -1.25, .425, 1.25),)), Pose2D(0., 0., 0.)
+        route = GlobalRoute(np.array(((0., 0.), (2., 0.))))
+        original = self.planner.local_command(grid, pose, route, control, .27, 0., .05,
+                                              measured_linear=.27)
+        self.assertIsNotNone(original)
+        self.assertFalse(planner.command_is_safe(grid, pose, LimitedCommand(.2825, 0.),
+                                                control, measured_linear=.27))
+        fallback = planner.local_command(grid, pose, route, control, .27, 0., .05,
+                                         measured_linear=.27)
+        self.assertEqual(fallback, original)
+        # A higher measured speed still prevents both options; lowering the
+        # requested speed cannot erase the actual momentum check.
+        self.assertIsNone(planner.local_command(grid, pose, route, control, .27, 0., .05,
+                                                measured_linear=.4))
+
+    def test_speed_horizon_keeps_endpoint_slowdown_and_default_geometry_behavior(self):
+        control = dict(CONTROL, cruise_velocity=.4, safety_linear_deceleration=.15)
+        planner = GlobalLocalPlanner(self.base, {'local_speed_horizon': .60})
+        route = GlobalRoute(np.array(((0., 0.), (.20, 0.))))
+        args = (grid_with(), Pose2D(0., 0., 0.), route, control, .20, 0., .05)
+        self.assertEqual(planner.local_command(*args), self.planner.local_command(*args))
+        # Without an override the speed horizon follows the selected geometry
+        # horizon, preserving existing V2 configurations.
+        inherited = GlobalLocalPlanner(self.base, {'local_horizon': .42})
+        self.assertEqual(inherited.local_speed_horizon, .42)
+
+    def test_speed_horizon_rejects_invalid_or_shorter_bounds(self):
+        for value in (True, float('nan'), float('inf'), 0., -.1, .29):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    GlobalLocalPlanner(self.base, {'local_speed_horizon': value})
+
     def test_driving_to_rotation_transition_retains_lateral_limit(self):
         route = GlobalRoute(np.array(((0., 0.), (-.25, .01))))
         command = self.planner.local_command(grid_with(), (0., 0., 0.), route,

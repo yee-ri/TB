@@ -476,10 +476,10 @@ def start(config_path, start_step=9):
     metadata['tunnel_version'] = tunnel_version
     metadata['start_step'] = start_step
     metadata['start_condition'] = {0: 'traffic_light', 8: 'gate_already_open', 9: 'tunnel_entry'}[start_step]
-    metadata['lane_controller'] = 'original_try_maze_e0b970f'
+    metadata['lane_controller'] = 'codes/stepbystep/try_maze.py'
     metadata['controller_status'] = 'starting'
     start_message = 'Controller /tb_controller, tunnel {} normal step{}. Completion continues into step11 lane driving.'.format(tunnel_version, start_step)
-    start_message += ' Lane tracking: restored try_maze e0b970f (default command 0.07125 m/s).'
+    start_message += ' Lane tracking: codes/stepbystep/try_maze.py; settings follow the recorded source.'
     if start_step == 0:
         start_message += ' Full course: wait for the green traffic light before step1.'
     elif start_step == 8:
