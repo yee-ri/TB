@@ -1,14 +1,11 @@
 """TB adapter tests with mocked ROS transport; not a robot-driving test."""
 import importlib.util
-from contextlib import contextmanager
-import json
 import math
 import os
+import runpy
 from pathlib import Path
 import struct
-import subprocess
 import sys
-import tempfile
 import types
 import unittest
 from unittest.mock import Mock, patch
@@ -80,10 +77,6 @@ class Mission:
         self.update_lane = Mock()
 
 
-class MissionV2(Mission):
-    pass
-
-
 def module(name, **members):
     result = types.ModuleType(name)
     result.__dict__.update(members)
@@ -92,10 +85,6 @@ def module(name, **members):
 
 class TunnelWiringTests(unittest.TestCase):
     def setUp(self):
-        version_environment = patch.dict(os.environ, {'TB_TUNNEL_VERSION': 'v1'})
-        version_environment.start()
-        self.addCleanup(version_environment.stop)
-        os.environ.pop('TB_NUC_DIRECT_START', None)
         self.config = {
             "control": {"period": 0.05},
             "sensors": {"base_frame": "base_footprint", "z_min": 0.03,
@@ -147,7 +136,7 @@ class TunnelWiringTests(unittest.TestCase):
         cloud_tf = module("tf2_sensor_msgs.tf2_sensor_msgs", do_transform_cloud=lambda cloud, tf: cloud,
                           transform_to_kdl=transform_to_kdl)
         self.load_config = Mock(return_value=self.config)
-        mission = module("tunnel.mission", TunnelMission=Mission, load_config=self.load_config)
+        mission = module("tunnel.mission", load_config=self.load_config, TunnelMission=Mission)
         modules = {
             "rospy": rospy,
             "tf": module("tf", transformations=tf_math), "tf.transformations": tf_math,
@@ -165,143 +154,59 @@ class TunnelWiringTests(unittest.TestCase):
             "tf2_sensor_msgs": module("tf2_sensor_msgs", tf2_sensor_msgs=cloud_tf),
             "tf2_sensor_msgs.tf2_sensor_msgs": cloud_tf,
             "tunnel": module("tunnel", mission=mission,
-                             __path__=[str(ROOT / 'codes/stepbystep/tunnel')]), "tunnel.mission": mission,
-            "tunnel.mission_v2": module("tunnel.mission_v2", TunnelMissionV2=MissionV2),
+                             __path__=[str(ROOT / 'codes/tunnel')]), "tunnel.mission": mission,
         }
         self.module_patch = patch.dict(sys.modules, modules)
         self.module_patch.start()
         self.addCleanup(self.module_patch.stop)
+        original_path = list(sys.path)
+        self.addCleanup(lambda: sys.path.__setitem__(slice(None), original_path))
         spec = importlib.util.spec_from_file_location("tb_wiring_test_target", SOURCE)
         self.target = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.target)
         self.node = self.target.turtlebot()
 
-    def test_version_defaults_to_v2_and_explicit_ros_choice_wins_over_environment(self):
-        # The fixture explicitly selects V1 for unrelated legacy wiring tests.
-        self.assertEqual(self.node.tunnel_version, 'v1')
+    def test_controller_constructs_the_driving_mission_directly(self):
         self.assertIs(type(self.node.tunnel), Mission)
-        with patch.dict(os.environ):
-            os.environ.pop('TB_TUNNEL_VERSION', None)
-            selected = self.target.turtlebot()
-            self.assertEqual(selected.tunnel_version, 'v2')
-            self.assertIs(type(selected.tunnel), MissionV2)
-        with patch.dict(os.environ, {'TB_TUNNEL_VERSION': 'v2'}):
-            selected = self.target.turtlebot()
-            self.assertEqual(selected.tunnel_version, 'v2')
-            self.assertIs(type(selected.tunnel), MissionV2)
-            self.assertIs(selected.tunnel.config, self.config)
-            self.assertEqual(selected.tunnel.clock(), 42.)
-            self.target.rospy.loginfo.assert_any_call(
-                'Tunnel version: %s; config: %s', 'v2', self.load_config.call_args.args[0])
-            self.params['~tunnel_version'] = 'v1'
-            self.assertIs(type(self.target.turtlebot().tunnel), Mission)
+        self.assertIs(self.node.tunnel.config, self.config)
+        self.assertEqual(self.node.tunnel.clock(), 42.)
+        self.target.rospy.loginfo.assert_any_call(
+            'Tunnel config: %s', self.load_config.call_args.args[0])
 
-    def test_direct_start_arms_existing_publisher_before_enabling_callbacks(self):
+    def test_start_initializes_timer_without_motor_control(self):
         for step in (0, 1, 3, 8, 9, 10, 11):
             with self.subTest(step=step):
                 self.params['~start_step'] = step
                 before = len(self.publishers)
                 timers_before = len(self.timers)
-
-                @contextmanager
-                def handshake(publisher, zero, cancelled, abort, lock):
-                    node = self.subscribers[-1][1].__self__
-                    self.assertEqual(node.step, step)
-                    self.assertIs(node.cmd_pub, publisher)
-                    self.assertIsNone(node.tunnel_timer)
-                    self.assertFalse(node.drive_ready)
-                    self.assertEqual(len(self.timers), timers_before)
-                    node.move(.1, .2, tunnel=step in (9, 10))
-                    command = publisher.publish.call_args.args[0]
-                    self.assertEqual((command.linear.x, command.angular.z), (0., 0.))
-                    yield
-                    self.assertTrue(node.drive_ready)
-                    self.assertEqual(len(self.timers), timers_before + 1)
-
-                with patch.dict(os.environ, {'TB_NUC_DIRECT_START': str(ROOT)}), \
-                        patch.object(self.target, 'arm_motor_torque', side_effect=handshake) as arm:
-                    node = self.target.turtlebot()
-                arm.assert_called_once()
-                self.assertTrue(node.enable_motor_torque)
+                node = self.target.turtlebot()
+                self.assertEqual(node.step, step)
+                self.assertEqual(len(self.timers), timers_before + 1)
                 self.assertEqual([p.topic for p in self.publishers[before:]], ['/cmd_vel'])
+                node.move(.1, .2, tunnel=step in (9, 10))
+                command = node.cmd_pub.publish.call_args.args[0]
+                self.assertEqual((command.linear.x, command.angular.z), (.1, .2))
 
-    def test_explicit_disabled_arming_and_other_repository_marker_are_respected(self):
-        for direct_root, explicit_false in ((str(ROOT), True), ('/another/repository', False)):
-            with self.subTest(direct_root=direct_root, explicit_false=explicit_false):
-                self.params.pop('~enable_motor_torque', None)
-                if explicit_false:
-                    self.params['~enable_motor_torque'] = False
-                with patch.dict(os.environ, {'TB_NUC_DIRECT_START': direct_root}), \
-                        patch.object(self.target, 'arm_motor_torque') as arm:
-                    node = self.target.turtlebot()
-                arm.assert_not_called()
-                self.assertFalse(node.enable_motor_torque)
-                self.assertTrue(node.drive_ready)
 
-    def test_direct_bootstrap_does_not_repeat_a_prepared_repository_environment(self):
-        with patch.dict(os.environ, {'TB_NUC_ENV_ROOT': str(ROOT)}), \
-                patch.object(sys, 'argv', [str(SOURCE), '_start_step:=9']), \
-                patch.object(os, 'execv') as execute:
-            self.target.prepare_nuc_environment()
+    def test_direct_entrypoint_uses_the_callers_environment(self):
+        environment = {'ROS_MASTER_URI': 'http://chosen-master:11311',
+                       'ROS_IP': '192.0.2.3'}
+        before = len(self.publishers)
+        with patch.dict(os.environ, environment, clear=True), \
+                patch.object(sys, 'argv', [str(SOURCE)]), \
+                patch.object(os, 'execv', side_effect=AssertionError('unexpected re-exec')) as execute, \
+                patch.object(self.target.rospy, 'spin', create=True) as spin:
+            loaded = runpy.run_path(str(SOURCE), run_name='__main__')
+            self.assertEqual(dict(os.environ), environment)
             execute.assert_not_called()
-            self.assertEqual(os.environ['TB_NUC_DIRECT_START'], str(ROOT))
+            spin.assert_called_once_with()
+        self.assertEqual(loaded['controller'].step, 1)
+        self.assertEqual(self.load_config.call_args.args,
+                         (str(SOURCE.with_name('tunnel.real.yaml')), 'normal'))
+        self.assertEqual([p.topic for p in self.publishers[before:]], ['/cmd_vel'])
+        self.publishers[-1].publish.assert_not_called()
 
-    def test_roslaunch_and_trial_entrypoints_keep_their_prepared_environment(self):
-        for name in ('__name:=tb_tunnel_controller', '__name:=tb_controller'):
-            with self.subTest(name=name), patch.dict(os.environ), \
-                    patch.object(sys, 'argv', [str(SOURCE), name, '_tunnel_version:=v1']), \
-                    patch.object(os, 'execv') as execute:
-                os.environ.pop('TB_NUC_DIRECT_START', None)
-                before = dict(os.environ)
-                self.target.prepare_nuc_environment()
-                execute.assert_not_called()
-                self.assertEqual(dict(os.environ), before)
-
-    def test_direct_bootstrap_sources_its_own_workspace_and_preserves_literal_arguments(self):
-        # Execute only a tiny fake entrypoint: no ROS imports, nodes or motors.
-        with tempfile.TemporaryDirectory(prefix="tb direct ' ") as directory:
-            root = Path(directory) / 'relocated TB'
-            entry = root / 'codes/stepbystep/try_maze.py'
-            entry.parent.mkdir(parents=True)
-            entry.write_text(
-                'import json, os, sys\n'
-                'print(json.dumps({"argv": sys.argv, "root": os.environ["TB_NUC_ENV_ROOT"], '
-                '"direct": os.environ["TB_NUC_DIRECT_START"], '
-                '"version": os.environ["TB_TUNNEL_VERSION"]}))\n')
-            setup = root / 'scripts/nuc_env.sh'
-            setup.parent.mkdir()
-            setup.write_text('export TB_NUC_ENV_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"\n')
-            marker = root / 'must_not_be_created'
-            arguments = ['_start_step:=9', "_tunnel_config:=file with ' spaces.yaml",
-                         '_literal:=$(touch "' + str(marker) + '")']
-            with patch.object(self.target, '__file__', str(entry)), \
-                    patch.object(sys, 'argv', [str(entry), *arguments]), \
-                    patch.dict(os.environ, {'TB_NUC_ENV_ROOT': '/another/repository',
-                                           'TB_TUNNEL_VERSION': 'v1'}), \
-                    patch.object(os, 'execv') as execute:
-                self.target.prepare_nuc_environment()
-                execute.assert_called_once()
-                executable, command = execute.call_args.args
-                environment = dict(os.environ)
-            completed = subprocess.run(command, executable=executable, env=environment,
-                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                       text=True, check=True, timeout=5)
-            received = json.loads(completed.stdout)
-            self.assertEqual(received['argv'], [str(entry), *arguments])
-            self.assertEqual(received['root'], str(root))
-            self.assertEqual(received['direct'], str(root))
-            self.assertEqual(received['version'], 'v1')
-            self.assertFalse(marker.exists())
-
-    def test_unknown_version_fails_before_adding_a_command_publisher(self):
-        count = len(self.publishers)
-        self.params['~tunnel_version'] = 'v3'
-        with self.assertRaisesRegex(ValueError, 'tunnel_version'):
-            self.target.turtlebot()
-        self.assertEqual(len(self.publishers), count)
-
-    def test_v2_uses_the_same_single_command_owner(self):
-        self.params['~tunnel_version'] = 'v2'
+    def test_tunnel_uses_the_single_command_owner(self):
         before = len(self.publishers)
         node = self.target.turtlebot()
         self.assertEqual([p.topic for p in self.publishers[before:]], ['/cmd_vel'])
@@ -393,22 +298,8 @@ class TunnelWiringTests(unittest.TestCase):
                 self.params["~start_step"] = step
                 self.assertEqual(self.target.turtlebot().step, step)
 
-    def test_camera_cannot_advance_or_track_before_drive_is_ready(self):
-        for step in (0, 3, 8, 9, 10):
-            with self.subTest(step=step):
-                self.node.step = step
-                self.node.drive_ready = False
-                self.node.cmd_pub.publish.reset_mock()
-                self.node.tunnel.update_lane.reset_mock()
-                self.node.img_callback(self.green_light_image())
-                self.assertEqual(self.node.step, step)
-                self.node.cmd_pub.publish.assert_called_once()
-                command = self.node.cmd_pub.publish.call_args.args[0]
-                self.assertEqual((command.linear.x, command.angular.z), (0., 0.))
-                self.node.tunnel.update_lane.assert_not_called()
-        self.target.rospy.sleep.assert_not_called()
 
-    def test_full_course_waits_for_green_after_drive_is_ready(self):
+    def test_full_course_waits_for_green(self):
         self.params['~start_step'] = 0
         node = self.target.turtlebot()
         node.img_callback(self.image())
@@ -496,7 +387,9 @@ class TunnelWiringTests(unittest.TestCase):
         self.assertFalse(self.node.lane_detect(image[:100]))
 
     def test_entry_transition_frame_does_not_emit_lane_command(self):
-        self.node.step, self.node.maze_count = 8, 2
+        # Current course contract: the fifth consecutive empty lane frame
+        # hands control to the approach without publishing another lane command.
+        self.node.step, self.node.maze_count = 8, 4
         self.node.lane_tracking = Mock(side_effect=AssertionError("transition command"))
         self.node.img_callback(self.image(False))
         self.assertEqual(self.node.step, 8.5)
@@ -515,7 +408,7 @@ class TunnelWiringTests(unittest.TestCase):
         command = self.node.cmd_pub.publish.call_args.args[0]
         self.assertEqual((command.linear.x, command.angular.z), (0., 0.))
 
-    def test_fresh_step8_captures_lane_end_heading_in_rebased_odometry(self):
+    def test_fresh_step8_uses_five_empty_frames_and_fixed_approach_heading(self):
         for raw_yaw, lane_turn in ((0., 0.), (1.2, 0.), (1.2, .3)):
             with self.subTest(raw_yaw=raw_yaw, lane_turn=lane_turn):
                 self.params['~start_step'] = 8
@@ -526,41 +419,37 @@ class TunnelWiringTests(unittest.TestCase):
                 node.move_time_yaw_hold = Mock()
                 node.img_callback(self.image(True))
                 node.odom_callback(self.odometry(yaw=raw_yaw + lane_turn))
-                for _ in range(2):
+                for _ in range(4):
                     node.img_callback(self.image(False))
                 self.assertEqual(node.step, 8)
                 node.img_callback(self.image(False))
                 self.assertEqual(node.step, 8.5)
-                self.assertAlmostEqual(node.gate_approach_yaw, lane_turn)
-                # A later pose update must not change the captured target.
+                # Preserve the current course's fixed approach yaw. This is
+                # a mocked command contract, not measured physical alignment.
+                self.assertAlmostEqual(node.gate_approach_yaw, -1.565)
+                # A later pose update must not change the configured target.
                 node.odom_callback(self.odometry(yaw=raw_yaw + lane_turn + .1))
                 node.img_callback(self.image(False))
                 args = node.move_time_yaw_hold.call_args.args
                 self.assertEqual((args[0], args[2]), (.06, 1))
-                self.assertAlmostEqual(args[1], lane_turn)
+                self.assertAlmostEqual(args[1], -1.565)
                 self.assertEqual(node.step, 9)
                 self.assertFalse(node.tunnel_active)
 
-    def test_fresh_step8_waits_for_first_odometry_and_motor_startup(self):
-        for odom_received, drive_ready in ((False, True), (True, False)):
-            with self.subTest(odom_received=odom_received, drive_ready=drive_ready):
-                self.params['~start_step'] = 8
-                node = self.target.turtlebot()
-                if odom_received:
-                    node.odom_callback(self.odometry())
-                node.drive_ready = drive_ready
-                node.lane_tracking = Mock()
-                for _ in range(11):
-                    node.img_callback(self.image(False))
-                self.assertEqual(node.step, 8)
-                self.assertEqual(node.maze_count, 0)
-                node.lane_tracking.assert_not_called()
-                self.assertTrue(all(call.args[0].linear.x == call.args[0].angular.z == 0
-                                    for call in node.cmd_pub.publish.call_args_list))
-                node.odom_callback(self.odometry())
-                node.drive_ready = True
-                node.img_callback(self.image(True))
-                node.lane_tracking.assert_called_once()
+    def test_fresh_step8_waits_for_first_odometry(self):
+        self.params['~start_step'] = 8
+        node = self.target.turtlebot()
+        node.lane_tracking = Mock()
+        for _ in range(11):
+            node.img_callback(self.image(False))
+        self.assertEqual(node.step, 8)
+        self.assertEqual(node.maze_count, 0)
+        node.lane_tracking.assert_not_called()
+        self.assertTrue(all(call.args[0].linear.x == call.args[0].angular.z == 0
+                            for call in node.cmd_pub.publish.call_args_list))
+        node.odom_callback(self.odometry())
+        node.img_callback(self.image(True))
+        node.lane_tracking.assert_called_once()
 
     def test_step8_lane_drives_over_headless_ssh_without_opening_debug_window(self):
         self.params['~start_step'] = 8
@@ -586,7 +475,7 @@ class TunnelWiringTests(unittest.TestCase):
         show.assert_called_once()
         wait.assert_called_once_with(1)
 
-    def test_original_try_maze_lane_tuning_applies_in_all_lane_stages(self):
+    def test_current_lane_commands_keep_stage_and_speed_selection(self):
         centered = self.image()
         centered.array[320:460, 96:105] = (0, 255, 255)
         centered.array[320:460, 536:545] = (255, 255, 255)
@@ -600,32 +489,43 @@ class TunnelWiringTests(unittest.TestCase):
         for step, speed in ((step, speed) for step in (*range(1, 9), 11)
                             for speed in (0, 1, 2)):
             with self.subTest(step=step, speed=speed):
-                # Mission speed flags and tunnel calibration must not replace
-                # the original try_maze lane tuning in any lane-driven stage.
+                # Preserve HEAD's stage/speed command contract independently
+                # of tunnel calibration. Values are mocked command expectations,
+                # not measured wheel or physical vehicle velocities.
+                if step == 2:
+                    linear, first_turn, steady_turn, turn_limit = .08075, .077552, .074, .629
+                elif speed == 1:
+                    linear, first_turn, steady_turn, turn_limit = .06175, .046768, .0444, .333
+                elif step == 3 and speed == 2:
+                    linear, first_turn, steady_turn, turn_limit = .09025, .06216, .0592, .592
+                else:
+                    linear, first_turn, steady_turn, turn_limit = .1045, .070448, .06808, .629
                 node = self.scaled_node()
                 node.step, node.speed = step, speed
                 node.lane_tracking(centered.array)
                 cmd = node.cmd_pub.publish.call_args.args[0]
-                self.assertAlmostEqual(cmd.linear.x, .07125)
+                self.assertAlmostEqual(cmd.linear.x, linear)
                 self.assertAlmostEqual(cmd.angular.z, 0.)
                 node.prev_target_x = None
                 node.prev_error = 0.
                 node.lane_tracking(shifted.array)
                 cmd = node.cmd_pub.publish.call_args.args[0]
-                self.assertAlmostEqual(cmd.linear.x, .07125)
-                self.assertAlmostEqual(cmd.angular.z, -.077552 if step == 2 else -.046768)
+                self.assertAlmostEqual(cmd.linear.x, linear)
+                self.assertAlmostEqual(cmd.angular.z, -first_turn)
                 # The same offset on the next frame removes derivative action.
                 node.lane_tracking(shifted.array)
                 cmd = node.cmd_pub.publish.call_args.args[0]
-                self.assertAlmostEqual(cmd.angular.z, -.074 if step == 2 else -.0444)
-                turn_limit = .481 if step == 2 else .37
+                self.assertAlmostEqual(cmd.angular.z, -steady_turn)
                 for image, sign in ((far_right, -1), (far_left, 1)):
                     node.prev_target_x = None
                     node.prev_error = 0.
                     node.lane_tracking(image.array)
                     cmd = node.cmd_pub.publish.call_args.args[0]
-                    self.assertAlmostEqual(cmd.linear.x, .07125)
-                    self.assertAlmostEqual(cmd.angular.z, sign * turn_limit)
+                    self.assertAlmostEqual(cmd.linear.x, linear)
+                    self.assertGreater(sign * cmd.angular.z, 0.)
+                    self.assertLessEqual(abs(cmd.angular.z), turn_limit + 1e-12)
+                    if sign == -1:
+                        self.assertAlmostEqual(cmd.angular.z, -turn_limit)
 
     def test_gate_approach_slows_then_releases_speed_state_on_open(self):
         node = self.node

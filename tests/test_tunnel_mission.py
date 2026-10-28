@@ -1,37 +1,32 @@
-"""ROS-free port integration tests, not Gazebo or physical driving evidence.
-
-The closed-loop fixture supplies ideal, finite LiDAR wall returns and integrates
-the commanded differential-drive twist. It does not model wheel slip, sensor
-noise, TF delay, camera recognition, or the actual TB course geometry.
-"""
+"""Tunnel sensor, map, entry and handoff checks using synthetic ROS-free input."""
 
 import copy
 import math
 from pathlib import Path
 import sys
-import threading
-import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "codes/stepbystep"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "codes"))
 
 from tunnel.mission import TunnelMission, load_config, relative_pose
-from tunnel.planner import OccupancyGrid, Pose2D
+from tunnel.planner import GlobalRoute
+from tunnel.geometry import OccupancyGrid, Pose2D
 
 
 CONFIG = Path(__file__).resolve().parents[1] / "codes/stepbystep/tunnel.yaml"
 
 
+def occupied(grid, column, row):
+    return bool(grid._occupied[row, column])
+
+
 def configuration(goal=(.65, 0., 0.)):
     config = copy.deepcopy(load_config(CONFIG))
     config['goal']['pose'] = list(goal)
-    # This ideal-room goal is the planner endpoint itself. Connector tests
-    # below supply both an explicit internal endpoint and an outside endpoint.
-    config['goal'].pop('planning_pose', None)
     config['grid']['bounds'] = [-.5, -.75, 1.5, 1.25]
     # Synthetic rooms have their own walls, not the source Gazebo course map.
     config['grid'].pop('static_map', None)
@@ -78,7 +73,7 @@ def wall_returns(pose, bounds=(-.4, -.65, 1.4, 1.1), bins=720,
                             sensor[1] + ranges*np.sin(angle+sensor[2])))
 
 
-class TunnelMissionPortTest(unittest.TestCase):
+class TunnelInputAndEntryTest(unittest.TestCase):
     def make_mission(self, goal=(.65, 0., 0.), sensors=None):
         config = configuration(goal)
         if sensors is not None:
@@ -97,10 +92,10 @@ class TunnelMissionPortTest(unittest.TestCase):
         """Unit-only setup; real phase transitions are covered by closed loops."""
         self.feed(mission, now)
         mission.step(now)
-        x = np.linspace(0., .65, 34)
-        mission.path = mission._tracking_path(x, np.zeros_like(x), np.zeros_like(x), np.zeros_like(x))
-        mission.index, mission.path_version = 0, -1
+        mission.global_path = GlobalRoute(np.array([[0., 0.], [.65, 0.]]))
         mission.state = 'FOLLOWING'
+        mission.last_linear = mission.last_angular = 0.
+        mission.worker = SimpleNamespace(is_alive=lambda: True)
 
     def measured_surface(self, isolated=False):
         """Adjacent real hits support a face near a 2 cm cell's far edge."""
@@ -151,104 +146,7 @@ class TunnelMissionPortTest(unittest.TestCase):
         np.testing.assert_allclose(
             [configured[0], configured[1], math.radians(configured[2])],
             [expected.x, expected.y, expected.yaw], atol=1e-10)
-        internal = relative_pose((-.180, -1.748373, 0.), staging)
-        configured_internal = config['goal']['planning_pose']
-        np.testing.assert_allclose(
-            [configured_internal[0], configured_internal[1], math.radians(configured_internal[2])],
-            [internal.x, internal.y, internal.yaw], atol=1e-10)
 
-    def connector_mission(self):
-        config = configuration()
-        config['goal']['planning_pose'] = [.30, 0., 0.]
-        mission = TunnelMission(config)
-        self.addCleanup(mission.close)
-        self.feed(mission, 10.)
-        mission.step(10.)
-        mission.state, mission.path = 'PLANNING', None
-        return mission
-
-    @staticmethod
-    def straight_plan(end=.30, y=0., yaw=0.):
-        x = np.linspace(0., end, 16)
-        return SimpleNamespace(x=x, y=np.full_like(x, y), yaw=np.full_like(x, yaw),
-                               curvature=np.zeros_like(x))
-
-    def test_inside_planner_goal_and_exit_connector_form_one_moving_path(self):
-        mission = self.connector_mission()
-        plan = self.straight_plan()
-        with patch.object(mission.planner, 'plan', return_value=plan) as search:
-            self.assertEqual(mission.step(10.), (0., 0., False))
-            mission.worker.join(timeout=2.)
-            self.assertEqual(search.call_args.args[2], mission.planning_goal)
-            self.assertAlmostEqual(mission.planning_goal.x, .30)
-            self.assertGreater(mission.step(10.05)[0], 0.)
-        path = mission.path
-        self.assertEqual(mission.state, 'FOLLOWING')
-        np.testing.assert_allclose(path.x[:len(plan.x)], plan.x, atol=1e-14)
-        np.testing.assert_allclose(path.curvature[:len(plan.x)], plan.curvature, atol=1e-14)
-        self.assertAlmostEqual(path.x[-1], mission.goal.x)
-        self.assertAlmostEqual(path.y[-1], mission.goal.y)
-        self.assertGreater(len(path.x), len(plan.x))
-        self.assertTrue(np.all(np.diff(path.station) > 0.))
-        self.assertGreater(path.speed[len(plan.x)-1], mission.control['exit_velocity'])
-
-        # Unit fixture advances odom to the seam: it must not declare the
-        # internal planning target finished or insert a stopped exit phase.
-        self.feed(mission, 10.10, pose=(.30, 0., 0.))
-        self.assertGreater(mission.step(10.10)[0], 0.)
-        self.assertEqual(mission.state, 'FOLLOWING')
-        self.assertIs(mission.path, path)
-        self.feed(mission, 10.15, pose=(.65, 0., 0.))
-        self.assertEqual(mission.step(10.15), (0., 0., False))
-        self.assertEqual(mission.state, 'WAIT_STOP')
-        self.assertEqual(mission.plans, 1)
-
-    def test_blocked_exit_connector_is_rejected_before_committing_the_plan(self):
-        mission = self.connector_mission()
-        self.confirm_point(mission, (.50, 0.))
-        stamp = mission.scan[-1]
-        mission.update_odometry((0., 0., 0.), 0., 0., stamp)
-        grid = mission._grid()
-        plan = self.straight_plan()
-        self.assertTrue(mission._route_safe(
-            grid, 0, mission._tracking_path(plan.x, plan.y, plan.yaw, plan.curvature)))
-        self.assertTrue(mission.planner.pose_is_collision_free(grid, mission.goal))
-        with patch.object(mission.planner, 'plan', return_value=plan):
-            self.assertEqual(mission.step(stamp), (0., 0., False))
-            mission.worker.join(timeout=2.)
-            self.assertEqual(mission.step(stamp+.05), (0., 0., False))
-        self.assertEqual(mission.state, 'PLANNING')
-        self.assertIsNone(mission.path)
-        self.assertIn('connector is not collision-free', mission.reason)
-
-    def test_plan_without_exit_connector_checks_thin_obstacle_between_samples(self):
-        mission = self.make_mission()
-        self.assertNotIn('planning_pose', mission.config['goal'])
-        data = np.zeros((100, 100), dtype=np.int8)
-        data[50, 41] = 100
-        grid = OccupancyGrid(data, .02, -.5, -1., static_cell_rectangles={
-            50 * 100 + 41: ((.329, .004, .331, .006),)})
-        plan = SimpleNamespace(x=np.array([0., .65]), y=np.zeros(2),
-                               yaw=np.zeros(2), curvature=np.zeros(2))
-        # Both saved poses are clear; checking only vertices misses the 2 mm
-        # obstacle crossed by the candidate between them.
-        for x in plan.x:
-            self.assertTrue(mission.planner.pose_is_collision_free(grid, (x, 0., 0.)))
-        with patch.object(mission.planner, 'primitive_is_collision_free',
-                          wraps=mission.planner.primitive_is_collision_free) as precise_check:
-            with self.assertRaisesRegex(ValueError, 'planned path is not collision-free'):
-                mission._planned_path(plan, grid)
-            self.assertGreater(precise_check.call_count, 0)
-        self.assertIsNone(mission.path)
-
-    def test_exit_connector_keeps_source_forward_and_curvature_limits(self):
-        mission = self.connector_mission()
-        grid = mission._grid()
-        for plan, reason in ((self.straight_plan(.70), 'outside pose is not ahead'),
-                             (self.straight_plan(-.30, yaw=math.pi), 'not strictly forward'),
-                             (self.straight_plan(y=.15), 'minimum turning radius')):
-            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
-                mission._planned_path(plan, grid)
 
     def test_default_static_map_aligns_four_walls_and_leaves_entry_and_exit_open(self):
         mission = self.production_static_mission()
@@ -261,10 +159,10 @@ class TunnelMissionPortTest(unittest.TestCase):
                  (.972071, 1.7262865), (.17074, .9328905))
         for point in walls:
             with self.subTest(wall=point):
-                self.assertTrue(grid.is_occupied_cell(*grid.world_to_grid(*point)))
+                self.assertTrue(occupied(grid, *grid.world_to_grid(*point)))
         for point in ((0., 0.), (.30, 0.), (mission.goal.x, mission.goal.y)):
             with self.subTest(open_space=point):
-                self.assertFalse(grid.is_occupied_cell(*grid.world_to_grid(*point)))
+                self.assertFalse(occupied(grid, *grid.world_to_grid(*point)))
 
     def test_default_static_map_does_not_bake_in_lidar_cylinders(self):
         mission = self.production_static_mission()
@@ -275,7 +173,7 @@ class TunnelMissionPortTest(unittest.TestCase):
                                  for a in np.linspace(0., 2.*math.pi, 32, endpoint=False)]
             for point in points:
                 with self.subTest(cylinder=center, point=point):
-                    self.assertFalse(grid.is_occupied_cell(*grid.world_to_grid(*point)))
+                    self.assertFalse(occupied(grid, *grid.world_to_grid(*point)))
 
     def test_repeated_near_wall_lidar_hits_do_not_duplicate_static_wall(self):
         mission = self.production_static_mission()
@@ -283,59 +181,33 @@ class TunnelMissionPortTest(unittest.TestCase):
         ghost = (.9, -.115)
         cell = mission.costmap.world_to_cell(*ghost)
         self.assertIsNotNone(cell)
-        self.assertEqual(mission.costmap.static_data[cell[1]*mission.costmap.width+cell[0]], 0)
+        self.assertEqual(mission.costmap._static_data[cell[1]*mission.costmap.width+cell[0]], 0)
         self.confirm_point(mission, ghost)
-        self.assertFalse(mission.costmap.is_dynamic_occupied(*cell))
+        self.assertFalse(mission.costmap._dynamic_occupied[cell[1]*mission.costmap.width+cell[0]])
         wall_cell = mission.costmap.world_to_cell(.9, -.1678905)
-        self.assertEqual(mission.costmap.static_data[wall_cell[1]*mission.costmap.width+wall_cell[0]], 100)
-        self.assertTrue(mission._grid().is_occupied_cell(*wall_cell))
+        self.assertEqual(mission.costmap._static_data[wall_cell[1]*mission.costmap.width+wall_cell[0]], 100)
+        self.assertTrue(occupied(mission._grid(), *wall_cell))
 
     def test_lidar_cylinder_surface_far_from_static_walls_is_still_occupied(self):
         mission = self.production_static_mission()
         center = np.array((.767116, .6066495))
         point = center * (1. - .1/np.linalg.norm(center))
         cell = mission.costmap.world_to_cell(*point)
-        self.assertEqual(mission.costmap.static_data[cell[1]*mission.costmap.width+cell[0]], 0)
+        self.assertEqual(mission.costmap._static_data[cell[1]*mission.costmap.width+cell[0]], 0)
         self.confirm_point(mission, point)
-        self.assertTrue(mission.costmap.is_dynamic_occupied(*cell))
-        self.assertTrue(mission._grid().is_occupied_cell(*cell))
+        self.assertTrue(mission.costmap._dynamic_occupied[cell[1]*mission.costmap.width+cell[0]])
+        self.assertTrue(occupied(mission._grid(), *cell))
 
     def test_default_clearance_cost_configuration_matches_source_and_reaches_core(self):
         mission = self.production_static_mission()
         grid_values = {'static_occupied_threshold': 65,
                        'dynamic_inflation_radius': .06, 'dynamic_inflation_value': 64}
-        planner_values = {'obstacle_cost_weight': .12, 'obstacle_cost_distance': .30,
-                          'soft_obstacle_cost_weight': 1., 'soft_cost_check_step': .020}
         for name, expected in grid_values.items():
             with self.subTest(grid_setting=name):
                 self.assertEqual(mission.config['grid'][name], expected)
                 self.assertEqual(getattr(mission.costmap, name), expected)
-        for name, expected in planner_values.items():
-            with self.subTest(planner_setting=name):
-                self.assertEqual(mission.config['planner'][name], expected)
-                self.assertEqual(getattr(mission.planner, name), expected)
         self.assertEqual(mission._grid().occupied_threshold, mission.costmap.static_occupied_threshold)
 
-    def test_soft_clearance_band_adds_primitive_cost_without_becoming_hard_obstacle(self):
-        mission = self.measured_surface()
-        grid, planner = mission._grid(), mission.planner
-        bands, endpoints = np.argwhere(grid.data == 64), np.argwhere(grid.data == 100)
-        self.assertGreater(len(bands), 0)
-        self.assertGreater(len(endpoints), 0)
-        for row, column in bands:
-            self.assertFalse(grid.is_occupied_cell(int(column), int(row)))
-        for row, column in endpoints:
-            self.assertTrue(grid.is_occupied_cell(int(column), int(row)))
-        start, distance = Pose2D(.10, 0., 0.), .131
-        self.assertTrue(planner.primitive_is_collision_free(grid, start, 0., distance))
-        exposure = planner._primitive_soft_cost_exposure(grid, start, 0., distance)
-        self.assertGreater(exposure, 0.)
-        end = planner._propagate(start, 0., distance)
-        cost = planner._transition_cost(grid, end, 0., 0., distance, exposure)
-        without_exposure = planner._transition_cost(grid, end, 0., 0., distance, 0.)
-        self.assertGreater(cost, without_exposure)
-        self.assertAlmostEqual(cost-without_exposure, exposure*planner.soft_obstacle_cost_weight)
-        self.assertFalse(planner.pose_is_collision_free(grid, (.240, 0., 0.)))
 
     def test_anchor_coordinate_conversion_is_rigid_transform_invariant(self):
         origin = (4.3, -8.2, 1.2)
@@ -367,7 +239,7 @@ class TunnelMissionPortTest(unittest.TestCase):
         self.assertAlmostEqual(angular, 0.)
         self.assertFalse(finished)
         self.assertEqual(mission.state, 'ENTRY')
-        self.assertIsNone(mission.path)
+        self.assertIsNone(mission.global_path)
         self.assertEqual(mission.plans, 0)
 
     def test_native_scan_no_return_beams_and_real_minimum_range_allow_entry(self):
@@ -408,15 +280,15 @@ class TunnelMissionPortTest(unittest.TestCase):
         cell = mission.costmap.world_to_cell(.7, 0.)
         stamp = 10.
         for _ in range(mission.config['grid']['mark_observations'] - 1):
-            self.assertFalse(mission._grid().is_occupied_cell(*cell))
+            self.assertFalse(occupied(mission._grid(), *cell))
             stamp += .05
             mission.update_scan([.7], 0., 1., .10, 40., (0., 0., 0.), (0., 0., 0.), stamp)
-        self.assertTrue(mission._grid().is_occupied_cell(*cell))
+        self.assertTrue(occupied(mission._grid(), *cell))
         for _ in range(mission.config['grid']['clear_observations']):
-            self.assertTrue(mission._grid().is_occupied_cell(*cell))
+            self.assertTrue(occupied(mission._grid(), *cell))
             stamp += .05
             mission.update_scan([math.inf], 0., 1., .10, 40., (0., 0., 0.), (0., 0., 0.), stamp)
-        self.assertFalse(mission._grid().is_occupied_cell(*cell))
+        self.assertFalse(occupied(mission._grid(), *cell))
 
     def test_single_hit_followed_by_free_ray_leaves_no_ghost_obstacle(self):
         mission = self.make_mission()
@@ -425,14 +297,14 @@ class TunnelMissionPortTest(unittest.TestCase):
         mission.step(10.)
         cell = mission.costmap.world_to_cell(.7, 0.)
         if mission.config['grid']['mark_observations'] > 1:
-            self.assertFalse(mission._grid().is_occupied_cell(*cell))
+            self.assertFalse(occupied(mission._grid(), *cell))
         for i in range(mission.config['grid']['clear_observations']):
             stamp = 10.05 + i*.05
             mission.update_scan([math.inf], 0., 1., .10, 40., (0., 0., 0.), (0., 0., 0.), stamp)
-        self.assertFalse(mission._grid().is_occupied_cell(*cell))
+        self.assertFalse(occupied(mission._grid(), *cell))
         if mission.config['grid']['mark_observations'] > 1:
             mission.update_scan([.7], 0., 1., .10, 40., (0., 0., 0.), (0., 0., 0.), stamp+.05)
-            self.assertFalse(mission._grid().is_occupied_cell(*cell))
+            self.assertFalse(occupied(mission._grid(), *cell))
 
     def test_supported_lidar_surface_geometry_reaches_mission_grid(self):
         mission = self.measured_surface()
@@ -453,19 +325,19 @@ class TunnelMissionPortTest(unittest.TestCase):
         # Body front + padding reaches x=.308645, below the measured .3179 face.
         empty_side = (.231, 0., 0.)
         touching_face = (.240, 0., 0.)
-        self.assertFalse(mission.planner.pose_is_collision_free(coarse, empty_side))
-        self.assertTrue(mission.planner.pose_is_collision_free(grid, empty_side))
-        self.assertFalse(mission.planner.pose_is_collision_free(grid, touching_face))
-        self.assertTrue(mission.planner.primitive_is_collision_free(grid, (0., 0., 0.), 0., empty_side[0]))
-        self.assertFalse(mission.planner.primitive_is_collision_free(grid, (0., 0., 0.), 0., touching_face[0]))
+        self.assertFalse(mission.geometry.pose_is_collision_free(coarse, empty_side))
+        self.assertTrue(mission.geometry.pose_is_collision_free(grid, empty_side))
+        self.assertFalse(mission.geometry.pose_is_collision_free(grid, touching_face))
+        self.assertTrue(mission.geometry.primitive_is_collision_free(grid, (0., 0., 0.), 0., empty_side[0]))
+        self.assertFalse(mission.geometry.primitive_is_collision_free(grid, (0., 0., 0.), 0., touching_face[0]))
 
     def test_isolated_lidar_hit_keeps_full_coarse_collision_cell(self):
         mission = self.measured_surface(isolated=True)
         grid = mission._grid()
         self.assertEqual(mission.costmap.refined_dynamic_cells(), {})
         self.assertAlmostEqual(grid.collision_resolution, grid.resolution)
-        self.assertFalse(mission.planner.pose_is_collision_free(grid, (.231, 0., 0.)))
-        self.assertFalse(mission.planner.primitive_is_collision_free(grid, (0., 0., 0.), 0., .231))
+        self.assertFalse(mission.geometry.pose_is_collision_free(grid, (.231, 0., 0.)))
+        self.assertFalse(mission.geometry.primitive_is_collision_free(grid, (0., 0., 0.), 0., .231))
 
     def test_clearing_refined_surface_does_not_mutate_previous_planning_grid(self):
         mission = self.measured_surface()
@@ -480,8 +352,8 @@ class TunnelMissionPortTest(unittest.TestCase):
         updated = mission._grid()
         self.assertIsNot(previous, updated)
         np.testing.assert_array_equal(previous.data, previous_data)
-        self.assertFalse(mission.planner.pose_is_collision_free(previous, touching_face))
-        self.assertTrue(mission.planner.pose_is_collision_free(updated, touching_face))
+        self.assertFalse(mission.geometry.pose_is_collision_free(previous, touching_face))
+        self.assertTrue(mission.geometry.pose_is_collision_free(updated, touching_face))
 
     def test_native_range_beyond_local_crop_does_not_create_a_fake_endpoint(self):
         mission = self.make_mission()
@@ -491,9 +363,7 @@ class TunnelMissionPortTest(unittest.TestCase):
         self.assertEqual(mission.scan[0][0], 6.)
         self.assertEqual(mission.scan[3], .10)
         self.assertEqual(mission.scan[4], mission.sensors['range_max'])
-        self.assertFalse(np.any(np.asarray(mission.costmap.to_raw_occupancy_data()) >=
-                               mission.costmap.static_occupied_threshold))
-        self.assertTrue(any(mission.costmap.observed_free_mask))
+        self.assertFalse(np.any(mission._grid()._occupied))
 
     def test_invalid_or_out_of_order_native_scan_does_not_refresh_input(self):
         mission = self.make_mission()
@@ -599,79 +469,6 @@ class TunnelMissionPortTest(unittest.TestCase):
                     self.assertEqual(result, (0., 0., False))
                     self.assertIn('expired during', mission.reason)
 
-    def test_current_body_overlap_holds_existing_path_then_resumes_after_measured_clearance(self):
-        mission = self.make_mission()
-        self.prepare_following(mission)
-        path = mission.path
-        cloud = np.concatenate((wall_returns((0., 0., 0.)), [[.055, .035]]))
-        for i in range(mission.config['grid']['mark_observations']):
-            stamp = 10.05 + i*.05
-            mission.update_cloud(cloud, (-.033073, 0., 0.), (0., 0., 0.), stamp)
-            mission.update_odometry((0., 0., 0.), 0., 0., stamp)
-        # A current-body conflict is not evidence that the stored route must be
-        # destroyed. It still blocks motion; no occupied cell is suppressed.
-        with patch.object(mission, '_route_safe', wraps=mission._route_safe) as route_check:
-            self.assertEqual(mission.step(stamp), (0., 0., False))
-            route_check.assert_not_called()
-        self.assertFalse(mission.planner.pose_is_collision_free(mission.grid, (0., 0., 0.)))
-        self.assertEqual(mission.state, 'FOLLOWING')
-        self.assertIs(mission.path, path)
-        self.assertEqual(mission.plans, 0)
-        self.assertIn('footprint', mission.reason)
-
-        for _ in range(mission.config['grid']['clear_observations']):
-            stamp += .05
-            mission.update_scan(np.full(720, math.inf), -math.pi, 2.*math.pi/720.,
-                                .05, 4., (-.033073, 0., 0.), (0., 0., 0.), stamp)
-            mission.update_odometry((0., 0., 0.), 0., 0., stamp)
-        self.assertTrue(mission.planner.pose_is_collision_free(mission._grid(), (0., 0., 0.)))
-        self.assertGreater(mission.step(stamp)[0], 0.)
-        self.assertEqual(mission.state, 'FOLLOWING')
-        self.assertIs(mission.path, path)
-        self.assertEqual(mission.plans, 0)
-
-    def test_real_future_route_obstruction_still_discards_route_for_stopped_replanning(self):
-        mission = self.make_mission()
-        self.prepare_following(mission)
-        cloud = np.concatenate((wall_returns((0., 0., 0.)), [[.35, 0.]]))
-        for i in range(mission.config['grid']['mark_observations']):
-            stamp = 10.05 + i*.05
-            mission.update_cloud(cloud, (-.033073, 0., 0.), (0., 0., 0.), stamp)
-            mission.update_odometry((0., 0., 0.), 0., 0., stamp)
-        self.assertTrue(mission.planner.pose_is_collision_free(mission._grid(), (0., 0., 0.)))
-        self.assertFalse(mission._route_safe(mission.grid, 0))
-        self.assertEqual(mission.step(stamp), (0., 0., False))
-        self.assertEqual(mission.state, 'PLANNING')
-        self.assertIsNone(mission.path)
-        self.assertEqual(mission.plans, 0)
-        self.assertIn('route intersects', mission.reason)
-
-    def test_clear_current_body_and_exit_route_do_not_hold_for_a_straight_projection(self):
-        mission = self.make_mission(goal=(1.808, 1.868, 90.))
-        self.feed(mission, 10.)
-        mission.step(10.)
-        # Right wall near the exit: a safe northbound path has room, while
-        # the measured heading still points a little toward the wall.
-        cells = np.zeros((60, 40), dtype=np.int8)
-        cells[:34, 22] = 100  # x=1.94..1.96, y=1.00..1.68.
-        grid = OccupancyGrid(cells, .02, 1.50, 1.00)
-        pose = Pose2D(1.819096419, 1.320098529, 1.281917749)
-        y = np.linspace(pose.y, mission.goal.y, 60)
-        mission.path = mission._tracking_path(np.full_like(y, 1.808), y,
-                                              np.full_like(y, math.pi/2), np.zeros_like(y))
-        mission.grid, mission.state = grid, 'FOLLOWING'
-        mission.path_version = -1
-        mission.update_odometry((pose.x, pose.y, pose.yaw), 0., 0., 10.05)
-        mission.scan = mission.scan[:-2] + ((pose.x, pose.y, pose.yaw), 10.05)
-        self.assertTrue(mission.planner.pose_is_collision_free(grid, pose))
-        self.assertTrue(mission._route_safe(grid, 0))
-        self.assertFalse(mission.planner.primitive_is_collision_free(grid, pose, 0., .01))
-        linear, angular, finished = mission.step(10.05)
-        self.assertGreater(linear, 0.)
-        self.assertGreater(angular, 0.)
-        self.assertFalse(finished)
-        self.assertEqual(mission.state, 'FOLLOWING')
-        self.assertEqual(mission.reason, 'tracking path')
 
     def test_entry_does_not_require_grid_based_turning_room_selection(self):
         mission = self.make_mission()
@@ -681,18 +478,18 @@ class TunnelMissionPortTest(unittest.TestCase):
         self.assertGreater(linear, 0.)
         self.assertEqual(angular, 0.)
         self.assertFalse(finished)
-        self.assertIsNone(mission.path)
+        self.assertIsNone(mission.global_path)
 
-    def test_entry_stops_at_configured_forward_distance_then_waits_for_measured_rest(self):
+    def test_entry_stops_at_configured_forward_distance_then_requests_guidance(self):
         mission = self.make_mission()
         self.feed(mission, 10.)
         self.assertGreater(mission.step(10.)[0], 0.)
         self.feed(mission, 10.05, pose=(mission.config['entry']['distance'], 0., 0.), velocity=(.04, 0.))
         self.assertEqual(mission.step(10.05), (0., 0., False))
         self.assertEqual(mission.state, 'PLANNING')
-        with patch.object(mission.planner, 'plan') as search:
+        with patch.object(mission, '_request_global_plan') as search:
             self.assertEqual(mission.step(10.1), (0., 0., False))
-            search.assert_not_called()
+            search.assert_called_once()
 
     def test_lateral_displacement_alone_does_not_finish_entry_distance(self):
         mission = self.make_mission()
@@ -757,7 +554,7 @@ class TunnelMissionPortTest(unittest.TestCase):
         np.testing.assert_array_equal(narrower.costmap.to_occupancy_data(),
                                       original.costmap.to_occupancy_data())
         self.assertEqual(narrower.footprint, original.footprint)
-        self.assertEqual(narrower.planner.footprint, original.planner.footprint)
+        self.assertEqual(narrower.geometry.footprint, original.geometry.footprint)
 
     def test_entry_narrower_corridor_still_stops_for_body_width_and_front_gap(self):
         config = configuration()
@@ -827,7 +624,7 @@ class TunnelMissionPortTest(unittest.TestCase):
                 np.testing.assert_array_equal(narrower.costmap.to_occupancy_data(),
                                               original.costmap.to_occupancy_data())
                 self.assertEqual(narrower.footprint, original.footprint)
-                self.assertEqual(narrower.planner.footprint, original.planner.footprint)
+                self.assertEqual(narrower.geometry.footprint, original.geometry.footprint)
 
     def test_entry_right_width_keeps_inner_right_and_straight_ahead_stopping(self):
         config = configuration()
@@ -906,227 +703,6 @@ class TunnelMissionPortTest(unittest.TestCase):
                 self.assertLess(yaw*angular, 0.)
                 self.assertFalse(finished)
 
-    def test_transient_planner_failure_retries_latest_grid_then_follows_valid_path(self):
-        mission = self.make_mission()
-        self.feed(mission, 10.)
-        mission.step(10.)
-        mission.state, mission.path = 'PLANNING', None
-        x = np.linspace(0., .65, 34)
-        result = SimpleNamespace(x=x, y=np.zeros_like(x), yaw=np.zeros_like(x),
-                                 curvature=np.zeros_like(x))
-        period = mission.control['plan_retry_period']
-        with patch.object(mission.planner, 'plan', side_effect=(None, result)) as search:
-            self.assertEqual(mission.step(10.), (0., 0., False))
-            mission.worker.join(timeout=2.)
-            self.assertEqual(mission.step(10.05), (0., 0., False))
-            self.assertEqual(mission.state, 'PLANNING')
-            self.assertIsNone(mission.path)
-
-            self.feed(mission, 10. + period*.5)
-            self.assertEqual(mission.step(10. + period*.5), (0., 0., False))
-            self.assertEqual(search.call_count, 1)
-            # A stale scan still cannot authorize a retry merely because the
-            # timer elapsed. The actual retry consumes the new immutable grid.
-            retry_at = 10. + period + .1
-            self.assertEqual(mission.step(retry_at), (0., 0., False))
-            self.assertEqual(search.call_count, 1)
-            self.feed(mission, retry_at)
-            self.assertEqual(mission.step(retry_at), (0., 0., False))
-            mission.worker.join(timeout=2.)
-            self.assertEqual(search.call_count, 2)
-            self.assertIs(search.call_args_list[1].args[0], mission._grid())
-            self.assertGreater(mission.step(retry_at+.05)[0], 0.)
-            self.assertEqual(mission.state, 'FOLLOWING')
-            self.assertIsNotNone(mission.path)
-
-    def test_repeated_planning_failure_is_rate_limited_without_permanent_failure(self):
-        mission = self.make_mission()
-        self.feed(mission, 10.)
-        mission.step(10.)
-        mission.state, mission.path = 'PLANNING', None
-        period = mission.control['plan_retry_period']
-        with patch.object(mission.planner, 'plan', return_value=None) as search:
-            for attempt in range(3):
-                now = 10. + attempt*(period+.1)
-                self.feed(mission, now)
-                self.assertEqual(mission.step(now), (0., 0., False))
-                mission.worker.join(timeout=2.)
-                self.assertEqual(search.call_count, attempt+1)
-                self.assertEqual(mission.step(now+.01), (0., 0., False))
-                for offset in (.02, .04, .08):
-                    self.assertEqual(mission.step(now+offset), (0., 0., False))
-                self.assertEqual(search.call_count, attempt+1)
-                self.assertEqual(mission.state, 'PLANNING')
-                self.assertIsNone(mission.path)
-
-    def test_pending_search_and_retry_delay_do_not_build_unused_grid(self):
-        mission = self.make_mission()
-        self.feed(mission, 10.)
-        mission.step(10.)
-        mission.state, mission.reason = 'PLANNING', 'planning from measured rest'
-        mission.worker = SimpleNamespace(is_alive=lambda: True)
-        mission.planning_started = time.monotonic()
-        with patch.object(mission, '_grid', side_effect=AssertionError('unused snapshot')):
-            self.assertEqual(mission.step(10.05), (0., 0., False))
-            self.assertIn('planning from measured rest (elapsed ', mission.reason)
-            mission.worker = None
-            mission.last_plan_attempt = 10.
-            mission.reason = 'no feasible path'
-            self.assertEqual(mission.step(10.1), (0., 0., False))
-            self.assertEqual(mission.reason, 'no feasible path')
-
-    def test_pending_search_status_recovers_after_stale_sensors(self):
-        mission = self.make_mission()
-        self.feed(mission, 10.)
-        mission.step(10.)
-        mission.state = 'PLANNING'
-        mission.worker = SimpleNamespace(is_alive=lambda: True)
-        mission.planning_started = 100.
-        with patch('tunnel.mission.time.monotonic', return_value=104.5):
-            self.assertEqual(mission.step(11.), (0., 0., False))
-            self.assertIn('waiting for fresh odometry and lidar', mission.reason)
-            self.assertIn('odom_age=1.000s, lidar_age=1.000s', mission.reason)
-            self.assertIn('elapsed 4s', mission.reason)
-            first_report = mission.reason
-            self.assertEqual(mission.step(11.05), (0., 0., False))
-            self.assertEqual(mission.reason, first_report)
-            mission.update_odometry((0., 0., 0.), 0., 0., 11.05)
-            self.assertEqual(mission.step(11.05), (0., 0., False))
-            self.assertIn('odom_age=0.000s, lidar_age=1.050s', mission.reason)
-            self.feed(mission, 11.05)
-            self.assertEqual(mission.step(11.05), (0., 0., False))
-        self.assertEqual(mission.reason, 'planning from measured rest (elapsed 4s)')
-        self.assertEqual(mission.state, 'PLANNING')
-        self.assertEqual(mission.plans, 0)
-
-    def test_ready_plan_status_does_not_bypass_sensor_or_measured_rest_gates(self):
-        mission = self.make_mission()
-        self.prepare_following(mission)
-        result = mission.path
-        mission.state, mission.path = 'PLANNING', None
-        pending = (result, '', Pose2D(0., 0., 0.))
-        mission.plan_result, mission.planning_duration = pending, 2.25
-        self.assertEqual(mission.step(11.), (0., 0., False))
-        self.assertIn('waiting for fresh odometry and lidar', mission.reason)
-        self.assertIn('plan ready in 2.25s', mission.reason)
-        self.assertIs(mission.plan_result, pending)
-        self.feed(mission, 11., velocity=(.05, .1))
-        self.assertEqual(mission.step(11.), (0., 0., False))
-        self.assertIn('waiting for measured rest', mission.reason)
-        self.assertIn('plan ready in 2.25s', mission.reason)
-        self.assertIs(mission.plan_result, pending)
-        self.feed(mission, 11.05)
-        self.assertGreater(mission.step(11.05)[0], 0.)
-        self.assertEqual(mission.state, 'FOLLOWING')
-        self.assertIsNone(mission.plan_result)
-        self.assertEqual(mission.reason, 'tracking path; plan finished in 2.25s')
-        self.feed(mission, 11.10)
-        self.assertGreater(mission.step(11.10)[0], 0.)
-        self.assertEqual(mission.reason, 'tracking path')
-
-    def test_failed_search_records_monotonic_duration_before_result_is_consumed(self):
-        mission = self.make_mission()
-        self.feed(mission, 10.)
-        mission.step(10.)
-        mission.state = 'PLANNING'
-        with patch('tunnel.mission.time.monotonic', side_effect=(100., 102.75)), \
-                patch.object(mission.planner, 'plan', return_value=None):
-            self.assertEqual(mission.step(10.05), (0., 0., False))
-            mission.worker.join(timeout=2.)
-        self.assertFalse(mission.worker.is_alive())
-        self.assertEqual(mission.planning_duration, 2.75)
-        self.assertEqual(mission.step(11.), (0., 0., False))
-        self.assertIn('waiting for fresh odometry and lidar', mission.reason)
-        self.assertIn('plan finished in 2.75s: no feasible path', mission.reason)
-        self.assertIsNotNone(mission.plan_result)
-        self.feed(mission, 11.)
-        self.assertEqual(mission.step(11.), (0., 0., False))
-        self.assertEqual(mission.reason, 'plan finished in 2.75s: no feasible path')
-        self.assertIsNone(mission.plan_result)
-
-    def test_completed_plan_checks_obstacle_received_during_search(self):
-        mission = self.make_mission()
-        self.prepare_following(mission)
-        result = mission.path
-        mission.state, mission.path = 'PLANNING', None
-        mission.plan_result = (result, '', Pose2D(0., 0., 0.))
-        cloud = np.concatenate((wall_returns((0., 0., 0.)), [[.35, 0.]]))
-        for i in range(mission.config['grid']['mark_observations']):
-            stamp = 10.05 + i*.05
-            mission.update_cloud(cloud, (-.033073, 0., 0.), (0., 0., 0.), stamp)
-            mission.update_odometry((0., 0., 0.), 0., 0., stamp)
-        with patch.object(mission, '_grid', wraps=mission._grid) as latest_grid:
-            self.assertEqual(mission.step(stamp), (0., 0., False))
-            latest_grid.assert_called_once()
-        self.assertEqual(mission.state, 'PLANNING')
-        self.assertIsNone(mission.path)
-        self.assertEqual(mission.reason, 'remaining route intersects an obstacle')
-
-    def test_planning_waits_for_measured_rest_not_only_zero_last_command(self):
-        mission = self.make_mission()
-        self.feed(mission, 10.)
-        mission.step(10.)
-        mission.state, mission.path = 'PLANNING', None
-        self.feed(mission, 10.05, velocity=(.05, .1))
-        with patch.object(mission.planner, 'plan') as search:
-            self.assertEqual(mission.step(10.05), (0., 0., False))
-            self.assertIn('measured rest', mission.reason)
-            search.assert_not_called()
-
-    def test_reset_discards_result_from_superseded_planning_worker(self):
-        mission = self.make_mission()
-        self.feed(mission, 10.)
-        mission.step(10.)
-        mission.state, mission.path = 'PLANNING', None
-        started, release = threading.Event(), threading.Event()
-
-        def slow_search(*args):
-            started.set()
-            release.wait(timeout=2.)
-            return None
-
-        with patch.object(mission.planner, 'plan', side_effect=slow_search):
-            mission.step(10.05)
-            self.assertTrue(started.wait(timeout=1.))
-            try:
-                mission.reset()
-            finally:
-                release.set()
-                mission.worker.join(timeout=2.)
-            self.assertIsNone(mission.plan_result)
-            self.assertIsNone(mission.planning_started)
-            self.assertIsNone(mission.planning_duration)
-            self.assertEqual(mission.state, 'ENTRY')
-
-    def test_planning_result_from_shifted_start_is_not_accepted(self):
-        for shift in ((.02, 0., 0.), (0., 0., math.radians(4.))):
-            with self.subTest(shift=shift):
-                mission = self.make_mission()
-                self.feed(mission, 10.)
-                mission.step(10.)
-                mission.state, mission.path = 'PLANNING', None
-                started, release = threading.Event(), threading.Event()
-                x = np.linspace(0., .65, 34)
-                result = SimpleNamespace(x=x, y=np.zeros_like(x), yaw=np.zeros_like(x),
-                                         curvature=np.zeros_like(x))
-
-                def slow_search(*args):
-                    started.set()
-                    release.wait(timeout=2.)
-                    return result
-
-                with patch.object(mission.planner, 'plan', side_effect=slow_search):
-                    mission.step(10.)
-                    self.assertTrue(started.wait(timeout=1.))
-                    try:
-                        self.feed(mission, 10.05, pose=shift)
-                    finally:
-                        release.set()
-                        mission.worker.join(timeout=2.)
-                    self.assertEqual(mission.step(10.10), (0., 0., False))
-                    self.assertEqual(mission.state, 'PLANNING')
-                    self.assertIsNone(mission.path)
-                    self.assertEqual(mission.plans, 1)
 
     def test_exit_handoff_waits_for_new_measured_stop_without_lane_frames(self):
         mission = self.make_mission()
@@ -1175,46 +751,17 @@ class TunnelMissionPortTest(unittest.TestCase):
     def test_stale_input_stops_without_discarding_valid_route(self):
         mission = self.make_mission()
         self.prepare_following(mission)
-        self.assertGreater(mission.step(10.)[0], 0.)
-        path = mission.path
+        self.feed(mission, 10.05)
+        self.assertGreater(mission.step(10.05)[0], 0.)
+        path = mission.global_path
         mission.update_odometry((0., 0., 0.), 0., 0., 10.5)
         self.assertEqual(mission.step(10.5), (0., 0., False))
-        self.assertIs(mission.path, path)
+        self.assertIs(mission.global_path, path)
         self.assertEqual(mission.plans, 0)
         self.feed(mission, 10.55)
         self.assertGreater(mission.step(10.55)[0], 0.)
-        self.assertIs(mission.path, path)
+        self.assertIs(mission.global_path, path)
 
-    def test_harmless_new_scan_keeps_route_and_positive_command(self):
-        mission = self.make_mission()
-        self.prepare_following(mission)
-        self.assertGreater(mission.step(10.)[0], 0.)
-        path, version = mission.path, mission.version
-        for tick in range(1, 4):
-            now = 10. + tick*.05
-            self.feed(mission, now)
-            self.assertGreater(mission.step(now)[0], 0.)
-            self.assertIs(mission.path, path)
-        self.assertGreaterEqual(mission.version, version)
-        self.assertEqual(mission.plans, 0)
-
-    def test_unchanged_scan_reuses_grid_and_does_not_revalidate_the_whole_route(self):
-        mission = self.make_mission()
-        self.prepare_following(mission)
-        # Settle hit confirmation / first-observed cells before measuring reuse.
-        for i in range(1, 5):
-            self.feed(mission, 10.+i*.05)
-            self.assertGreater(mission.step(10.+i*.05)[0], 0.)
-        path, grid, version = mission.path, mission._grid(), mission.version
-        self.assertEqual(mission.path_version, version)
-        self.feed(mission, 10.25)
-        self.assertEqual(mission.version, version)
-        self.assertIs(mission._grid(), grid)
-        with patch.object(mission, '_route_safe', wraps=mission._route_safe) as route_check:
-            self.assertGreater(mission.step(10.25)[0], 0.)
-            route_check.assert_not_called()
-        self.assertIs(mission.path, path)
-        self.assertEqual(mission.plans, 0)
 
     def test_front_obstacle_finishes_entry_for_stopped_planning(self):
         mission = self.make_mission()
@@ -1228,55 +775,18 @@ class TunnelMissionPortTest(unittest.TestCase):
     def test_reset_keeps_sensor_input_but_reanchors_and_drops_old_route(self):
         mission = self.make_mission()
         self.prepare_following(mission)
-        old_path = mission.path
+        old_path = mission.global_path
         self.feed(mission, 10.05, pose=(.02, 0., 0.))
         mission.reset()
-        self.assertIsNone(mission.path)
+        self.assertIsNone(mission.global_path)
         self.assertIsNone(mission.anchor)
         self.assertIsNotNone(mission.odom)
         self.assertIsNotNone(mission.scan)
         mission.step(10.05)
         self.assertEqual(mission.anchor, (.02, 0., 0.))
-        self.assertIsNone(mission.path)
+        self.assertIsNone(mission.global_path)
         self.assertIsNotNone(old_path)
         self.assertEqual(mission.state, 'ENTRY')
-
-    def run_ideal_mission(self, goal, origin=(0., 0., 0.)):
-        mission = self.make_mission(goal)
-        pose, command, now = (0., 0., 0.), (0., 0.), 10.
-        states = []
-        # CPU guard only: graded/refined map rebuilds may run below real time.
-        # Keep the 1000-tick mission bound and all completion assertions below.
-        deadline = time.monotonic() + 90.
-        for _ in range(1000):
-            self.assertLess(time.monotonic(), deadline, mission.reason)
-            self.feed(mission, now, pose, command, origin)
-            linear, angular, finished = mission.step(now)
-            if not states or states[-1] != mission.state:
-                states.append(mission.state)
-            self.assertLessEqual(abs(linear), mission.control['cruise_velocity'] + 1e-9)
-            self.assertLessEqual(abs(angular), mission.control['maximum_angular_velocity'] + 1e-9)
-            self.assertNotEqual(mission.state, 'FAILED', mission.reason)
-            if mission.worker is not None and mission.worker.is_alive():
-                mission.worker.join(timeout=5.)
-            if finished:
-                self.assertEqual((linear, angular), (0., 0.))
-                break
-            command = (linear, angular)
-            pose = integrate(pose, linear, angular, .05)
-            now += .05
-        self.assertEqual(mission.state, 'COMPLETE', (mission.state, mission.reason, pose))
-        self.assertEqual(states, ['ENTRY', 'PLANNING', 'FOLLOWING', 'WAIT_STOP', 'COMPLETE'])
-        self.assertEqual(mission.plans, 1)
-        self.assertIsNone(mission.lane_stamp)
-        self.assertLessEqual(math.hypot(pose[0]-goal[0], pose[1]-goal[1]),
-                             mission.config['goal']['position_tolerance'])
-
-    def test_ideal_lidar_and_differential_drive_complete_straight_mission(self):
-        self.run_ideal_mission((.65, 0., 0.), origin=(2.2, -3.1, -.8))
-
-    def test_ideal_lidar_and_differential_drive_complete_turning_mission(self):
-        self.run_ideal_mission((.615, .53, 85.))
 
 
 if __name__ == '__main__':

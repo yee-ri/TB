@@ -41,7 +41,8 @@ def main():
             commands.clear()
             process = subprocess.Popen(
                 ['python3', str(root / 'codes/stepbystep/try_maze.py'),
-                 '_start_step:=9', '_tunnel_profile:='+profile],
+                 '_start_step:=9', '_tunnel_profile:='+profile,
+                 '_tunnel_config:='+str(root / 'codes/stepbystep/tunnel.yaml')],
                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, start_new_session=True)
             processes.append(process)
             deadline = time.monotonic() + 10.

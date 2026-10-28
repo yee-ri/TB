@@ -1,313 +1,100 @@
-# 터널 단독 테스트 — STEP 9 · V1 / V2
+# 터널 단독 시험
 
-이 NUC의 작업 폴더는 `/home/sj/ParkCars/TB-tunnel-nuc`, 브랜치는
-`codex/tunnel-gazebo`다. 아래 명령은 **V2 · 실물 연습장 설정 · STEP 9**로 시작한다.
-`nuc_trial.py`로 기록·주행 시작·정지를 관리한다. `start` 명령이 내부에서 `try_maze.py`를 STEP 9로 실행한다.
+기본 실행 파일은 `codes/stepbystep/try_maze.py`이며, `_start_step:=9`로 터널부터 직접 시작한다.
+아래 `cd` 경로는 실제 저장소 위치에 맞춘다.
 
-기록 없이 센서와 `try_maze.py`만 켜는 방법은 [기본 주행 실행](README.md)을 따른다.
-직접 실행도 기본 V2이며, 이 문서의 터널 단독 시작 조건을 쓰려면
-`python3 codes/stepbystep/try_maze.py _start_step:=9`로 실행한다.
-직접 실행에는 별도 `source`가 필요 없고, 아래 기록 도구를 사용할 때는 공통 준비를 한다.
+## 시작 위치
 
-## 공통 준비와 시작 위치
+연습 터널은 외경 1,820mm, 벽 2mm, 출입구 폭 300mm 설정을 사용한다.
+전체 주행의 STEP 8.5 추가 전진이 끝난 위치·방향에 놓고 STEP 9로 시작한다.
+이미 입구 안쪽에 들어온 위치에서도 시작할 수 있다.
 
-**사용할 SSH 터미널마다** 먼저 실행한다. 이미 열어 둔 터미널도 다시 적용한다.
+위치 정합 후보 범위는 바퀴축 중앙 기준 입구 바깥 약 49cm부터 안쪽 약 31cm까지,
+입구 중앙선 좌우 7cm, 방향 ±20°다. 벽 관측으로 자세가 확정될 때까지 정지한다.
+입구 밖 140mm는 지도 기준점이며 고정된 필수 출발점은 아니다.
+
+STEP 9 위치 정합·진입 → STEP 10 경로 주행 → 차체 전체 출구 통과 후 STEP 11 차선 주행으로 이어진다.
+차선 주행은 자동으로 종료되지 않는다. 일반 주행은 [README.md](README.md)를 따른다.
+
+## 직접 실행 — 기본
+
+터미널 A: 카메라·LiDAR·OpenCR·장착 TF를 시작한다. 기존 센서 실행이 있으면 먼저 종료한다.
+터널 단독 시험에는 depth가 필요 없다.
 
 ```bash
 cd /home/sj/ParkCars/TB-tunnel-nuc
-source scripts/nuc_env.sh
+roslaunch launch/sensors.launch
 ```
 
-기존 정상 센서 작업공간 `/home/sj/ParkCars/devel`과 로컬 `nuc_ws`를 사용한다.
-저장소에 포함된 과거 `catkin_ws/build·devel`은 사용하지 않는다.
+터미널 B: 시작 위치에 로봇을 놓고 센서가 준비된 뒤 STEP 9부터 주행한다.
 
-연습 터널은 외경 1820mm·벽 2mm·출입구 300mm 기준이다.
-전체 주행을 재현하려면 **STEP 8.5의 추가 전진을 마친 실제 위치·방향**에 로봇을 놓고 STEP 9부터 시작한다.
-사용자가 확인한 전체 주행에서는 이때 이미 입구 안쪽으로 들어간 상태다. STEP 9 단독 시험도
-그 위치에서 시작할 수 있으며, 입구 바깥으로 다시 꺼내 놓을 필요는 없다.
+```bash
+cd /home/sj/ParkCars/TB-tunnel-nuc
+rostopic pub -1 /motor_power std_msgs/Bool 'data: true'
+python3 codes/stepbystep/try_maze.py _start_step:=9
+```
 
-**입구 밖 140mm는 고정 지도 원점과 반복 시험용 기준 위치이지 필수 출발점이 아니다.**
-현재 코드는 정지한 LiDAR 관측으로 실제 시작 위치·방향을 추정한다.
-설정된 후보 범위는 바퀴축 중앙 기준 입구 바깥 약 49cm부터 안쪽 약 31cm까지,
-입구 중앙선에서 좌우 7cm·방향 오차 ±20°다. 이 범위는 정합 후보 영역이며 성공을 보장하지 않는다.
-벽 관측이 부족하거나 범위를 벗어나면 대기할 수 있으므로, 터널 중간 임의 위치에서 시작하는 방식은 아니다.
+## 직접 실행 종료
 
-현재 코드의 전환 순서는 다음과 같다.
+주행 터미널에서 `Ctrl+C`를 누른 뒤 토크를 해제한다.
 
-1. STEP 9: 정지한 LiDAR 관측으로 시작 자세 확인 → 왼쪽 5° 회전 → 정지 대기 없이 바로 초기 전진. 자세 확인에 실패하면 대기한다.
-2. STEP 10: 경로 탐색·터널 주행.
-3. STEP 11: 차체 뒤끝까지 출구를 벗어나면 바로 차선 추종으로 전환.
+```bash
+rostopic pub -1 /motor_power std_msgs/Bool 'data: false'
+```
 
-실물 V2는 **출구 개구부를 안쪽에서 바깥쪽으로 지나온 이력과, 차체 뒤끝까지 벽을 벗어났는지**로
-통과를 판단한다. 출구 밖 특정 좌표에 도달하거나 90°로 회전할 필요는 없다.
-통과하면 별도의 정지 확인 대기 없이 같은 제어 주기에서 STEP 11로 넘어간다.
-전환 순간 터널 명령을 0으로 끝내고, 다음 카메라 영상부터 차선 추종이 제어한다.
-출구 바깥 방향은 기존 카메라 차선 추종이 잡는다. 양쪽 선 3프레임 대기는 없으며 한쪽 선으로도 주행한다.
-전환 직후 선이 전혀 보이지 않으면 이전 차선 명령을 0으로 초기화했으므로 정지 명령을 유지한다.
-출구 통과 판정은 고정 벽 지도와 보정 odom을 사용하며, LiDAR로 출구를 새로 인식하는 기능은 아니다.
+로봇이 멈춘 것을 확인한다. 기록 중이면 기록 터미널에서 `Ctrl+C`로 저장한 뒤 센서 터미널에서 `Ctrl+C`를 누른다.
+다시 주행하려면 센서 준비 후 `data: true` 명령을 다시 실행한다.
 
-`nuc_trial.py start`는 제어기를 켜기 전에 리모컨 입력을 3초, 센서·TF를 6초 확인한다.
-이 시작 전 검사는 아래의 터널 자세 확인 시간과 별개다.
-터널 자세 확인은 정지한 LiDAR 관측을 약 1초 모은 뒤 서로 일치하는 계산 결과 3개로 확정한다.
-전체 코스에서 STEP 9로 들어올 때도 수행하며, 처음부터 일정 시간을 기다리는 동작은 아니다.
+## 로그 확인·선택적 센서 기록
 
-STEP 8·8.5의 차선 접근 구간은 실행하지 않는다.
-초기 전진 목표는 고정 지도 좌표이며, 이미 안쪽에 들어온 거리를 반영해 남은 거리를 계산한다.
-STEP 9를 시작할 때마다 설정 거리 전체를 새로 전진하는 것은 아니다.
+ROS 로그의 기본 저장 위치는 `~/.ros/log/`다. 직접 실행한 제어기의 로그도 이 경로에서 확인한다.
 
-이 NUC에서 사용하는 실물 YAML의 값은 아래와 같다.
+```bash
+ls -lt ~/.ros/log
+```
 
-| 항목 | 현재 값 / 설정 키 |
+센서 데이터를 남기려면 센서를 시작한 뒤, 주행 시작 전에 별도 터미널에서 기록한다.
+주행 시작·종료는 위 직접 실행 절차와 같다.
+
+```bash
+mkdir -p "$HOME/tb_logs"
+rosbag record -o "$HOME/tb_logs/tunnel" \
+  /camera/color/image_raw /livox/lidar /odom /tf /tf_static \
+  /cmd_vel /step /rosout /motor_power /sensor_state
+```
+
+`~/tb_logs/tunnel_날짜_시각.bag` 형식으로 저장된다.
+제어기를 종료하고 토크를 해제한 뒤 로봇이 멈춘 것을 확인한다.
+기록 터미널에서 `Ctrl+C`를 누르고 `.bag.active`가 `.bag`으로 저장된 뒤 센서를 종료한다.
+
+## 설정 변경
+
+| 파일 | 설정 |
 | --- | --- |
-| STEP 9 진입 방향 조정 | 왼쪽 5° 회전 후 바로 전진 — `entry.heading_offset_deg` |
-| 초기 방향 조정 속도 / 가속도 | 0.30rad/s / 1.00rad/s² — `entry.alignment_angular_velocity`, `entry.alignment_angular_acceleration` |
-| 최초 진입 속도 목표 / 가속도 | 0.30m/s / 0.20m/s² — `entry.cruise_velocity`, `entry.linear_acceleration` |
-| 최초 진입 장애물 정지 간격 | 차체 앞끝 기준 0.60m 목표 — `entry.obstacle_clearance` |
-| 경로 주행 속도 목표 / 가속도 | 0.40m/s / 0.25m/s² — `control.cruise_velocity`, `control.linear_acceleration` |
-| 현재 실물 설정의 LiDAR 지연 제한 | 해제 — `sensors.lidar_maximum_age: null` (다시 켤 때 `0.30`) |
+| [tunnel.real.yaml](codes/stepbystep/tunnel.real.yaml) | 실차 지도·차체·센서·진입·속도·출구 |
+| [navigation.yaml](codes/tunnel/navigation.yaml) | 전역 갱신 간격, 지역 목표 거리·후보 경로 |
+| [tunnel.yaml](codes/stepbystep/tunnel.yaml) | Gazebo `normal`·`fast` 설정 |
+| [sensors.launch](launch/sensors.launch) | 실차 센서·장착 TF |
 
-현재 실물 YAML은 **주행 중 LiDAR가 0.30초 오래됐다는 이유로 정지하는 검사만** 끈 상태다.
-주행 계산 전과 명령 반환 직전에 모두 적용한다. odom·미래 시각·TF·기하 충돌 검사,
-시작 전 센서 검사와 초기 벽 정합 결과의 유효시간 검사는 유지한다.
-`null`에서는 LiDAR가 완전히 끊겨도 기존 지도·전방 거리로 계산할 수 있으므로,
-제한을 다시 켜려면 같은 항목을 `lidar_maximum_age: 0.30`으로 바꾼다. 항목을 지워도 기존 0.30초로 돌아간다.
-시작 로그에 `LiDAR age stop disabled`가 표시된다. 실행 명령은 그대로이며,
-이번 변경 전 기록을 이어 쓰지 말고 **새 기록을 시작한 후 제어기를 실행**한다.
+실물 YAML의 `navigation:` 항목은 `navigation.yaml`의 같은 설정을 덮어쓴다.
+주행을 종료하고 파일을 수정한 뒤 다시 실행한다. 기록 중이었다면 기록도 종료하고 새로 시작한다.
+Python/YAML은 별도 빌드가 필요 없다.
+`tunnel.competition.yaml`은 지도·목표가 미입력 상태이므로 실행에 사용하지 않는다.
 
-00:02 기록에서는 LiDAR가 약 10Hz, 수신 시 데이터 나이 최대 약 0.101초로 들어왔지만
-정지 로그에서 제어기가 검사한 값은 약 두 프레임 뒤처져 있었다.
-당시 코드로 재구성한 급정지 직전 장면에서는 시간 검사를 건너뛰어도 측정 속도의 제동검사가 실패했다.
-시간 제한 해제만으로는 최초 정지가 없어지지 않아, 현재 V2에서는 아래처럼 예측 제동검사도 제거했다.
-원본 경로·제어기 수신 순서가 없어 정확히 동일한 재생은 아니며,
-근거와 한계는 `records/analysis_20261027_lidar_age/report.txt`에 있다.
+현재 실차의 `sensors.lidar_maximum_age: null`은 LiDAR 지연 정지 검사를 해제한다.
+LiDAR가 끊겨도 마지막 지도·전방 거리로 계산할 수 있다. `0.30`으로 바꾸거나 이 항목을 삭제하면
+0.30초 제한으로 복원된다. odom·TF·미래 timestamp·초기 위치 정합 결과의 유효시간 검사는 유지된다.
 
-회전 중 목표 각도에 도달하거나 지나면 같은 제어 주기에서 전진 가속을 시작한다.
-회전 후 멈췄는지 기다리거나 정지한 각도를 다시 확인하지 않는다. 그때의 방향을 직진 기준으로 잡고,
-이후 관성으로 생기는 방향 변화는 전진하면서 완만하게 보정한다.
-초기 직진 끝에서 경로를 계산하기 위한 정지는 유지한다. 출구에서는 정지 확인을 기다리지 않는다.
+실물 설정의 경로 속도 `0.40m/s`와 진입 속도 `0.30m/s`는 미션 내부 목표값이다.
+선속도 출력은 `odometry.linear_scale`, 각속도 출력은 `odometry.angular_command_scale`로 나눈다.
 
-V2 경로 주행은 **현재 속도에서 정지할 때까지의 예측 궤적**으로 명령을 거부하지 않는다.
-기존 0.30m 후보 경로를 차체 전체로 검사하고, 가감속 제한 때문에 달라진 실제 명령은
-다음 제어주기(0.05초) 동안의 차체 이동·회전으로 검사한다. 지도에서 차체나 후보 경로가 막히면 정지한다.
-순항 목표는 기존 0.40m/s이며 가속·각속도·횡가속 상한과 실제 명령 감속값 0.15m/s²를 유지한다.
-제동식 속도·각속도 상한과 `local_speed_horizon`은 제거했다. 실제 제동 공간을 보장하는 검사는 아니다.
-초기 위치 정합·진입 동작과 출구의 차체 전체 통과 조건은 그대로 사용한다.
+## 원격 RViz
 
-변경 후 관련 단위 검사 55개가 통과했다. 같은 기록으로 재구성한 12개 장면에서는
-기존에 명령을 거부하던 8개도 명령을 반환했다. 입구 직진 후부터 시작하는 이상적 운동 모델의
-3개 배치도 충돌 없이 출구를 통과했다. 이는 센서 지연·관성·미끄럼을 포함한 실물 검증은 아니다.
-이후 2026-10-27 사용자가 두 제한을 해제한 코드로 실물 시험을 진행해 기존의 불필요한 멈춤이
-사라졌다고 확인했으며, 현재 설정을 채택했다. 시험 시간·제동거리 등의 정량 결과를 추가로 측정한 것은 아니다.
-이 NUC에는 Docker가 없어 이번 변경의 Gazebo 검증은 수행하지 못했다.
-상세 결과와 변경 전 코드는 `records/analysis_20261027_distance_control/`에 보관했다.
-
-공통 코드는 TB1 기준의 `odometry.angular_command_scale=3.3`과
-`entry.alignment_tolerance_deg=0.3`을 유지한다.
-TB2에는 2026-10-26 공식 ROBOTIS Burger ROS1 Noetic 1.2.6 펌웨어를 설치했다.
-TB1이 기본 펌웨어라는 사용자 확인을 기준으로 선택했으며 TB1 바이너리와 직접 대조한 것은 아니다.
-Noetic 배터리 메시지를 사용하므로 **이미 열려 있던 터미널도 `source scripts/nuc_env.sh`를 다시 실행한다.**
-
-`normal`은 이 실물 설정의 이름이며 저속을 뜻하지 않는다.
-표의 속도는 YAML 내부 목표값이다. 현재 선속도 명령은 `odometry.linear_scale=2.893939`로 나누어
-전달되므로, 0.30·0.40 설정에 대응하는 명령은 약 0.104·0.138m/s다.
-기본 펌웨어의 반지름 0.033m와 실제 바퀴·기어의 유효 반지름 0.0955m 차이를 이 공통 보정으로 처리한다.
-터널 밖 차선 주행에는 이 보정이 없으므로, 같은 명령에서 교체 전 TB2보다 실제 직진 속도가
-약 2.9배 빨라질 수 있다. 교체 후 바퀴를 공중에 띄워 각 명령을 2초씩 시험한 결과는 아래와 같다.
-명령값은 YAML 목표가 아닌 OpenCR에 전달한 `/cmd_vel.linear.x`다.
-
-| 전달한 명령 (m/s) | 왼쪽 / 오른쪽 바퀴 (rpm) | 평균 바퀴 둘레 속도 (m/s) |
-| --- | --- | --- |
-| 0.02 | 11.42 / 11.26 | 0.057 |
-| 0.04 | 22.77 / 22.95 | 0.114 |
-| 0.10 | 57.69 / 57.80 | 0.289 |
-
-속도는 모터 엔코더와 확인된 기어비·바퀴 반지름으로 계산했다. 지면에서 잰 차체 이동 속도는 아니다.
-`0.10m/s` 명령의 좌우 속도 차이는 약 0.2%였고, 기본 펌웨어의 변환 예상값과 일치했다.
-터널은 이미 위의 선속도 보정을 사용하므로 YAML 목표가 다시 2.9배 빨라진다는 뜻은 아니다.
-**차체 전체가 터널 출구를 통과하면 바로 STEP 11 차선 주행으로 이어진다.** 시험을 끝낼 때는 아래 정지 명령을 사용한다.
-
-## 실행 순서
-
-### 1. 터미널 A — 센서 시작
+SSH 연결에서 X11 forwarding을 켜고, 센서가 실행 중인 상태에서 실행한다.
 
 ```bash
-bash scripts/nuc_sensors.sh --mounts
+cd /home/sj/ParkCars/TB-tunnel-nuc
+rviz -d rviz/tunnel_sensors.rviz
 ```
 
-카메라 색 영상·LiDAR PointCloud2·OpenCR odom·장착 TF를 시작한다.
-이미 같은 센서가 실행 중이면 중복 실행하지 않는다. STEP 9 터널 단독 시험에는 depth가 필요 없다.
-
-### 2. 터미널 B — 기록 시작
-
-```bash
-python3 scripts/nuc_trial.py record
-```
-
-`Recording:`과 저장 폴더가 표시되면 B를 그대로 두고 C에서 주행한다.
-
-### 3. 터미널 C — V2로 STEP 9부터 시작
-
-```bash
-TB_TUNNEL_VERSION=v2 python3 scripts/nuc_trial.py start
-```
-
-`start`는 STEP 9, `TB_TUNNEL_VERSION=v2`는 V2를 선택한다. `start8`을 쓰지 않는다.
-활성 기록·설정 및 소스 일치·센서·TF·다른 명령 발행자를 검사한 뒤,
-OpenCR의 모터 토크를 켜고 실제 주행을 시작한다.
-시작 로그의 `tunnel v2 normal step9`, `Tunnel version: v2`와 `tunnel.real.yaml` 경로를 확인한다.
-제어기 이름은 `/tb_controller`이며 실행 로그는 이번 기록 폴더에 자동 저장된다.
-
-### 4. 터미널 D — 정지하고 기록 저장
-
-별도 터미널에서 위의 공통 준비를 마친 뒤 실행한다.
-
-```bash
-python3 scripts/nuc_trial.py stop
-```
-
-제어기를 종료하고 OpenCR에 토크 해제를 요청한 뒤 새 `torque=false` 피드백을 확인한다.
-**실제로 멈춘 것을 확인한 뒤** 기록을 마무리한다.
-
-```bash
-python3 scripts/nuc_trial.py stop-record
-```
-
-`Bag finalized`를 확인한 다음 A에서 `Ctrl+C`로 센서를 종료한다.
-제어기가 남아 있으면 기록 도구가 종료를 거부한다. C에서 먼저 `Ctrl+C`를 눌렀더라도
-토크 해제를 위해 위의 `stop` 절차를 수행한다.
-PC 종료 스위치로 먼저 끄면 기록이 정상 저장되지 않을 수 있다.
-소프트웨어 정지에도 계속 움직이면 실제 구동 전원을 차단한다.
-`/step=0`이나 `/cmd_vel`에 0을 한 번 보내는 것은 이 정지 절차를 대신하지 않는다.
-
-## V1 비교와 직접 수정할 파일
-
-V1도 같은 센서·실물 YAML을 사용한다. 이전 시험을 정지·저장한 뒤 B에서 새 기록을 시작하고,
-C의 주행 명령만 다음으로 바꾼다.
-
-```bash
-TB_TUNNEL_VERSION=v1 python3 scripts/nuc_trial.py start
-```
-
-다음 시험에 위 V2 시작 명령을 쓰면 V2로 돌아온다.
-버전은 명령 앞의 `TB_TUNNEL_VERSION=v1` 또는 `v2`로 선택하므로 각 소스 파일의 값을 바꿀 필요 없다.
-버전을 생략하면 공통 준비에서 적용한 [scripts/nuc_env.sh](scripts/nuc_env.sh)의 기본값 V2를 사용한다.
-
-**아래 파일은 모두 직접 열어서 수정할 수 있다.**
-
-| 수정 목적 | 실제 사용 파일 |
-| --- | --- |
-| V1·V2 공통 속도, 진입 거리/정지 간격, 차체, 센서 필터, 지도·목표 | [tunnel.real.yaml](codes/stepbystep/tunnel.real.yaml) |
-| V2 전용 설정 | [v2.yaml](codes/stepbystep/tunnel/v2.yaml) |
-| V2 주행 상태·지역 제어 / 전역·지역 계획 | [mission_v2.py](codes/stepbystep/tunnel/mission_v2.py), [planner_v2.py](codes/stepbystep/tunnel/planner_v2.py) |
-| V1 및 공통 진입·센서·지도 / 기존 계획·차체 검사 | [mission.py](codes/stepbystep/tunnel/mission.py), [planner.py](codes/stepbystep/tunnel/planner.py) |
-| 공통 추종·형상 도구 | [tracking.py](codes/stepbystep/tunnel/tracking.py) |
-
-예를 들어 V2 전용 설정은 다음으로 연다.
-
-```bash
-nano codes/stepbystep/tunnel/v2.yaml
-```
-
-V2의 `replan_period`는 전역 경로 갱신 간격(초),
-`local_lookahead`는 가까운 목표 거리(m), `local_horizon`은 지역 원호 평가 거리(m)다.
-실물 YAML에 같은 이름의 `v2:` 설정을 추가하면 해당 항목이 전용 파일 값보다 우선한다.
-
-V2는 V1의 일부 기능을 상속한다. 따라서 `mission.py`, `planner.py`, `tracking.py`나
-실물 YAML 수정은 V2에도 영향을 줄 수 있다.
-이 명령은 **`codes/stepbystep/try_maze.py`**를 실행한다.
-`codes/final_codes/`의 별도 복사본을 수정해도 이 시험에 적용되지 않는다.
-
-Python/YAML은 별도 빌드 없이 적용된다. **주행·기록을 종료 → 파일 저장 → 새 기록 → 다시 시작**한다.
-실행 중 자동 반영되지 않으며, 기록 후 소스·YAML이 바뀌면 시작 검사가 거부한다.
-
-## 기록과 오류 확인
-
-시험별 기록은 `records/날짜_시각_KST/`에 저장되며 최근 폴더는 다음으로 확인한다.
-
-```bash
-cat records/current_trial.txt
-```
-
-- `sensors.bag`: 카메라·LiDAR·odom·cmd_vel·TF·ROS 로그 등 실제 토픽 기록. `/rosout`에 버전·설정·상태·이유가 남는다.
-- `controller.log`: 제어기의 버전·설정·상태·이유와 실행 로그.
-- `prestart_diagnostics.json` / `.log`: 시작 전 센서·지연·TF 검사 결과.
-- `rosbag.log`, `ros/`, `sensors.log`: 기록 도구·ROS·센서 로그.
-- `trial.json`, 설정·소스 복사본: Git 커밋, 선택 버전, 시작 단계·명령, 제어기 상태와 실제 사용 파일.
-
-계획 경로와 costmap 전체가 자동으로 저장되는 것은 아니다.
-실물 YAML의 정적 검사만 하려면 `python3 scripts/nuc_trial.py check-config`를 사용한다.
-실시간 센서·TF 검사는 `start` 시 수행한다. 진단만 하려면 센서가 켜진 상태에서
-`python3 scripts/nuc_diagnostics.py`를 실행할 수 있다.
-
-## Windows에서 RViz 보기
-
-MobaXterm에서 **Session → SSH**, Remote host에 `192.168.0.3`,
-Specify username에 `sj`를 입력하고, **Advanced SSH settings → X11-Forwarding**을 켜서 새로 연결한다.
-그 터미널에서 공통 준비 후, 센서가 실행 중일 때 다음을 실행한다.
-
-```bash
-bash scripts/nuc_rviz.sh
-```
-
-일반 SSH 창에는 RViz가 표시되지 않는다. `echo "$DISPLAY"`가
-`localhost:10.0` 같은 값인지 확인하고 `DISPLAY=:0`으로 덮어쓰지 않는다.
-
-## 이번 준비에서 확인한 범위
-
-2026-10-27, 원격 `79af441` 위의 누적 변경과 V2 직접 시작을 검사했다.
-진입·위치 정합·V2 주행·설정·기록 도구 검사 147개와 모터 준비·버전 선택 검사 5개가 통과했다.
-전체 단계 연결 검사 60개 중 57개는 통과했고, 기존 차선 속도 기대값·STEP 8 전환·차선 끝 방향 저장
-관련 3개 검사(하위 항목 31개)는 여전히 실패한다. 기본 시작 단계 기대값은 실제 값인 1로 바로잡았다.
-이번 직접 실행 변경으로 차선 주행 코드는 수정하지 않았다. STEP 9 시작은 해당 접근 구간을 건너뛴다.
-실제 NUC 환경에서 V2와 ROS 모듈을 불러오는 것까지 확인했으며, 제어기나 모터는 실행하지 않았다.
-이 결과는 전체 코스 또는 최신 변경의 실물 주행 검증 완료를 의미하지 않는다.
-이전 원격 업데이트 분석은 `records/analysis_20261026_v2_setup/`에 있다.
-
-2026-10-26 22:11 시험 기록에서는 카메라·LiDAR·odom 수신과 벽 정합은 확인됐으나,
-초기 방향 정렬 중 약 31초 동안 양쪽 바퀴 엔코더가 그대로였다.
-모터 속도의 정수 단위를 반영한 가상 검사에서도 해당 정체를 재현했다.
-분석은 `records/analysis_20261026_heading_stall/`에 있다.
-공식 펌웨어 업로드와 CRC 검증 후 정지 상태에서 카메라 약 30Hz·LiDAR 10Hz·odom 약 29Hz,
-측정 시각 TF, Noetic 배터리 메시지 수신, `torque=false`, `/cmd_vel` 발행자 없음까지 확인했다.
-이후 사용자 요청에 따라 바퀴를 공중에 띄운 상태에서 직진 3회·제자리 회전 2회를 각각 2초씩 측정했다.
-방향 정렬의 초기 회전 명령인 `±0.1/3.3rad/s`에서도 양쪽 엔코더가 서로 반대 방향으로 변했다.
-매 시험 뒤 정지 검사를 통과했고, 마지막에는 토크 해제 응답·양쪽 엔코더 정지·명령 발행자 없음을 확인했다.
-기록은 `records/analysis_20261026_stock_wheel_speed/`의 `wheels.bag`와 `measurement_summary.json`에 있다.
-공통 코드와 YAML은 이 측정을 위해 변경하지 않았다.
-이후 사용자가 실행한 22:47·22:48 시험 로그에서는 초기 방향 정렬 완료와 출구 목표 정지 후
-STEP 11 전환이 확인됐다. 지면에서의 거리·속도·제동 성능을 별도로 실측한 것은 아니다.
-공통 0.3° 허용오차와 회전 명령의 3.3 보정은 유지한다.
-
-22:48 시험의 초기 대기는 벽 위치 확인 9.35초, 5° 회전 2.04초, 회전 후 정지 확인 0.10초였다.
-벽 위치 확인 중 LiDAR는 약 10Hz로 계속 들어왔고 로봇은 정지해 있었지만,
-계산 결과의 입력 시각이 오래되어 관측 수집부터 다시 시작한 일이 6회 있었다.
-이 재수집을 줄이도록, 늦은 계산 결과와 확인 횟수는 버리되 그동안 새로 들어온 유효한 정지 관측은
-다음 계산에 사용한다. 로봇 이동·최신 센서 만료·지도 불일치에서는 관측도 초기화한다.
-벽 거리 계산의 중복 연산을 줄여 실제 기록 39회 비교에서 결과는 모두 동일했고,
-계산 시간 중앙값은 약 78ms에서 65ms로 줄었다. 0.30초 센서 제한·3회 일치 확인·5° 회전 설정은 유지한다.
-수정 후 사용자가 실행한 22:59 시험에서는 벽 위치 확인 1.29초·만료 재시도 0회였고,
-STEP 9의 자세 확인 시작부터 직진 시작까지 11.60초에서 4.80초로 줄었다.
-이번 회전과 정지 확인은 합계 3.39초였으며, 전체 시작 시간 개선은 주로 벽 위치 확인 대기 감소였다.
-한 번의 실제 시험에서 확인한 결과다. 실행 명령은 기존과 같다.
-분석 기록은 `records/analysis_20261026_alignment_timing/`에 있다.
-
-22:59 시험은 위치 기록 기준 차체 전체가 출구를 벗어나기까지 약 20.3초였지만,
-바깥 목표점을 옆으로 지나쳐 완료되지 않고 뒤쪽 목표점으로 돌아가려 했다.
-속도 변경 후 23:30 시험은 위치 확인부터 차체 전체 출구 통과까지 약 16.5초,
-회전 시작부터 통과까지 약 15.1초였다. 마지막 정지 확인 중 종료되어 STEP 11 전환은 기록되지 않았다.
-23:47 시험에서는 차체가 출구 밖으로 나간 뒤에도 문 폭의 연장 범위를 벗어났다는 이유로 완료되지 않았다.
-이 조건과 바깥 목표점·최종 각도 요구를 없애고 위의 개구부 통과 이력→차체 전체 탈출→STEP 11 즉시 전환 방식으로 수정했다.
-이 변경 후 실제 차선 복귀는 다음 시험에서 확인해야 한다. 출구 회전 분석은 `records/analysis_20261026_exit_turn_latest/`에 있다.
-직전 초기 회전은 출발이 늦고 정지 때 약 8°까지 돌아간 기록이 있었다.
-현재는 회전 후 정지 대기 약 0.37초를 제거했으므로, 다음 시험에서 직진 전환 시간과 관성에 따른 방향 변화를 확인한다.
-분석과 이전 설정은 `records/analysis_20261026_faster_trial/`에 있다.
-설정·코드가 바뀌었으므로 **새 기록을 시작한 뒤 기존 `start` 명령으로 실행한다.**
-
-펌웨어 파일·출처 커밋·해시·업로드 로그·교체 후 진단은
-`/home/sj/ParkCars/opencr-stock-20261026/`에 있다.
-`opencr_update/burger_noetic.opencr`가 이번에 설치한 공식 이미지다.
-[공식 복구 절차](https://emanual.robotis.com/docs/en/platform/turtlebot3/opencr_setup/)는
-SW2를 누른 상태에서 Reset을 눌렀다 떼고 SW2를 떼어 복구 모드로 들어간 뒤, 지정한 이미지를 다시 올리는 방식이다.
-교체 전 설치 바이너리 자체는 백업하지 못했으며, 보관한 로컬 후보 소스만으로 이전 상태의 동일 복원을 보장하지 않는다.
-원격에서 남긴 최신 Gazebo 비교 결과는 [V2 검증 기록](tests/validation_reference_v2_20261026.json),
-시뮬레이션 실행법은 [DOCKER_NOETIC.md](DOCKER_NOETIC.md)를 참고한다.
+`DISPLAY`가 비어 있으면 X11 forwarding을 켜서 새로 연결한다.

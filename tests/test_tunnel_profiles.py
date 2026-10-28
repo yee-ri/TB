@@ -10,9 +10,10 @@ from unittest.mock import patch
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'codes/stepbystep'))
+sys.path.insert(0, str(ROOT / 'codes'))
 
 from tunnel.mission import TunnelMission, load_config
+from tunnel.planner import GlobalRoute
 
 
 CONFIG = ROOT / 'codes/stepbystep/tunnel.yaml'
@@ -22,8 +23,8 @@ class TunnelProfileTests(unittest.TestCase):
     def test_normal_is_the_default_and_keeps_validated_low_speed_values(self):
         normal = load_config(CONFIG, 'normal')
         self.assertEqual(load_config(CONFIG), normal)
-        expected = {'cruise_velocity': .075, 'minimum_velocity': .035,
-                    'entry_velocity': .04, 'exit_velocity': .025,
+        expected = {'cruise_velocity': .075,
+                    'entry_velocity': .04,
                     'maximum_angular_velocity': .55,
                     'maximum_lateral_acceleration': .03,
                     'linear_acceleration': .15, 'linear_deceleration': .40,
@@ -40,8 +41,8 @@ class TunnelProfileTests(unittest.TestCase):
     def test_fast_values_match_source_simulation_profile(self):
         fast = load_config(CONFIG, 'fast')
         # Source: custom_autorace_bringup/config/fast_gazebo.yaml, tunnel.
-        expected = {'cruise_velocity': .32, 'minimum_velocity': .035,
-                    'entry_velocity': .035, 'exit_velocity': .32,
+        expected = {'cruise_velocity': .32,
+                    'entry_velocity': .035,
                     'maximum_angular_velocity': 1.4,
                     'maximum_lateral_acceleration': .30,
                     'linear_acceleration': .35, 'angular_acceleration': 8.,
@@ -62,7 +63,7 @@ class TunnelProfileTests(unittest.TestCase):
         fast = load_config(CONFIG, 'fast')
         self.assertEqual(normal, before)
         self.assertEqual(load_config(CONFIG), before)
-        for key in ('footprint', 'sensors', 'goal', 'exit_connector'):
+        for key in ('footprint', 'sensors', 'goal'):
             self.assertEqual(fast[key], normal[key])
         self.assertEqual(fast['grid']['static_map'], normal['grid']['static_map'])
         self.assertTrue(Path(fast['grid']['static_map']['image']).is_file())
@@ -112,12 +113,6 @@ class TunnelProfileTests(unittest.TestCase):
         if obstacle is not None:
             self.assertGreaterEqual(obstacle-pose-mission.footprint.front,
                                     config['entry']['obstacle_clearance'])
-        # PLANNING must still wait for actual measured rest, not treat its
-        # zero command as proof the moving body has already stopped.
-        if linear > config['control']['planning_stopped_linear']:
-            with patch.object(mission.planner, 'plan') as search:
-                mission.step(now+dt)
-                search.assert_not_called()
         return config, np.asarray([row[2] for row in trace]), trace
 
     def test_fast_straight_entry_accelerates_and_brakes_before_distance_goal(self):
@@ -199,15 +194,13 @@ class TunnelProfileTests(unittest.TestCase):
         config['grid'].pop('static_hit_exclusion_radius')
         config['planner']['keep_in_rectangles'] = None
         config['goal']['pose'] = [1., 0., 0.]
-        config['goal'].pop('planning_pose')
         mission = TunnelMission(config)
         self.addCleanup(mission.close)
         mission.update_odometry((0., 0., 0.), 0., 0., 10.)
         mission.update_scan([math.inf], 0., 1., .05, 40.,
                             (0., 0., 0.), (0., 0., 0.), 10.)
         mission.step(10.)
-        x = np.linspace(0., 1., 51)
-        mission.path = mission._tracking_path(x, x*0., x*0., x*0.)
+        mission.global_path = GlobalRoute(np.array([[0., 0.], [1., 0.]]))
         mission.state, mission.last_linear, mission.last_angular = 'FOLLOWING', .08, .6
         mission.update_odometry((.98, 0., 0.), .08, .6, 10.05)
         return mission
@@ -228,7 +221,7 @@ class TunnelProfileTests(unittest.TestCase):
                 self.assertEqual((command, yaw), (0., 0.))
                 self.assertEqual(mission.completion_started, now)
                 break
-            self.assertEqual(mission.state, 'FOLLOWING')
+            self.assertEqual(mission.state, 'FINISHING')
             self.assertIn('stopping at outside goal', mission.reason)
             self.assertIsNone(mission.completion_started)
             linear, angular, x = command, yaw, x+command*dt
@@ -258,28 +251,8 @@ class TunnelProfileTests(unittest.TestCase):
         self.assertEqual(mission.step(stamp), (0., 0., False))
         self.assertEqual(mission.state, 'FOLLOWING')
         self.assertIsNone(mission.completion_started)
-        self.assertIn('localized footprint', mission.reason)
+        self.assertIn('current footprint', mission.reason)
 
-    def test_fast_curvature_profile_keeps_yaw_lateral_and_wheel_acceleration_bounds(self):
-        config = load_config(CONFIG, 'fast')
-        mission = TunnelMission(config)
-        self.addCleanup(mission.close)
-        station = np.linspace(0., 2., 201)
-        curvature = np.zeros_like(station)
-        curvature[60:130] = 1./config['planner']['minimum_turning_radius']
-        path = mission._tracking_path(station, station*0., station*0., curvature)
-        cfg = config['control']
-        self.assertGreater(max(path.speed), .30)
-        self.assertLessEqual(max(path.speed), cfg['cruise_velocity'])
-        self.assertLessEqual(max(abs(path.speed*curvature)), cfg['maximum_angular_velocity']+1e-9)
-        self.assertLessEqual(max(path.speed**2*abs(curvature)), cfg['maximum_lateral_acceleration']+1e-9)
-        elapsed = 2.*np.diff(path.station)/(path.speed[:-1]+path.speed[1:])
-        yaw_acceleration = abs(np.diff(path.speed*curvature))/elapsed
-        self.assertLessEqual(max(yaw_acceleration), cfg['angular_acceleration']*(1.+1e-9))
-        # Source custom model: wheel separation .1482 m, acceleration 1 m/s².
-        # This source budget check is not a physical motor capability claim.
-        self.assertLessEqual(max(cfg['linear_acceleration'], cfg['linear_deceleration'])
-                             + .1482/2.*cfg['angular_acceleration'], 1.)
 
 
 if __name__ == '__main__':

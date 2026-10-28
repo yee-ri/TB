@@ -1,0 +1,13 @@
+# Global XY routing.
+replan_period: 0.30
+global_clearance_distance: 0.25
+global_clearance_weight: 1.0
+global_soft_cost_weight: 1.0
+global_maximum_iterations: 20000
+# Local curve candidates checked with the padded rectangular body.
+local_lookahead: 0.30
+local_horizon: 0.30
+local_steering_samples: 15
+local_heading_weight: 0.12
+local_steering_weight: 0.015
+local_rotation_gain: 2.0

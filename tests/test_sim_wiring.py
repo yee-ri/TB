@@ -49,9 +49,6 @@ class SimulationWiringTests(unittest.TestCase):
         self.assertEqual(params['lidar_type'], 'laserscan')
         self.assertEqual(params['lidar_topic'], '/scan_mid360_raw')
         self.assertEqual(params['tunnel_profile'], '$(arg tunnel_profile)')
-        self.assertEqual(params['tunnel_version'], '$(arg tunnel_version)')
-        self.assertEqual(launch.find("arg[@name='tunnel_version']").get('default'),
-                         '$(optenv TB_TUNNEL_VERSION v1)')
         self.assertEqual(launch.find("arg[@name='tunnel_profile']").get('default'), 'normal')
         self.assertEqual(nodes[0].find('remap').attrib,
                          {'from': '/odom', 'to': '/odometry/filtered'})
@@ -71,9 +68,6 @@ class SimulationWiringTests(unittest.TestCase):
         self.assertIn('tunnel_obstacle_layout:=${TB_TUNNEL_LAYOUT:-layout_a}',
                       service['command'][-1])
 
-    def test_compose_defaults_to_v1_and_allows_explicit_v2_selection(self):
-        service = yaml.safe_load((ROOT / 'compose.gazebo.yaml').read_text())['services']['gazebo']
-        self.assertIn('tunnel_version:=${TB_TUNNEL_VERSION:-v1}', service['command'][-1])
 
 
 if __name__ == '__main__':

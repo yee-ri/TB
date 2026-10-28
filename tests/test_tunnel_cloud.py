@@ -8,7 +8,7 @@ import unittest
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'codes/stepbystep'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'codes'))
 from tunnel.cloud import tunnel_cloud_xy
 
 
@@ -416,7 +416,8 @@ class TunnelCloudTests(unittest.TestCase):
         np.testing.assert_allclose(result, [[.546927, 0.], [.796927, 0.]], atol=1e-7)
 
     def test_zero_degree_empty_and_sensor_origin_returns_do_not_refresh_mission_scan(self):
-        from tunnel.mission import TunnelMission, load_config
+        from tunnel.mission import TunnelMission
+        from tunnel.mission import load_config
         config_path = Path(__file__).resolve().parents[1] / 'codes/stepbystep/tunnel.yaml'
         mission = TunnelMission(load_config(config_path))
         self.addCleanup(mission.close)
@@ -534,7 +535,8 @@ class TunnelCloudTests(unittest.TestCase):
         self.assertAlmostEqual(queried[0][-1], 42.1)
 
     def test_minimum_intensity_empty_or_all_rejected_input_does_not_refresh_mission_scan(self):
-        from tunnel.mission import TunnelMission, load_config
+        from tunnel.mission import TunnelMission
+        from tunnel.mission import load_config
         config_path = Path(__file__).resolve().parents[1] / 'codes/stepbystep/tunnel.yaml'
         mission = TunnelMission(load_config(config_path))
         self.addCleanup(mission.close)
@@ -589,7 +591,8 @@ class TunnelCloudTests(unittest.TestCase):
                 self.assertEqual(len(queries), 1)
 
     def test_weak_wall_returns_do_not_become_obstacles_or_refresh_obstacle_scan(self):
-        from tunnel.mission import TunnelMission, load_config
+        from tunnel.mission import TunnelMission
+        from tunnel.mission import load_config
         config_path = Path(__file__).resolve().parents[1] / 'codes/stepbystep/tunnel.yaml'
         mission = TunnelMission(load_config(config_path))
         self.addCleanup(mission.close)

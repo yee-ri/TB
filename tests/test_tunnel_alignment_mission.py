@@ -14,11 +14,12 @@ from unittest.mock import Mock
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'codes/stepbystep'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'codes'))
 
 from tunnel.localization import AlignmentResult
-from tunnel.mission import TunnelMission, load_config, relative_pose
-from tunnel.planner import OccupancyGrid, Pose2D
+from tunnel.mission import load_config, relative_pose
+from tunnel.mission import TunnelMission
+from tunnel.geometry import Pose2D
 
 
 CONFIG = Path(__file__).resolve().parents[1] / 'codes/stepbystep/tunnel.real.yaml'
@@ -83,9 +84,8 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
     def join(self, mission):
         worker = mission.worker
         if worker is not None:
-            # This fixture checks geometric completion, not a 5 s CPU budget.
-            # Exact thin-wall planning can take just over 5 s on this host;
-            # live planning is asynchronous and has no such deadline.
+            # The fixture advances ideal simulated time only after the
+            # asynchronous wall fit or global route worker has finished.
             worker.join(timeout=10.)
             self.assertFalse(worker.is_alive(), 'offline wall fit/planning worker did not finish')
 
@@ -434,7 +434,7 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
         now = self.confirm(mission, pose)
         self.feed(mission, now + .1, pose)
         grid = mission._grid()
-        self.assertTrue(mission.planner.pose_is_collision_free(grid, Pose2D(*pose)))
+        self.assertTrue(mission.geometry.pose_is_collision_free(grid, Pose2D(*pose)))
         self.assertEqual(mission.footprint.padding, 0.)
         linear, angular, _ = mission.step(now + .1)
         self.assertGreater(abs(linear) + abs(angular), 0.)
@@ -471,28 +471,31 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
                     now += .05
                     self.feed(mission, now, pose, velocity=previous)
                     linear, angular, finished = mission.step(now)
-                    # Only wall-clock search is awaited; virtual time advances
-                    # after the stopped worker completes, with no ROS transport.
+                    # Only wall-clock search is awaited. This ideal loop has
+                    # no ROS transport or physical actuator timing model.
                     self.join(mission)
-                    self.assertFalse(finished)
                     localized = relative_pose(pose, mission.anchor)
-                    self.assertTrue(mission.planner.pose_is_collision_free(mission._grid(), localized),
+                    self.assertTrue(mission.geometry.pose_is_collision_free(mission._grid(), localized),
                                     (pose, mission.state, mission.reason))
-                    if mission.state == 'WAIT_STOP':
+                    if finished:
                         self.assertEqual((linear, angular), (0., 0.))
                         break
                     pose = integrate(pose, linear, angular, .05)
                     previous = (linear, angular)
                 else:
                     self.fail('ideal mission failed to reach exit: %s %s' % (mission.state, mission.reason))
-                self.assertLess(math.hypot(pose[0]-1.808, pose[1]-1.868), .035)
-                self.assertEqual(mission.plans, 1)
-                # No lane observations are supplied anywhere in this closed
-                # loop. The handoff follows a fresh measured stopped sample,
-                # not the final zero command alone.
-                self.assertEqual(mission.step(now), (0., 0., False))
-                now += .05
-                self.feed(mission, now, pose)
+                # The real-profile opening is horizontal. Check the complete
+                # physical rectangle independently of the controller helper.
+                exit_y = mission.config['goal']['exit_crossing'][0][1]
+                corner_y = [pose[1] + x*math.sin(pose[2]) + y*math.cos(pose[2])
+                            for x in (-mission.footprint.rear, mission.footprint.front)
+                            for y in (-mission.footprint.half_width, mission.footprint.half_width)]
+                self.assertGreaterEqual(min(corner_y), exit_y)
+                self.assertTrue(mission.exit_crossed)
+                self.assertGreaterEqual(mission.global_updates, 1)
+                self.assertGreater(previous[0], 0.)
+                # Portal completion returns ownership while measured motion
+                # remains. No lane sample or measured-stop sample is supplied.
                 self.assertEqual(mission.step(now), (0., 0., True))
                 self.assertEqual(mission.state, 'COMPLETE')
 
