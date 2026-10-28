@@ -15,7 +15,7 @@ SCALE = .0955 / .033
 
 def implementations():
     for folder in ('stepbystep', 'final_codes'):
-        path = ROOT / 'codes' / folder / 'tunnel' / 'odometry.py'
+        path = ROOT / 'codes/tunnel/odometry.py'
         spec = importlib.util.spec_from_file_location('odometry_test_' + folder, path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)

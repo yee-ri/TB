@@ -79,11 +79,6 @@
     "heading": "Perpendicular inward through the entry, aligned with its centre."
   },
   "goal": {
-    "planning_pose": [
-      1.808,
-      1.488,
-      90.0
-    ],
     "pose": [
       1.808,
       1.868,

@@ -7,9 +7,9 @@ from unittest.mock import patch
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "codes/stepbystep"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "codes"))
 
-from tunnel.planner import HybridAStarPlanner, OccupancyGrid, RectangularFootprint
+from tunnel.geometry import CollisionGeometry, OccupancyGrid, RectangularFootprint
 
 
 class StaticWallGeometryTest(unittest.TestCase):
@@ -23,7 +23,7 @@ class StaticWallGeometryTest(unittest.TestCase):
             left = -1. + column * .02
             self.rectangles[47 * 100 + column] = [
                 (left, -.058, left + .02, -.056)]
-        self.planner = HybridAStarPlanner(
+        self.planner = CollisionGeometry(
             RectangularFootprint(.08, .12, .04, .01),
             minimum_turning_radius=.2, collision_check_step=.02)
 
@@ -47,7 +47,7 @@ class StaticWallGeometryTest(unittest.TestCase):
         for y in (-.006, -.016):
             with self.subTest(y=y):
                 self.assertFalse(self.planner.pose_is_collision_free(refined, (0., y, 0.)))
-        unpadded = HybridAStarPlanner(RectangularFootprint(.08, .12, .04))
+        unpadded = CollisionGeometry(RectangularFootprint(.08, .12, .04))
         # A 5 mm body gap is clear for bare geometry but violates 10 mm padding.
         self.assertTrue(unpadded.pose_is_collision_free(refined, (0., -.011, 0.)))
         self.assertFalse(self.planner.pose_is_collision_free(refined, (0., -.011, 0.)))
@@ -61,7 +61,7 @@ class StaticWallGeometryTest(unittest.TestCase):
             rectangles[row * 100 + 55] = [(.104, bottom, .106, bottom + .02)]
         grid = OccupancyGrid(values, .02, -1., -1.,
                              static_cell_rectangles=rectangles)
-        planner = HybridAStarPlanner(
+        planner = CollisionGeometry(
             RectangularFootprint(.0002, .0002, .0002),
             collision_check_step=.02)
         self.assertTrue(planner.pose_is_collision_free(grid, (.101, 0., 0.)))
@@ -73,22 +73,22 @@ class StaticWallGeometryTest(unittest.TestCase):
         self.values[50, 60] = self.values[50, 65] = 100
         grid = self.grid(dynamic_cell_rectangles={
             50 * 100 + 65: [(.315, 0., .32, .02)]})
-        planner = HybridAStarPlanner(RectangularFootprint(.003, .003, .003))
+        planner = CollisionGeometry(RectangularFootprint(.003, .003, .003))
         self.assertTrue(planner.pose_is_collision_free(grid, (.305, .01, 0.)))
         self.assertFalse(planner.pose_is_collision_free(grid, (.313, .01, 0.)))
         self.assertFalse(planner.pose_is_collision_free(grid, (.205, .01, 0.)))
         self.assertFalse(planner.pose_is_collision_free(grid, (0., -.056, 0.)))
 
     def test_explicit_inflation_keeps_conservative_coarse_geometry(self):
-        planner = HybridAStarPlanner(self.planner.footprint, inflation_radius=.001)
+        planner = CollisionGeometry(self.planner.footprint, inflation_radius=.001)
         self.assertFalse(planner.pose_is_collision_free(self.grid(), (0., 0., 0.)))
         # Adjacent originally free cells are still included by grid inflation.
-        planner = HybridAStarPlanner(self.planner.footprint, inflation_radius=.021)
+        planner = CollisionGeometry(self.planner.footprint, inflation_radius=.021)
         self.assertFalse(planner.pose_is_collision_free(self.grid(), (0., .025, 0.)))
 
     def test_unknown_cells_remain_fully_occupied(self):
         self.values[50, 50] = -1
-        planner = HybridAStarPlanner(RectangularFootprint(.003, .003, .003))
+        planner = CollisionGeometry(RectangularFootprint(.003, .003, .003))
         self.assertFalse(planner.pose_is_collision_free(self.grid(), (.01, .01, 0.)))
         self.assertTrue(planner.pose_is_collision_free(
             self.grid(unknown_is_occupied=False), (.01, .01, 0.)))
@@ -102,14 +102,14 @@ class StaticWallGeometryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'both static and dynamic'):
             self.grid(dynamic_cell_rectangles={index: self.rectangles[index]})
 
-    def test_flat_grid_preserves_both_refinement_sources(self):
+    def test_grid_preserves_both_refinement_sources(self):
         self.values[50, 65] = 100
-        grid = OccupancyGrid.from_flat(
-            self.values.ravel(), 100, 100, .02, -1., -1.,
+        grid = OccupancyGrid(
+            self.values, .02, -1., -1.,
             dynamic_cell_rectangles={50 * 100 + 65: [(.315, 0., .32, .02)]},
             static_cell_rectangles=self.rectangles)
         self.assertTrue(self.planner.pose_is_collision_free(grid, (0., 0., 0.)))
-        planner = HybridAStarPlanner(RectangularFootprint(.003, .003, .003))
+        planner = CollisionGeometry(RectangularFootprint(.003, .003, .003))
         self.assertTrue(planner.pose_is_collision_free(grid, (.305, .01, 0.)))
         self.assertFalse(planner.pose_is_collision_free(grid, (.313, .01, 0.)))
 
@@ -154,7 +154,7 @@ class StaticWallGeometryTest(unittest.TestCase):
         grid = self.grid()
         self.assertFalse(self.planner.primitive_is_collision_free(
             grid, (.85, .2, 0.), 0., .1))
-        planner = HybridAStarPlanner(
+        planner = CollisionGeometry(
             self.planner.footprint, keep_in_rectangles=[(-.2, -.2, .2, .2)])
         self.assertFalse(planner.primitive_is_collision_free(
             grid, (.18, 0., 0.), 0., .1))

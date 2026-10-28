@@ -9,7 +9,7 @@ import unittest
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'codes/stepbystep'))
+sys.path.insert(0, str(ROOT / 'codes'))
 from tunnel.localization import EntranceLocalizer
 
 
