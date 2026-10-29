@@ -57,18 +57,13 @@ class turtlebot():
         self.cmd_pub=rospy.Publisher('/cmd_vel',Twist,queue_size=10)
         self.bridge=CvBridge()
         image_dir=Path(__file__).resolve().parents[2]/'images'
-        self.lturn_template=cv2.imread(str(image_dir/'lturn1.png'),cv2.IMREAD_GRAYSCALE)
-        self.lturn_template=cv2.resize(self.lturn_template,(20,20))
-        self.rturn_template=cv2.imread(str(image_dir/'rturn1.png'),cv2.IMREAD_GRAYSCALE)
-        self.rturn_template=cv2.resize(self.rturn_template,(20,20))
+        self.lturn_template = self.load_sign_template(str(image_dir/'left.png'))
+        self.rturn_template = self.load_sign_template(str(image_dir/'right.png'))
         self.start_time = None
         
-
 ############## 구간별 테스트 설정 ##############
         self.step=int(rospy.get_param('~start_step',0))
         self.standalone_gate_start=self.step==8
-        # Full-course odometry uses its original heading. A fresh step8 run
-        # instead captures the approach heading when the lane ends.
         self.gate_approach_yaw=-1.565
         self.yaw = 0.0
         self.initial_yaw=None
@@ -77,7 +72,8 @@ class turtlebot():
         self.left_distance=float('inf')
         self.front_distance=float('inf')
         self.right_distance=float('inf')
-
+        self.lidar_update_count = 0
+        self.obstacle_last_lidar_count = 0
 ############## 회전 관련 변수 ##############
         self.right_count=0
         self.left_count=0
@@ -88,7 +84,10 @@ class turtlebot():
         self.distance_count=0
         self.max_val_l=0
         self.max_val_r=0
-
+        self.sign_threshold = 0.80  # 높이면 엄격, 낮추면 쉽게 검출
+        self.sign_threshold = 0.80
+        self.sign_left_count = 0
+        self.sign_right_count = 0
 ############## 라인 트랙킹 관련 변수 ##############
         self.prev_error=0.0
         self.prev_target_x=None
@@ -128,6 +127,11 @@ class turtlebot():
         self.sequence = 0
         self.parking_side=None      
         self.yellow_zero_count=0
+
+
+        self.obstacle_stage = None
+        self.obstacle_stage_count = 0
+        self.obstacle_turn_start = None
 
 ############## 게이트바 관련 변수 ##############
         self.gate_state = 0
@@ -416,6 +420,7 @@ class turtlebot():
         self.left_distance = np.percentile(left_ranges, 10) if left_ranges else float('inf')
         self.front_distance = min(front_ranges) if front_ranges else float('inf')
         self.right_distance = np.percentile(right_ranges, 10) if right_ranges else float('inf')
+        self.lidar_update_count += 1
 
         rospy.loginfo("LEFT: %.2f FRONT: %.2f RIGHT: %.2f DIR: %s",self.left_distance,self.front_distance,self.right_distance,str(self.obstacle_direction))
 
@@ -460,132 +465,124 @@ class turtlebot():
         self.stop()
         return False
 
-    def detect_sign(self,image): # 좌/우회전 감지, self.turn_detect값 반환
-        hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV)
+    def sign_blue_mask(self, image):
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, np.array([85, 70, 40]), np.array([135, 255, 255]))
+        return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
 
-        yellow_mask=cv2.inRange(hsv,np.array([15,100,100]),np.array([50,255,255]))
-        white_mask=cv2.inRange(hsv,np.array([0,0,210]),np.array([179, 55, 255]))
+    def sign_arrow_mask(self, image):
+        image = cv2.resize(image, (100, 100))
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, np.array([0, 0, 80]), np.array([179, 100, 255]))
+        inner = np.zeros((100, 100), dtype=np.uint8)
+        cv2.circle(inner, (50, 50), 40, 255, -1)
+        return cv2.bitwise_and(mask, inner)
 
-        mask=cv2.bitwise_or(yellow_mask,white_mask)
+    def load_sign_template(self, path):
+        image = cv2.imread(path)
+        contours, _ = cv2.findContours(self.sign_blue_mask(image), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        x, y, w, h = cv2.boundingRect(max(contours, key=cv2.contourArea))
+        template = self.sign_arrow_mask(image[y:y+h, x:x+w])
+        
+        return template
 
-        filtered=cv2.bitwise_and(image,image,mask=mask)
-        gray=cv2.cvtColor(filtered,cv2.COLOR_BGR2GRAY)
+    def detect_sign(self, image):
+        contours, _ = cv2.findContours(self.sign_blue_mask(image), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        self.max_val_l = 0.0
+        self.max_val_r = 0.0
 
-        left_result=cv2.matchTemplate(gray,self.lturn_template,cv2.TM_CCOEFF_NORMED)
-        _,max_val_l,_,_=cv2.minMaxLoc(left_result)
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            if cv2.contourArea(contour) < 400 or not 0.65 <= w / float(h) <= 1.5:
+                continue
+            if cv2.contourArea(contour) / float(w * h) < 0.45:
+                continue
 
-        right_result=cv2.matchTemplate(gray,self.rturn_template,cv2.TM_CCOEFF_NORMED)
-        _,max_val_r,_,_=cv2.minMaxLoc(right_result)
+            arrow = self.sign_arrow_mask(image[y:y+h, x:x+w])
+            if not 0.03 <= cv2.countNonZero(arrow) / 10000.0 <= 0.40:
+                continue
 
-        self.max_val_l=max_val_l
-        self.max_val_r=max_val_r
+            left = float(cv2.matchTemplate(arrow, self.lturn_template, cv2.TM_CCOEFF_NORMED)[0, 0])
+            right = float(cv2.matchTemplate(arrow, self.rturn_template, cv2.TM_CCOEFF_NORMED)[0, 0])
+            if not np.isfinite(left) or not np.isfinite(right):
+                continue
 
-        rospy.loginfo("LEFT: %.1f%% RIGHT: %.1f%%",max_val_l*100,max_val_r*100)
+            if max(left, right) > max(self.max_val_l, self.max_val_r):
+                self.max_val_l, self.max_val_r = left, right
 
-        if 0.2<=self.front_distance<=0.75:
-            if max_val_r>=max_val_l and max_val_r>0.28:
-                self.right_count+=1
-            elif max_val_l>=max_val_r and max_val_l>0.28:
-                self.left_count+=1
+        rospy.loginfo("LEFT: %.2f RIGHT: %.2f", self.max_val_l, self.max_val_r)
+        detected = max(self.max_val_l, self.max_val_r) >= self.sign_threshold
 
-            if self.right_count>=3:
-                self.right_count=0
-                self.left_count=0
-                return 'right'
-
-            if self.left_count>=3:
-                self.right_count=0
-                self.left_count=0
+        if self.step == 6:
+            self.left_count = self.left_count + 1 if detected else 0
+            self.right_count = 0
+            if self.left_count >= 4:
+                self.left_count = 0
                 return 'left'
+            return None
 
-        if self.step == 6 and (max_val_l >=0.25 or max_val_r>=0.25):
-            self.left_count+=1
+        near = 0.2 <= self.front_distance <= 0.75
 
-            if self.left_count>=4:
-                self.right_count=0
-                self.left_count=0
-                return 'left'
+        if detected and self.max_val_l > self.max_val_r:
+            self.sign_left_count += 1
+            self.sign_right_count = 0
+            self.left_count = self.left_count + 1 if near else 0
+            self.right_count = 0
 
-        return None
+        elif detected and self.max_val_r > self.max_val_l:
+            self.sign_right_count += 1
+            self.sign_left_count = 0
+            self.right_count = self.right_count + 1 if near else 0
+            self.left_count = 0
 
-    def check_turn(self,image):
-        sign=self.detect_sign(image)
-
-        if self.turn_detect is None:
-            if sign=='left':
-                self.turn_detect='left'
-                self.distance_count=0
-                rospy.loginfo("@@@@@@ LEFT SIGN DETECTED @@@@@@")
-
-            elif sign=='right':
-                self.turn_detect='right'
-                self.distance_count=0
-                rospy.loginfo("@@@@@@ RIGHT SIGN DETECTED @@@@@@")
-
-            elif self.step<=2:
-                if self.front_distance<=0.3:
-                    self.distance_count+=1
-                else:
-                    # self.distance_count=0
-                    pass
-
-                if self.distance_count>=4:
-                    self.turn_detect='left' if self.max_val_l>=self.max_val_r else 'right'
-                    self.distance_count=0
-                    rospy.loginfo("@@@@@@ FORCE TURN: %s LEFT: %.2f RIGHT: %.2f @@@@@@",self.turn_detect,self.max_val_l,self.max_val_r)
-
-
-
-        if self.step==1 and self.turn_detect in ('left','right'):
-            crop_img=image[350:,:]
-            hsv=cv2.cvtColor(crop_img,cv2.COLOR_BGR2HSV)
-            white_mask=cv2.inRange(hsv,np.array([0,0,210]),np.array([179,55,255]))
-            white_area=cv2.countNonZero(white_mask)
-
-            if white_area==0:
-                self.white_zero_count+=1
-            else:
-                self.white_zero_count=0
-
-            # rospy.loginfo("TURN CHECK: WHITE=%d / ZERO COUNT=%d ",white_area,self.white_zero_count)
-
-            if self.white_zero_count>=3:
-                self.turn_direction=self.turn_detect
-                self.white_zero_count=0
-                # rospy.loginfo("@@@@@@ LANE LOST -> TURN %s @@@@@@",self.turn_direction.upper())
-            else:
-                self.turn_direction=None
         else:
-            self.white_zero_count=0
-            self.turn_direction=None
+            self.left_count = self.right_count = 0
+            self.sign_left_count = self.sign_right_count = 0
 
+        direction = None
+        if self.left_count >= 3 or self.sign_left_count >= 7:
+            direction = 'left'
+        elif self.right_count >= 3 or self.sign_right_count >= 7:
+            direction = 'right'
 
-        if self.turn_direction is not None:
-            self.turn_detect=None
-            self.prev_error=0.0
-            self.prev_target_x=None
+        if direction is not None:
+            self.left_count = self.right_count = 0
+            self.sign_left_count = self.sign_right_count = 0
 
-            if self.turn_direction=='left':
+        return direction
+
+    def check_turn(self, image):
+        sign = self.detect_sign(image)
+
+        if self.turn_detect is None and sign in ('left', 'right'):
+            self.turn_detect = sign
+            rospy.loginfo("@@@@@@ %s SIGN DETECTED @@@@@@", sign.upper())
+
+        if self.step == 1 and self.turn_detect in ('left', 'right'):
+            self.turn_direction = self.turn_detect
+            self.turn_detect = None
+            self.distance_count = 0
+            self.white_zero_count = 0
+            self.prev_error = 0.0
+            self.prev_target_x = None
+
+            if self.turn_direction == 'left':
                 rospy.loginfo("@@@@@@ TURN LEFT @@@@@@")
-                self.turn_time('left',1,0.03,0.35)
-
-            elif self.turn_direction=='right':
+                self.turn_time('left', 1, 0.03, 0.35)
+            else:
                 rospy.loginfo("@@@@@@ TURN RIGHT @@@@@@")
-                self.turn_time('straight',0.7,0.07,0)
-                self.turn_time('right',1,0.03,0.35)
+                self.turn_time('straight', 0.7, 0.07, 0)
+                self.turn_time('right', 1, 0.03, 0.35)
 
-            if self.step==1:
-                self.step=2
-
+            self.step = 2
+            self.turn_end = 1
             rospy.loginfo("@@@@@@ TURN END @@@@@@")
-            self.turn_end=1
             return True
 
-        if self.step==6 and self.turn_detect=='left' and self.front_distance<=0.3:
+        if self.step == 6 and self.turn_detect == 'left' and self.front_distance <= 0.3:
             return 'left'
 
         return False
-
     def turn_time(self,direction,duration,linear_speed,angular_speed):
         msg=Twist()
         msg.linear.x=linear_speed
@@ -612,168 +609,136 @@ class turtlebot():
         self.stop()
 
     def check_obstacle_start(self):
-        if self.front_distance<=0.39:
-            self.obstacle_pass_count+=1
+        if self.obstacle_last_lidar_count == self.lidar_update_count:
+            return False
+
+        self.obstacle_last_lidar_count = self.lidar_update_count
+
+        if math.isfinite(self.front_distance) and self.front_distance <= 0.45:
+            self.obstacle_pass_count += 1
         else:
-            self.obstacle_pass_count=0
+            self.obstacle_pass_count = 0
 
-        if self.obstacle_pass_count==3:
-            self.turn_direction=None
-            self.obstacle_direction=None
-            self.obstacle_clear_count=0
+        if self.obstacle_pass_count >= 3:
+            self.obstacle_pass_count = 0
+            self.turn_direction = None
+            self.obstacle_direction = None
+            self.obstacle_clear_count = 0
             rospy.loginfo("@@@@@@ NEW OBSTACLE DETECTED @@@@@@")
-
-        if self.obstacle_pass_count>=4:
-            self.obstacle_pass_count=4
             return True
 
         return False
+        
+    def obstacle_move(self, image):
+        height, width = image.shape[:2]
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        yellow_mask = cv2.inRange(hsv, np.array([15, 100, 100]), np.array([50, 255, 255]))
+        yellow_area = cv2.countNonZero(yellow_mask[height // 2:, :width // 2])
 
-    def obstacle_move(self,image): # 대충 장애물 피하기
-        height,width=image.shape[:2]
-        hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV)
+        yellow_threshold = 200       # 왼쪽 아래 노란선 검출 기준
+        next_obstacle_distance = 0.39
+        clear_distance = 0.50
+        turn_speed = 0.03
+        left_angular = 0.30
+        right_angular = -0.30
+        turn_timeout = 10.0
+        now = rospy.Time.now().to_sec()
+        rospy.loginfo("OBSTACLE STAGE: %s / FRONT: %.2f", self.obstacle_stage, self.front_distance)
+        # 회전이 끝나지 않으면 정지하고 상태 유지
+        if self.obstacle_stage in ('left', 'right'):
+            if now - self.obstacle_turn_start >= turn_timeout:
+                self.move(0, 0)
+                rospy.logwarn_throttle(1.0, "OBSTACLE TURN TIMEOUT")
+                return
 
-        white_mask=cv2.inRange(hsv,np.array([0,0,130]),np.array([179,80,255]))
-        yellow_mask=cv2.inRange(hsv,np.array([15,100,100]),np.array([50,255,255]))
+        # 1 왼쪽으로 회피
+        if self.obstacle_stage == 'left':
+            self.obstacle_direction = 'left'
+            self.move(turn_speed, left_angular)
 
-        bottom=4*height//5
-        left_yellow_b=yellow_mask[bottom:,:width//2]
-        right_white_b=white_mask[bottom:,width//2:]
+            # 노란선 따라가기
+            ready = yellow_area >= yellow_threshold and math.isfinite(self.front_distance) and self.front_distance > clear_distance
+            self.obstacle_stage_count = self.obstacle_stage_count + 1 if ready else 0
 
-        yellow=yellow_mask[height//2:,:]
-        white=white_mask[height//2:,:width//2]
+            if self.obstacle_stage_count >= 4:
+                self.obstacle_stage = 'lane'
+                self.obstacle_stage_count = 0
+                self.obstacle_direction = None
+                self.turn_direction = 'straight'
+                self.speed = 2
+                rospy.loginfo("FIRST OBSTACLE CLEAR -> LANE TRACKING")
+            return
 
-        yellow_area_b=cv2.countNonZero(left_yellow_b)
-        white_area_b=cv2.countNonZero(right_white_b)
+        # 2 따라가다가 정면 0.2m 이내면 즉시 오른쪽 회피
+        if self.obstacle_stage == 'lane':
+            if math.isfinite(self.front_distance) and self.front_distance <= 0.28:
+                self.obstacle_stage = 'right'
+                self.obstacle_stage_count = 0
+                self.obstacle_turn_start = now
+                self.obstacle_direction = 'right'
+                self.obstacle_front_opened = False
+                self.move(turn_speed, right_angular)
+                rospy.loginfo("FRONT <= 0.2 -> TURN RIGHT")
+                return
 
-        yellow_area=cv2.countNonZero(yellow)
-        self.white_area=cv2.countNonZero(white)
-        rospy.loginfo("white is %.3f",white_area_b)
-        rospy.loginfo("YEllow is %.3f",yellow_area_b)
+            self.turn_direction = 'straight'
+            self.lane_tracking(image)
+            return
 
-        #########################################    
-        # rospy.loginfo("Y: %3f W: %3f",yellow_area,self.white_area)
+        # 3 오른쪽 회전하다 앞이 1.5m 이상 
+        if self.obstacle_stage == 'right':
+            if math.isfinite(self.front_distance) and self.front_distance >= 1.15:
+                self.move(0, 0)
+                self.obstacle_stage = 'done'
+                self.obstacle_stage_count = 0
+                self.obstacle_clear_count = 0
+                self.obstacle_direction = None
+                self.turn_direction = 'straight'
+                rospy.loginfo("FRONT >= 1.5 -> LANE TRACKING")
+                return
 
-        line_area=2000
-        safe_width=self.robot_half_width+self.safety_margin
-
-        near_points=[]
-        front_points=[]
-        rospy.loginfo(self.obstacle_direction)
-
-        for x,y in self.obstacle_points:
-            if -0.05<x<0.4 and abs(y)<safe_width+0.06: #side_width + 0.06
-                near_points.append((x,y))
-
-            if 0<x<0.35 and abs(y)<safe_width:
-                front_points.append((x,y))
+            self.obstacle_direction = 'right'
+            self.move(turn_speed, right_angular)
+            return
 
 
-        if self.obstacle_direction is None:
-            if self.right_distance<0.25 and self.front_distance<=0.25 and self.left_distance>1.0 and white_area_b>4000:
-                self.obstacle_direction='left'
-                rospy.loginfo("RIGHT+FRONT BLOCKED -> TURN LEFT")
-                self.move(0.025,0.45)
-                # return False
+        # 4. 마지막 장애물 회피 후 오른쪽 흰선 추종
+        if self.obstacle_stage == 'done':
+            self.obstacle_direction = None
 
-            #대충반대
-            elif self.left_distance<0.23 and self.front_distance<=0.23 and self.right_distance>1.0 and yellow_area_b>3000:
-                self.obstacle_direction='right'
-                rospy.loginfo("LEFT+FRONT BLOCKED -> TURN RIGHT")
-                self.move(0.025,-0.45)
-                # return False
+            white_mask = cv2.inRange(hsv, np.array([0, 0, 210]), np.array([179, 55, 255]))
+            white_mask[:3 * height // 4, :] = 0
 
-            elif self.left_distance>self.right_distance:
-                self.obstacle_direction = 'left'
-                self.move(0.025,0.45)
-                rospy.loginfo("RIGHT+FRONT BLOCKED -> TURN LEFT22")
-            elif self.right_distance>self.left_distance:
-                self.obstacle_direction='right'
-                rospy.loginfo("LEFT+FRONT BLOCKED -> TURN RIGHT22")
-                self.move(0.025,-0.45)
+            # 다른 흰 영역과 평균내지 않고 가장 큰 연결 영역 사용
+            count, labels, stats, centers = cv2.connectedComponentsWithStats(white_mask)
 
-                #####################################################################
-        if self.right_distance<0.25 and self.left_distance<=0.25 :
-            if yellow_area>6000:
-                self.obstacle_direction='left'
-                rospy.loginfo("slow left")
-                self.move(0.025,0.15)
-                
-            if self.white_area>6000:
-                self.obstacle_direction='right'
-                rospy.loginfo("slow right")
-                self.move(0.025,-0.15)
-            #####################################################
+            if count <= 1:
+                self.move(0, 0)
+                return
 
-        if self.obstacle_direction=='left': # 오른쪽 장애물 있어서 왼쪽으로 이동하자
+            index = 1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])
+            if stats[index, cv2.CC_STAT_AREA] < 50:
+                self.move(0, 0)
+                return
 
-            if yellow_area_b>5000 and white_area_b<500:
-                self.obstacle_direction='right'
-                rospy.loginfo("YELLOW BOTTOM LARGE -> TURN RIGHT")
-                self.move(0.025,-0.40)
+            white_x = centers[index][0]
+            target_x = width * 0.75
+            error = (target_x - white_x) / (width / 2.0)
+            angular = float(np.clip(error * 0.8, -0.25, 0.25))
 
-            elif self.front_distance<0.22 :
-                rospy.loginfo("front obstalce too close -> more fast turn left")
-                self.move(0.025,0.4)
-
-            elif front_points: #안전영역 안에 뭔가 계속 감지되면, 걍 계속 장애물 회피하는 겨
-                rospy.loginfo("keep going turn left")
-                self.move(0.03,0.3)
-
-            elif yellow_area>12000: #self.front_distance>0.40 and # 왼쪽으로 가다가 노란선 넘 많이 보이면
-                ##근데 뭔가 front point나 right distance 제한도 넣어야할듯
-                self.obstacle_direction='right'
-                rospy.loginfo("Yellow too close!!!! turn RIGHT")
-                self.move(0.03,-0.25)
-
+            # 오른쪽 경계선이 화면 중심 쪽으로 오면 가까워진 것으로 판단
+            if white_x < width * 0.65:
+                self.move(0, 0.20)
             else:
-                if self.front_distance<=0.4 and white_area_b<yellow_area_b<13000: # 대충 값 보고 바꿔야함 linearea랑 100000 둘다
-                    rospy.loginfo("obstacle detected !!! turn right start !!!")
-                    self.obstacle_direction='right'
-                    self.move(0.028,-0.30)
-                else: # 일단 넣어봄,,
-                    rospy.loginfo("IDK (left)")
-                    self.move(0.1,0.15)
+                self.move(0.06, angular)
 
-        elif self.obstacle_direction=='right': # 왼쪽에장애물 있어서 오른쪽으로 가기 또는 노란선 넘 가까워서 오르ㅜㄴ쪽회전
+            rospy.loginfo_throttle(0.3, "WHITE X: %.1f / TARGET: %.1f", white_x, target_x)
+            return
 
-            if 4000<yellow_area<8000: #self.front_distance>0.40 and # 오른쪽으로 가다가 흰선 넘 많이 보이면
-                self.obstacle_direction='right'
-                rospy.loginfo("yellow too close!!!! turn small right")
-                self.move(0.035,-0.035)
-            elif self.left_distance>1 and self.front_distance>1 and self.right_distance<0.2:
+    
 
-                self.obstacle_direction='right'
-                rospy.loginfo("yellow and obstacle too close!!!! turn small right22")
-                self.move(0.035,-0.02)
+        self.move(0, 0)
 
-            # elif self.white_area>7000 and self.front_distance>=0.25 : #self.front_distance>0.40 and # 오른쪽으로 가다가 흰선 넘 많이 보이면
-            elif white_area_b>3000 and self.front_distance>=0.25:
-                self.obstacle_direction='left'
-                rospy.loginfo("White too close!!!! turn left")
-                self.move(0.035,0.2)
-
-
-            elif front_points: #안전영역 안에 뭔가 계속 감지되면, 걍 계속 장애물 회피하는 겨
-                rospy.loginfo("keep going turn right")
-                self.move(0.03,-0.25)
-                
-
-            elif  self.right_distance<=0.18:
-                rospy.loginfo("right obstacle too close!!!! turn left")
-                self.obstacle_direction = 'left'
-                self.move(0.03,0.025) 
-            
-
-            else:
-                if self.front_distance<=0.4 and line_area<white_area_b<100000: # 대충 값 보고 바꿔야함 linearea랑 100000 둘다
-                    rospy.loginfo("obstacle detected !!! turn left start !!!")
-                    self.obstacle_direction='left'
-                    self.move(0.028,0.30)
-                else: # 일단 넣어봄,,
-                    rospy.loginfo("IDK (right)")
-                    self.move(0.08,-0.25)
-                    
     def move(self,linear,angular,tunnel=False): # 기존 노드가 유일한 명령 발행자
         msg=Twist()
         msg.linear.x=linear
@@ -937,8 +902,10 @@ class turtlebot():
 
             M_upper=cv2.moments(upper_mask)
             M_lower=cv2.moments(lower_mask)
-
-            offset=350
+            if self.step ==3 and self.speed ==2:
+                offset = 430
+            else:
+                offset=350
 
             if M_upper['m00']>0 and M_lower['m00']>0:
                 cx_upper=int(M_upper['m10']/M_upper['m00'])
@@ -1006,7 +973,7 @@ class turtlebot():
                 Kd=0.008
                 linear=17.0
                 max_angular=60.0
-                # rospy.loginfo("speed 2 active")
+                rospy.loginfo("speed 2 active")
                 # Kp 증가: 차선 중심에서 벗어났을 때 더 강하게 회전함.
                 # Kd 증가: 오차가 빠르게 변할 때 반응을 더 크게 만듦. 급격한 흔들림이 생길 수도 있음.
             elif self.step ==6:
@@ -1032,8 +999,6 @@ class turtlebot():
                     Kd=0.0015
                     linear=23.0
                     max_angular=50.0
-
-
 
                 elif self.step ==2:
                     Kp=0.15
@@ -1330,23 +1295,52 @@ class turtlebot():
                 # self.straight_count = 0
                 self.straight =None          
 
-        elif self.step==3:
-            if self.check_obstacle_start():
-                self.obstacle_move(image)
-                self.obstacle_move_count+=1
 
-                if self.obstacle_move_count>=10:
-                    self.speed=2
+        elif self.step == 3:
+            # 첫 장애물 감지 시 회피 순서 시작
+            if self.obstacle_stage is None:
+                if not self.check_obstacle_start():
+                    self.lane_tracking(image)
+                    return
 
+                self.obstacle_stage = 'left'
+                self.obstacle_stage_count = 0
+                self.obstacle_turn_start = rospy.Time.now().to_sec()
+                self.obstacle_clear_count = 0
+                rospy.loginfo("FIRST OBSTACLE -> TURN LEFT")
+
+            # 두 장애물을 모두 회피한 이후에만 구간 종료 확인
+            if self.obstacle_stage == 'done' and self.check_obstacle_end():
+                self.obstacle_stage = None
+                self.obstacle_stage_count = 0
+                self.obstacle_turn_start = None
+                self.obstacle_move_count = 0
+                self.obstacle_pass_count = 0
+                self.turn_detect = None
+                self.speed = 0
+                self.move(0, 0)
                 return
 
-            if self.obstacle_move_count>=10:
-                if self.check_obstacle_end():
-                    self.obstacle_move_count=0
-                    self.obstacle_pass_count=0
-                    self.turn_detect=None
-                    self.speed=0
-                    return
+            self.obstacle_move(image)
+            return
+
+        # elif self.step==3:
+        #     if self.check_obstacle_start():
+        #         self.obstacle_move(image)
+        #         self.obstacle_move_count+=1
+
+        #         if self.obstacle_move_count>=10:
+        #             self.speed=2
+
+        #         return
+
+        #     if self.obstacle_move_count>=10:
+        #         if self.check_obstacle_end():
+        #             self.obstacle_move_count=0
+        #             self.obstacle_pass_count=0
+        #             self.turn_detect=None
+        #             self.speed=0
+        #             return
 
 
         elif self.step==4: # 장애물 후 straight 발견 --> 주차구간 시작 직전임
@@ -1397,7 +1391,7 @@ class turtlebot():
 
             height, width = crop_img.shape[:2]
             hsv = cv2.cvtColor(crop_img, cv2.COLOR_BGR2HSV)
-            yellow_mask = cv2.inRange(hsv, np.array([15, 100, 100]), np.array([50, 255, 255]))
+            yellow_mask = cv2.inRange(hsv, np.array([15, 100, 218]), np.array([50, 255, 255]))
 
             # 가까운 노란선을 기준으로 중심 계산
             yellow_mask[:height // 4, :] = 0
@@ -1405,7 +1399,7 @@ class turtlebot():
             rospy.loginfo("Yellow is: %d", self.yellow_area)
 
             # 노란선이 사라지면 천천히 직진하며 연속 프레임 확인
-            if self.yellow_area <= 20:
+            if self.yellow_area <= 200:
                 self.yellow_zero_count += 1
 
                 if self.yellow_zero_count < 5:
