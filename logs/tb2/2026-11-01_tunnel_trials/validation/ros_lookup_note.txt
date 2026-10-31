@@ -1,0 +1,14 @@
+수집 중 확인한 별도 환경 차이 (주행 로그 원인과 구분)
+
+원격 3853f66은 시험 이후 받은 Gazebo ROS 패키지 검색 경로 변경이다.
+NUC의 sparse checkout에 새 ros/tb_tunnel_sim 폴더가 제외되어 있었으므로,
+기존 제외 규칙을 보존하면서 해당 폴더를 추가하고 Git의 원본 파일을 복원했다.
+운영 코드나 테스트 내용을 수정하지 않았다.
+
+복원 후 test_sim_wiring.py 9개 실행: 8개 통과, 1개 실패.
+실패: test_ros_resolver_excludes_recorded_controllers.
+NUC의 roslib.packages.find_node는 단일 실행 파일의 symlink 경로를 반환하고,
+테스트는 그 symlink가 가리키는 실제 try_maze.py 경로 문자열을 기대한다.
+관측된 첫 실패는 중복 노드가 아니라 symlink 경로와 실제 경로의 문자열 차이다.
+뒤의 중복 파일 추가 검사는 이 첫 assert에서 중단되어 실행되지 않았다.
+코드/테스트 수정은 다른 컴퓨터에서 진행한다. Gazebo나 실차를 실행한 검사가 아니다.

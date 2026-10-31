@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "timezone": "Asia/Seoul",
+  "collected_at": "2026-11-01T00:14:31.724913+09:00",
+  "scope": "Latest ROS session started 2026-10-31 23:32; 13 controller runs through 2026-11-01 00:09:27 SIGINT.",
+  "reference_driving_commit": "98e97bc9134d69924ff50cce697a58d6623fd0c1",
+  "repository_parent_at_publication": "3853f660c5cc4bd91e34a118d0300b817fef4ead",
+  "commit_evidence": "Reference commit was verified on TB2 before these trials. Individual controllers do not embed a Git commit in their logs. No new driving code was written for this handoff.",
+  "physical_contact_evidence": "User reported scraping a wall while rotating in a recent trial; the most recent completed trial at that point was the 23:58 run, but the exact contact timestamp is not established. Geometric blockage and COMPLETE logs are not physical contact sensors or proof of collision-free travel.",
+  "raw_odom_linear_scale_used_by_tunnel": 2.893939393939394,
+  "tunnel_angular_command_divisor": 3.3,
+  "files": [
+    {
+      "file": "controllers/controller_4742_1793457201434.log",
+      "source_path": "/home/sj/.ros/log/controller_4742_1793457201434.log",
+      "bytes": 74616,
+      "sha256": "c136bc6ca19aa786dfa47c715b88eefb17a81ed3c1f52e67727715e9d80fc2c8"
+    },
+    {
+      "file": "controllers/controller_4902_1793457353488.log",
+      "source_path": "/home/sj/.ros/log/controller_4902_1793457353488.log",
+      "bytes": 73784,
+      "sha256": "889dac5a15a3e5bbdc44694d9f7e353b1ec22a42f440ca0f1c0b7c5e10951103"
+    },
+    {
+      "file": "controllers/controller_5339_1793457472191.log",
+      "source_path": "/home/sj/.ros/log/controller_5339_1793457472191.log",
+      "bytes": 77720,
+      "sha256": "005a54f8ffd382ee46f4f0d287628c9cd18d49ab2f1daca5b762e39d6a02ae0c"
+    },
+    {
+      "file": "controllers/controller_5482_1793457517339.log",
+      "source_path": "/home/sj/.ros/log/controller_5482_1793457517339.log",
+      "bytes": 75643,
+      "sha256": "9a256a61f1d92c987849a877224adbd5014e89fe8fc986cfb02dba0e93eee2ea"
+    },
+    {
+      "file": "controllers/controller_5627_1793457610634.log",
+      "source_path": "/home/sj/.ros/log/controller_5627_1793457610634.log",
+      "bytes": 75830,
+      "sha256": "01b71fcd295ded0c8e71d5b3b7b5bf2c68d4a8e64e5301ef293b66b1d1aea436"
+    },
+    {
+      "file": "controllers/controller_5873_1793458075489.log",
+      "source_path": "/home/sj/.ros/log/controller_5873_1793458075489.log",
+      "bytes": 86574,
+      "sha256": "9f6d3de0e82d75b1d9bd76f917490cbeadf117f3bc3873f226eb0014fced659e"
+    },
+    {
+      "file": "controllers/controller_6021_1793458189037.log",
+      "source_path": "/home/sj/.ros/log/controller_6021_1793458189037.log",
+      "bytes": 77657,
+      "sha256": "8bdce3a1a6dd90e4f11ca79b5148f758b47559d0bebd34ea4a7f5bdba0806fb2"
+    },
+    {
+      "file": "controllers/controller_6197_1793458284241.log",
+      "source_path": "/home/sj/.ros/log/controller_6197_1793458284241.log",
+      "bytes": 76561,
+      "sha256": "73bd5b7a89cbb68a39344f2f28670e7e05d4a6ab74e9252e50c9d467da5d2314"
+    },
+    {
+      "file": "controllers/controller_6409_1793458546704.log",
+      "source_path": "/home/sj/.ros/log/controller_6409_1793458546704.log",
+      "bytes": 84853,
+      "sha256": "2b31d3066f5dad2cb633a4551b24e5727e11b6f6cca471f938601ff5a5e104a4"
+    },
+    {
+      "file": "controllers/controller_6848_1793458659971.log",
+      "source_path": "/home/sj/.ros/log/controller_6848_1793458659971.log",
+      "bytes": 82709,
+      "sha256": "1ed5b7316f526f9cd2864520fb0fd1eb29575cbb7b5cc0154f0af4ad4ebcf63c"
+    },
+    {
+      "file": "controllers/controller_7646_1793459152216.log",
+      "source_path": "/home/sj/.ros/log/controller_7646_1793459152216.log",
+      "bytes": 72404,
+      "sha256": "12c8a368c9c554f91fc72f1957675dae957d69b3c1351def5375cff500cd07ba"
+    },
+    {
+      "file": "controllers/controller_7788_1793459279617.log",
+      "source_path": "/home/sj/.ros/log/controller_7788_1793459279617.log",
+      "bytes": 77392,
+      "sha256": "0215665ab61105e855a8b1c430b2a02e70557f8a465bac685a19c411e0733504"
+    },
+    {
+      "file": "controllers/controller_7977_1793459339707.log",
+      "source_path": "/home/sj/.ros/log/controller_7977_1793459339707.log",
+      "bytes": 72751,
+      "sha256": "1ea2b9fd49395655aef5f80b83810d6f228f67416aeb8388fe59e5f8a3e819f5"
+    },
+    {
+      "file": "controller_run_summary.json",
+      "source_path": "/tmp/tb_log_handoff_review/controller_run_summary.json",
+      "bytes": 40394,
+      "sha256": "687df3ac296d044a9c97c62168d85afdbdcfbaa3f0af1806bdb90115bf893751"
+    },
+    {
+      "file": "controller_run_summary.csv",
+      "source_path": "/tmp/tb_log_handoff_review/controller_run_summary.csv",
+      "bytes": 6633,
+      "sha256": "957a71d609fbec6a58b5be29ab802359a264cf44a6553a3a98c0dde296c86c0f",
+      "format_note": "Generated summary CSV line endings normalized to LF."
+    },
+    {
+      "file": "ros_session/rosout.log",
+      "source_path": "/home/sj/.ros/log/f1c27328-d537-11f1-9cdc-3524f567535e/rosout.log",
+      "bytes": 3454911,
+      "sha256": "792d1733b821415ce6ae11834ee79eaf61fe64887d3dae070b842d672e427039"
+    },
+    {
+      "file": "ros_session/turtlebot3_core-5.log",
+      "source_path": "/home/sj/.ros/log/f1c27328-d537-11f1-9cdc-3524f567535e/turtlebot3_core-5.log",
+      "bytes": 15801,
+      "sha256": "1a3ea2e1ac129e98f2872bcc72e32ed0c72874f4db9432278d5693de787f2045"
+    },
+    {
+      "file": "ros_session/roslaunch-g2-nuc-4520.log",
+      "source_path": "/home/sj/.ros/log/f1c27328-d537-11f1-9cdc-3524f567535e/roslaunch-g2-nuc-4520.log",
+      "bytes": 49102,
+      "sha256": "9fcb13ee9cbc14b42652f5f795d7c4db72b481144bec49790c0e24e160d1e0f7"
+    },
+    {
+      "file": "configuration/tunnel.real.yaml",
+      "source_path": "/home/sj/ParkCars/TB-tunnel-nuc/codes/stepbystep/tunnel.real.yaml",
+      "bytes": 3969,
+      "sha256": "438b918804afe83e91930534f66db06e049cf405162dec73432cea1c70a3f7b0"
+    },
+    {
+      "file": "configuration/navigation.yaml",
+      "source_path": "/home/sj/ParkCars/TB-tunnel-nuc/codes/tunnel/navigation.yaml",
+      "bytes": 549,
+      "sha256": "ec03a3a32d2ceda7a2b40596744e627c76117e228849a0991b18c6c977cf4255"
+    },
+    {
+      "file": "configuration/sensors.launch",
+      "source_path": "/home/sj/ParkCars/TB-tunnel-nuc/launch/sensors.launch",
+      "bytes": 2107,
+      "sha256": "63e45228418db70f87fe2619c82d4cee9e3bd82157280c616d7cd19d9f2c1382"
+    },
+    {
+      "file": "configuration/tunnel_practice_1820.geometry.json",
+      "source_path": "/home/sj/ParkCars/TB-tunnel-nuc/codes/stepbystep/maps/tunnel_practice_1820.geometry.json",
+      "bytes": 3015,
+      "sha256": "b4f6a0c7ba2c2e12644cf112f279311c4d0ceb29cd698d8b9cd7319f1c3d0f58"
+    }
+  ],
+  "operational_source_sha256": {
+    "codes/stepbystep/try_maze.py": "58ee62ef330408d0748544e4a110453b6f29f970306fe91dc35df614959f453f",
+    "codes/tunnel/mission.py": "168890ed94486f9281fe6694654f990d1e5f9ac24c38bc42f2853a4a3edfa898",
+    "codes/tunnel/planner.py": "c43cc7994481b47876ac78cf4e4f39360773e7097c25fd1ce1813e933e0c473d",
+    "codes/tunnel/geometry.py": "c009b1534f7e1decca191d6081897641364668060838c6a34d2ac516a1a504f6",
+    "codes/tunnel/costmap.py": "2bf5c5eb5e9e18a4629bed513f0c11e3f740d371d4683f2ff81c71db7381a0a2",
+    "codes/tunnel/localization.py": "e14bc1f3c05b1f4df6d435fbc5af759885fb5324c045c07785049226621364be",
+    "codes/tunnel/cloud.py": "341e68528a4e9db2188f434c494b6cc382fd6e13c2875419bf2330632bee27eb",
+    "codes/tunnel/tracking.py": "b29710b991f74348996887edfc0978be6a22b98efa87bcfaec27ce3bfc8d4979",
+    "codes/tunnel/odometry.py": "bcbd4221e1219ee26860bbde2b86e641b6a00ebf501919d1fc58a6fba999222c"
+  },
+  "telemetry_metadata": "telemetry/metadata.json",
+  "validation_note": "validation/ros_lookup_note.txt"
+}
