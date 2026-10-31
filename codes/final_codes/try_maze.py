@@ -216,13 +216,16 @@ class turtlebot():
                 self.prev_target_x=None
                 self.prev_v_l=self.prev_v_r=0.0
             else:
-                self.step=9 if self.tunnel.state=='ENTRY' else 10
+                self.step=9 if self.tunnel.state in ('LOCALIZING','ENTRY') else 10
             status=(self.tunnel.state,self.tunnel.reason)
             if status!=getattr(self,'tunnel_logged_status',None):
                 rospy.loginfo("TUNNEL: %s %s",*status)
                 self.tunnel_logged_status=status
             else:
                 rospy.loginfo_throttle(1.0,"TUNNEL: %s %s",*status)
+            tracking=getattr(self.tunnel,'wall_tracking_report','')
+            if tracking:
+                rospy.loginfo_throttle(1.0,"TUNNEL WALL TRACKING: %s",tracking)
 
     def lane_detect(self,image):
         crop=image[300:,:]
@@ -258,16 +261,23 @@ class turtlebot():
                 # including its treatment of non-normalized quaternions.
                 kdl_rotation=tf2_sensor_msgs.tf2_sensor_msgs.transform_to_kdl(transform).M
                 rotation=np.array([[kdl_rotation[i,j] for j in range(3)] for i in range(3)])
+                localization=self.tunnel_config.get('localization',{})
+                wall_band=(localization.get('height_band') if self.tunnel.anchor is None
+                           or localization.get('tracking_period',0.) else None)
                 points=tunnel_cloud_xy(data,rotation,np.array([p.x,p.y,p.z]),
                                        self.tunnel_config['sensors'],point_cloud2.read_points,
-                                       motion_poses=self.tunnel_motion_poses)
+                                       motion_poses=self.tunnel_motion_poses,wall_height_band=wall_band)
+                wall_points=None
+                if wall_band is not None and points is not None:
+                    points,wall_points=points
                 if points is not None and self.step in (9,10):
                     self.obstacle_points=[]
                     pose_timeout=0. if self.tunnel_config['sensors'].get('livox_motion_compensation',False) else .1
                     poses=self.tunnel_lidar_pose(transform,data.header,timeout=pose_timeout)
                     if poses is not None:
                         sensor_pose,scan_pose=poses
-                        self.tunnel.update_cloud(points,sensor_pose,scan_pose,data.header.stamp.to_sec())
+                        self.tunnel.update_cloud(points,sensor_pose,scan_pose,data.header.stamp.to_sec(),
+                                                 localization_points=wall_points)
                     return
             cloud=tf2_sensor_msgs.tf2_sensor_msgs.do_transform_cloud(data,transform)
         except Exception as e:

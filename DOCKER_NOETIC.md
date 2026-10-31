@@ -47,3 +47,9 @@ docker compose -f compose.gazebo.yaml down
 ```bash
 docker compose -f compose.gazebo.yaml run --rm --no-deps gazebo bash -lc 'source /opt/ros/noetic/setup.bash && source /workspace/devel/setup.bash && python3 -m unittest discover -s tests && python3 tests/ros_smoke.py'
 ```
+
+실차 카메라(노출 `20000µs`·게인 `16`)·LiDAR·OpenCR·장착 TF를 시작한다.
+
+```bash
+roslaunch launch/sensors.launch enable_depth:=true
+```

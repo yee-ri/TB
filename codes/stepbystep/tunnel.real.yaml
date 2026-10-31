@@ -7,6 +7,9 @@ localization:
   confirmation_scans: 3
   observation_window: 1.0
   height_band: [0.04, 0.23]
+  tracking_period: 0.20 # Moving wall alignment in a separate worker; 0 disables it.
+  tracking_max_translation: 0.08 # Maximum correction per accepted fit, metres.
+  tracking_max_yaw_deg: 6.0
 odometry:
   linear_scale: 2.893939393939394 # Multiply input odom XY and linear speed; divide tunnel linear commands.
   angular_command_scale: 3.3 # Divide tunnel angular commands; measured IMU yaw/rate are unchanged.
@@ -21,7 +24,7 @@ footprint:
   front: 0.067645
   rear: 0.118073
   half_width: 0.0903
-  padding: 0.0 # Collision padding around the measured rectangular body, metres.
+  padding: 0.0 # Use the measured body dimensions without added padding.
 sensors:
   base_frame: base_footprint
   livox_particle_filter: true # Reject non-normal particle-confidence tags (bits 2..3).
@@ -33,8 +36,7 @@ sensors:
   range_min: 0.05
   range_max: 3.0
   angular_bins: 720
-  maximum_age: 0.3
-  lidar_maximum_age: null # Null disables LiDAR age rejection, including after sensor loss; 0.30 restores it.
+  maximum_age: 0.3 # Initial wall alignment and background wall-fit result age, seconds.
   maximum_future_stamp: 0.06
   lane_maximum_age: 0.3
   minimum_lane_pixels: 30
@@ -88,7 +90,7 @@ control:
   angular_acceleration: 8.0
   safety_linear_deceleration: 0.15 # Local command deceleration cap; also used by entry speed control.
   safety_angular_deceleration: 0.55 # Initial alignment deceleration.
-  safety_reaction_time: 0.1 # Odom command-return age limit; also used by initial entry/alignment.
+  safety_reaction_time: 0.1 # Reaction time used by initial entry/alignment only.
   safety_distance_margin: 0.01 # Initial entry stopping margin, metres.
   planning_stopped_linear: 0.008
   planning_stopped_angular: 0.03

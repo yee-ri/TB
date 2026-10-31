@@ -13,6 +13,7 @@ roslaunch launch/sensors.launch enable_depth:=true
 ```
 
 카메라·LiDAR·OpenCR·장착 TF를 시작한다. 기존 센서 실행이 있으면 먼저 종료한다.
+카메라는 자동 노출을 끄고 노출 `20000µs`·게인 `16`으로 시작한다.
 
 ## 직접 주행 시작 — 터미널 B
 

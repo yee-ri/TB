@@ -1,4 +1,4 @@
-"""Occupancy grids and swept rectangular-body collision checks."""
+"""Occupancy grids and swept collision checks for rectangular body components."""
 
 from dataclasses import dataclass
 import heapq
@@ -22,25 +22,44 @@ class Pose2D:
 
 @dataclass(frozen=True)
 class RectangularFootprint:
-    """Robot bounds relative to its base pose.
+    """Robot envelope and optional component rectangles in the base frame.
 
-    ``front`` and ``rear`` are intentionally separate because the TurtleBot3
-    base frame is not at the geometric centre of its footprint. ``padding`` is
-    applied on all four sides before every collision check.
+    Each part is ``(xmin, ymin, xmax, ymax)`` inside the envelope. Without
+    parts, the envelope itself is checked. Padding expands each checked
+    rectangle on all four sides.
     """
 
     front: float
     rear: float
     half_width: float
     padding: float = 0.0
+    parts: tuple = ()
 
     def __post_init__(self):
+        if not all(math.isfinite(v) for v in
+                   (self.front, self.rear, self.half_width, self.padding)):
+            raise ValueError("footprint dimensions must be finite")
         if self.front <= 0.0 or self.rear <= 0.0:
             raise ValueError("footprint front and rear must be positive")
         if self.half_width <= 0.0:
             raise ValueError("footprint half_width must be positive")
         if self.padding < 0.0:
             raise ValueError("footprint padding cannot be negative")
+        try:
+            parts = tuple(tuple(float(v) for v in part) for part in self.parts)
+        except (TypeError, ValueError, OverflowError) as error:
+            raise ValueError("footprint parts must contain four finite coordinates") from error
+        for part in parts:
+            if len(part) != 4 or not all(math.isfinite(v) for v in part):
+                raise ValueError("footprint parts must contain four finite coordinates")
+            xmin, ymin, xmax, ymax = part
+            if xmin >= xmax or ymin >= ymax:
+                raise ValueError("footprint parts must have positive length and width")
+            if (xmin < -self.rear - 1e-10 or xmax > self.front + 1e-10
+                    or ymin < -self.half_width - 1e-10
+                    or ymax > self.half_width + 1e-10):
+                raise ValueError("footprint parts must stay inside the body envelope")
+        object.__setattr__(self, 'parts', parts)
 
 
 class OccupancyGrid:
@@ -306,7 +325,7 @@ class OccupancyGrid:
 
 
 class CollisionGeometry:
-    """A rectangular body, turning bound and full swept collision checks."""
+    """Body components, turning bound and full swept collision checks."""
 
     def __init__(self, footprint, minimum_turning_radius=.30,
                  inflation_radius=0., collision_check_step=.025,
@@ -320,6 +339,12 @@ class CollisionGeometry:
         if collision_check_step <= 0. or collision_check_angle <= 0.:
             raise ValueError('collision sampling intervals must be positive')
         self.footprint = footprint
+        parts = footprint.parts or ((-footprint.rear, -footprint.half_width,
+                                     footprint.front, footprint.half_width),)
+        self._body_rectangles = tuple(
+            ((x0+x1)/2., (y0+y1)/2., (x1-x0)/2.+footprint.padding,
+             (y1-y0)/2.+footprint.padding)
+            for x0, y0, x1, y1 in parts)
         self.minimum_turning_radius = float(minimum_turning_radius)
         self.inflation_radius = float(inflation_radius)
         self.collision_check_step = float(collision_check_step)
@@ -427,6 +452,7 @@ class CollisionGeometry:
         )
 
     def footprint_geometry(self, pose):
+        """Return the padded envelope used for broad-phase and exit checks."""
         front = self.footprint.front + self.footprint.padding
         rear = self.footprint.rear + self.footprint.padding
         half_width = self.footprint.half_width + self.footprint.padding
@@ -446,32 +472,27 @@ class CollisionGeometry:
         )
 
     def _pose_collision_query(self, grid, pose):
-        """Return the footprint rectangle and its coarse grid bounds."""
+        """Return all oriented body rectangles and their shared grid bounds."""
         if not self._pose_is_within_keep_in(pose):
             return None
 
         epsilon = 1e-10
-        (
-            centre_x,
-            centre_y,
-            cosine,
-            sine,
-            half_length,
-            half_width,
-        ) = self.footprint_geometry(pose)
-
+        cosine, sine = math.cos(pose.yaw), math.sin(pose.yaw)
         absolute_cosine = abs(cosine)
         absolute_sine = abs(sine)
-        extent_x = (
-            absolute_cosine * half_length + absolute_sine * half_width
-        )
-        extent_y = (
-            absolute_sine * half_length + absolute_cosine * half_width
-        )
-        footprint_minimum_x = centre_x - extent_x
-        footprint_maximum_x = centre_x + extent_x
-        footprint_minimum_y = centre_y - extent_y
-        footprint_maximum_y = centre_y + extent_y
+        footprints, bounds = [], []
+        for x, y, half_length, half_width in self._body_rectangles:
+            centre_x = pose.x + x*cosine - y*sine
+            centre_y = pose.y + x*sine + y*cosine
+            extent_x = absolute_cosine*half_length + absolute_sine*half_width
+            extent_y = absolute_sine*half_length + absolute_cosine*half_width
+            footprints.append((centre_x, centre_y, cosine, sine, half_length, half_width))
+            bounds.append((centre_x-extent_x, centre_y-extent_y,
+                           centre_x+extent_x, centre_y+extent_y))
+        footprint_minimum_x = min(b[0] for b in bounds)
+        footprint_minimum_y = min(b[1] for b in bounds)
+        footprint_maximum_x = max(b[2] for b in bounds)
+        footprint_maximum_y = max(b[3] for b in bounds)
         if (
             footprint_minimum_x < grid.origin_x - epsilon
             or footprint_maximum_x > grid.maximum_x + epsilon
@@ -512,18 +533,17 @@ class CollisionGeometry:
                 )
             ),
         )
-        return ((centre_x, centre_y, cosine, sine, half_length, half_width),
-                (minimum_x, maximum_x, minimum_y, maximum_y))
+        return footprints, (minimum_x, maximum_x, minimum_y, maximum_y)
 
     def _pose_is_collision_free(self, grid, pose):
         query = self._pose_collision_query(grid, pose)
         if query is None:
             return False
-        footprint, bounds = query
-        return self._footprints_are_collision_free(grid, bounds, [footprint])
+        footprints, bounds = query
+        return self._footprints_are_collision_free(grid, bounds, footprints)
 
     def _footprints_are_collision_free(self, grid, bounds, footprints):
-        """One SAT implementation for up to 32 poses with identical cell bounds."""
+        """Test body rectangles against the same occupied-cell query."""
         if (
             grid.occupied_count(
                 *bounds,
@@ -537,11 +557,12 @@ class CollisionGeometry:
         )
         if geometry.shape[0] == 0:
             return True
-        # Limit broadcast SAT matrices to at most 32 poses by 256 cells.
-        fields = np.asarray(footprints, dtype=np.float64).T[:, :, None]
-        for first in range(0, geometry.shape[0], 256):
-            if self._footprints_overlap_cells(fields, geometry[first:first + 256]):
-                return False
+        # Bound broadcast matrices to 32 body rectangles by 256 cells.
+        for body in range(0, len(footprints), 32):
+            fields = np.asarray(footprints[body:body + 32], dtype=np.float64).T[:, :, None]
+            for first in range(0, geometry.shape[0], 256):
+                if self._footprints_overlap_cells(fields, geometry[first:first + 256]):
+                    return False
         return True
 
     @staticmethod
@@ -593,20 +614,114 @@ class CollisionGeometry:
             query = self._pose_collision_query(grid, pose)
             if query is None:
                 return False
-            footprint, current_bounds = query
-            if footprints and (current_bounds != bounds or len(footprints) == 32):
+            body, current_bounds = query
+            if footprints and (current_bounds != bounds or len(footprints) + len(body) > 32):
                 if not self._footprints_are_collision_free(grid, bounds, footprints):
                     return False
                 footprints = []
             bounds = current_bounds
-            footprints.append(footprint)
+            footprints.extend(body)
         return not footprints or self._footprints_are_collision_free(grid, bounds, footprints)
 
     def pose_is_collision_free(self, grid, pose):
-        """Check an oriented rectangle against bounds and occupied cells."""
+        """Check every body component against bounds and occupied cells."""
         if not isinstance(grid, OccupancyGrid):
             raise TypeError("grid must be an OccupancyGrid")
         return self._pose_is_collision_free(grid, self._coerce_pose(pose))
+
+    @staticmethod
+    def _rectangle_clearances(footprints, obstacles, limits):
+        """Exact OBB/AABB distances, capped by each footprint's current limit."""
+        squared = np.square(limits)
+        for first in range(0, len(footprints), 32):
+            body = footprints[first:first + 32]
+            cx, cy, c, s, hx, hy = body.T
+            ex, ey = abs(c)*hx + abs(s)*hy, abs(s)*hx + abs(c)*hy
+            current = squared[first:first + len(body)]
+            for offset in range(0, len(obstacles), 256):
+                cells = obstacles[offset:offset + 256]
+                dx = cells[None, :, 0] - cx[:, None]
+                dy = cells[None, :, 1] - cy[:, None]
+                gx = np.maximum(abs(dx)-ex[:, None]-cells[None, :, 2], 0.)
+                gy = np.maximum(abs(dy)-ey[:, None]-cells[None, :, 3], 0.)
+                i, j = np.nonzero(gx*gx + gy*gy < current[:, None])
+                if not len(i):
+                    continue
+                dx, dy = dx[i, j], dy[i, j]
+                cosine, sine, half_x, half_y = c[i], s[i], hx[i], hy[i]
+                cell_x, cell_y = cells[j, 2], cells[j, 3]
+                overlap = (
+                    (abs(dx*cosine+dy*sine) <= half_x+cell_x*abs(cosine)+cell_y*abs(sine)+1e-10)
+                    & (abs(-dx*sine+dy*cosine) <= half_y+cell_x*abs(sine)+cell_y*abs(cosine)+1e-10)
+                    & (abs(dx) <= ex[i]+cell_x+1e-10)
+                    & (abs(dy) <= ey[i]+cell_y+1e-10))
+                nearest = np.full(len(i), np.inf)
+                # For disjoint rectangles, a closest pair includes a vertex.
+                for sign_x, sign_y in ((-1., -1.), (-1., 1.), (1., -1.), (1., 1.)):
+                    x = sign_x*half_x*cosine-sign_y*half_y*sine-dx
+                    y = sign_x*half_x*sine+sign_y*half_y*cosine-dy
+                    gx, gy = np.maximum(abs(x)-cell_x, 0.), np.maximum(abs(y)-cell_y, 0.)
+                    np.minimum(nearest, gx*gx+gy*gy, out=nearest)
+                    x, y = dx+sign_x*cell_x, dy+sign_y*cell_y
+                    gx = np.maximum(abs(x*cosine+y*sine)-half_x, 0.)
+                    gy = np.maximum(abs(-x*sine+y*cosine)-half_y, 0.)
+                    np.minimum(nearest, gx*gx+gy*gy, out=nearest)
+                nearest[overlap] = 0.
+                np.minimum.at(current, i, nearest)
+        return np.sqrt(squared)
+
+    def primitive_clearances(self, grid, start, curvature, distance, maximum_clearance, samples=9):
+        """Return capped body clearances at the start and arc samples, for scoring.
+
+        Samples are uniformly spaced along the arc, independently of the finer
+        hard-collision sweep. This preference must not replace
+        ``primitive_is_collision_free``.
+        Distances include padded components, exact occupied rectangles and the
+        map exterior. Keep-in constraints remain in the hard collision checker.
+        """
+        if not isinstance(grid, OccupancyGrid):
+            raise TypeError("grid must be an OccupancyGrid")
+        start = self._coerce_pose(start)
+        curvature, distance, maximum_clearance = map(float, (curvature, distance, maximum_clearance))
+        if (not all(math.isfinite(v) for v in (start.x, start.y, start.yaw,
+                                              curvature, distance, maximum_clearance))
+                or distance < 0. or maximum_clearance < 0.):
+            raise ValueError("clearance inputs must be finite with nonnegative distances")
+        try:
+            sample_count = float(samples)
+        except (TypeError, ValueError, OverflowError) as error:
+            raise ValueError("clearance samples must be a finite integer of at least 2") from error
+        if not math.isfinite(sample_count) or sample_count < 2 or not sample_count.is_integer():
+            raise ValueError("clearance samples must be a finite integer of at least 2")
+        poses = [start]
+        if distance > 0.:
+            poses.extend(self.propagate(start, curvature, value)
+                         for value in np.linspace(0., distance, int(sample_count))[1:])
+        values = np.asarray([(p.x, p.y, p.yaw) for p in poses])
+        parts = np.asarray(self._body_rectangles)
+        c, s = np.cos(values[:, 2, None]), np.sin(values[:, 2, None])
+        cx = values[:, 0, None] + c*parts[None, :, 0] - s*parts[None, :, 1]
+        cy = values[:, 1, None] + s*parts[None, :, 0] + c*parts[None, :, 1]
+        hx, hy = np.broadcast_to(parts[:, 2], cx.shape), np.broadcast_to(parts[:, 3], cx.shape)
+        ex, ey = abs(c)*hx + abs(s)*hy, abs(s)*hx + abs(c)*hy
+        boundary = np.minimum.reduce((cx-ex-grid.origin_x, grid.maximum_x-cx-ex,
+                                      cy-ey-grid.origin_y, grid.maximum_y-cy-ey))
+        limits = np.clip(boundary, 0., maximum_clearance).ravel()
+        active = limits > 0.
+        if np.any(active):
+            footprints = np.stack((cx, cy, np.broadcast_to(c, cx.shape),
+                                   np.broadcast_to(s, cx.shape), hx, hy), axis=-1).reshape(-1, 6)
+            x0 = float(np.min((cx-ex).ravel()[active]))-maximum_clearance
+            y0 = float(np.min((cy-ey).ravel()[active]))-maximum_clearance
+            x1 = float(np.max((cx+ex).ravel()[active]))+maximum_clearance
+            y1 = float(np.max((cy+ey).ravel()[active]))+maximum_clearance
+            c0, r0 = grid.world_to_grid(x0, y0)
+            c1, r1 = grid.world_to_grid(x1, y1)
+            bounds = (max(0, c0), min(grid.width-1, c1), max(0, r0), min(grid.height-1, r1))
+            if grid.occupied_count(*bounds, self.inflation_radius):
+                obstacles = grid.occupied_cell_geometry(*bounds, self.inflation_radius)
+                limits[active] = self._rectangle_clearances(footprints[active], obstacles, limits[active])
+        return np.min(limits.reshape(cx.shape), axis=1)
 
     def _pose_is_within_keep_in(self, pose):
         if not self.keep_in_rectangles:

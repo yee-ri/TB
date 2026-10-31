@@ -182,7 +182,7 @@ def tunnel_cloud_xy(cloud, rotation, translation, settings, read_points, motion_
     without supplying free-space rays.
 
     ``wall_height_band`` optionally returns (obstacle_xy, wall_xy) from the
-    same transform. Wall XY is used only for stopped initial registration:
+    same transform. Wall XY serves initial registration and moving wall tracking:
     its ground-height band replaces the horizontal slice and includes weak
     intensity 0/1 returns from black walls. Particle rejection, acquisition
     transforms, finite coordinates and range checks still apply. It must
