@@ -1,0 +1,1035 @@
+{
+  "schema_version": 1,
+  "timezone": "Asia/Seoul (UTC+09:00)",
+  "source_session": "/home/sj/.ros/log/f1c27328-d537-11f1-9cdc-3524f567535e",
+  "roslaunch_start_kst": "2026-10-31T23:32:48.222+09:00",
+  "master_start_kst": "2026-10-31T23:32:48.599+09:00",
+  "scope": "All top-level controller_*.log files whose first timestamp follows this ROS session start through the last observed controller shutdown 2026-11-01T00:09:28.076+09:00. Log evidence only.",
+  "notes": [
+    "COMPLETE reports controller exit-crossing state; it does not independently verify collision-free physical traversal.",
+    "signal-2 is SIGINT; these logs do not identify who sent it or the physical reason.",
+    "Padded windows are selection aids, not additional measured activity. Motion windows include 2 s padding; full-process windows include 1 s padding."
+  ],
+  "run_count": 13,
+  "complete_count": 5,
+  "runs": [
+    {
+      "pid": 4742,
+      "source_file": "/home/sj/.ros/log/controller_4742_1793457201434.log",
+      "file_name": "controller_4742_1793457201434.log",
+      "sha256": "c136bc6ca19aa786dfa47c715b88eefb17a81ed3c1f52e67727715e9d80fc2c8",
+      "size_bytes": 74616,
+      "start": {
+        "line": 1,
+        "time_kst": "2026-10-31T23:33:21.463+09:00",
+        "epoch": 1793457201.463,
+        "message": "init_node, name[/controller_4742_1793457201434], pid[4742]"
+      },
+      "tunnel_start": {
+        "line": 970,
+        "time_kst": "2026-10-31T23:33:36.033+09:00",
+        "epoch": 1793457216.033,
+        "message": "TUNNEL: LOCALIZING waiting for odometry and lidar"
+      },
+      "first_entry": {
+        "line": 979,
+        "time_kst": "2026-10-31T23:33:37.685+09:00",
+        "epoch": 1793457217.685,
+        "message": "TUNNEL: ENTRY wall alignment x=0.202m y=-0.015m yaw=-0.17deg rms=0.0118m"
+      },
+      "entry_alignment": {
+        "line": 979,
+        "time_kst": "2026-10-31T23:33:37.685+09:00",
+        "epoch": 1793457217.685,
+        "message": "TUNNEL: ENTRY wall alignment x=0.202m y=-0.015m yaw=-0.17deg rms=0.0118m"
+      },
+      "entry_complete": {
+        "line": 987,
+        "time_kst": "2026-10-31T23:33:39.149+09:00",
+        "epoch": 1793457219.149,
+        "message": "TUNNEL: PLANNING aligned straight entry complete: front clearance; traveled=0.000m, front_clearance=0.552m, required_gap=0.600m"
+      },
+      "following_start": {
+        "line": 990,
+        "time_kst": "2026-10-31T23:33:39.362+09:00",
+        "epoch": 1793457219.362,
+        "message": "TUNNEL: FOLLOWING following current-pose local arc; global route 1 updated in 0.145s"
+      },
+      "first_block": {
+        "line": 1020,
+        "time_kst": "2026-10-31T23:33:45.474+09:00",
+        "epoch": 1793457225.474,
+        "message": "TUNNEL: FOLLOWING localized footprint or clearance is blocked in map; physical contact not measured"
+      },
+      "block_message_count": 9,
+      "wall_residual_too_large_count": 0,
+      "alignment_expired_or_robot_moved_count": 0,
+      "complete": null,
+      "last_tunnel_status": {
+        "line": 1035,
+        "time_kst": "2026-10-31T23:33:52.812+09:00",
+        "epoch": 1793457232.812,
+        "message": "TUNNEL: FOLLOWING localized footprint or clearance is blocked in map; physical contact not measured"
+      },
+      "shutdown": {
+        "line": 1037,
+        "time_kst": "2026-10-31T23:33:53.446+09:00",
+        "epoch": 1793457233.446,
+        "message": "signal_shutdown [signal-2]"
+      },
+      "log_end": {
+        "line": 1050,
+        "time_kst": "2026-10-31T23:33:54.048+09:00",
+        "epoch": 1793457234.048,
+        "message": "signal_shutdown [atexit]"
+      },
+      "result": "No COMPLETE; map/clearance blocked; SIGINT",
+      "contact_evidence": "Controller logs do not measure physical contact. Map/clearance blockage is a map-based condition; no user-reported contact assigned to this run in this log-only review.",
+      "motion_review_window_epoch": [
+        1793457214.033,
+        1793457235.446
+      ],
+      "full_process_window_epoch": [
+        1793457200.463,
+        1793457235.048
+      ]
+    },
+    {
+      "pid": 4902,
+      "source_file": "/home/sj/.ros/log/controller_4902_1793457353488.log",
+      "file_name": "controller_4902_1793457353488.log",
+      "sha256": "889dac5a15a3e5bbdc44694d9f7e353b1ec22a42f440ca0f1c0b7c5e10951103",
+      "size_bytes": 73784,
+      "start": {
+        "line": 1,
+        "time_kst": "2026-10-31T23:35:53.525+09:00",
+        "epoch": 1793457353.525,
+        "message": "init_node, name[/controller_4902_1793457353488], pid[4902]"
+      },
+      "tunnel_start": {
+        "line": 958,
+        "time_kst": "2026-10-31T23:36:07.925+09:00",
+        "epoch": 1793457367.925,
+        "message": "TUNNEL: LOCALIZING waiting for odometry and lidar"
+      },
+      "first_entry": {
+        "line": 967,
+        "time_kst": "2026-10-31T23:36:09.657+09:00",
+        "epoch": 1793457369.657,
+        "message": "TUNNEL: ENTRY wall alignment x=0.212m y=-0.024m yaw=-1.62deg rms=0.0108m"
+      },
+      "entry_alignment": {
+        "line": 967,
+        "time_kst": "2026-10-31T23:36:09.657+09:00",
+        "epoch": 1793457369.657,
+        "message": "TUNNEL: ENTRY wall alignment x=0.212m y=-0.024m yaw=-1.62deg rms=0.0108m"
+      },
+      "entry_complete": {
+        "line": 972,
+        "time_kst": "2026-10-31T23:36:10.675+09:00",
+        "epoch": 1793457370.675,
+        "message": "TUNNEL: PLANNING aligned straight entry complete: front clearance; traveled=0.000m, front_clearance=0.507m, required_gap=0.600m"
+      },
+      "following_start": {
+        "line": 975,
+        "time_kst": "2026-10-31T23:36:10.901+09:00",
+        "epoch": 1793457370.901,
+        "message": "TUNNEL: FOLLOWING following current-pose local arc; global route 1 updated in 0.117s"
+      },
+      "first_block": {
+        "line": 1006,
+        "time_kst": "2026-10-31T23:36:16.875+09:00",
+        "epoch": 1793457376.875,
+        "message": "TUNNEL: FOLLOWING localized footprint or clearance is blocked in map; physical contact not measured"
+      },
+      "block_message_count": 8,
+      "wall_residual_too_large_count": 0,
+      "alignment_expired_or_robot_moved_count": 0,
+      "complete": null,
+      "last_tunnel_status": {
+        "line": 1020,
+        "time_kst": "2026-10-31T23:36:23.355+09:00",
+        "epoch": 1793457383.355,
+        "message": "TUNNEL: FOLLOWING localized footprint or clearance is blocked in map; physical contact not measured"
+      },
+      "shutdown": {
+        "line": 1022,
+        "time_kst": "2026-10-31T23:36:24.180+09:00",
+        "epoch": 1793457384.18,
+        "message": "signal_shutdown [signal-2]"
+      },
+      "log_end": {
+        "line": 1036,
+        "time_kst": "2026-10-31T23:36:24.784+09:00",
+        "epoch": 1793457384.784,
+        "message": "signal_shutdown [atexit]"
+      },
+      "result": "No COMPLETE; map/clearance blocked; SIGINT",
+      "contact_evidence": "Controller logs do not measure physical contact. Map/clearance blockage is a map-based condition; no user-reported contact assigned to this run in this log-only review.",
+      "motion_review_window_epoch": [
+        1793457365.925,
+        1793457386.18
+      ],
+      "full_process_window_epoch": [
+        1793457352.525,
+        1793457385.784
+      ]
+    },
+    {
+      "pid": 5339,
+      "source_file": "/home/sj/.ros/log/controller_5339_1793457472191.log",
+      "file_name": "controller_5339_1793457472191.log",
+      "sha256": "005a54f8ffd382ee46f4f0d287628c9cd18d49ab2f1daca5b762e39d6a02ae0c",
+      "size_bytes": 77720,
+      "start": {
+        "line": 1,
+        "time_kst": "2026-10-31T23:37:52.228+09:00",
+        "epoch": 1793457472.228,
+        "message": "init_node, name[/controller_5339_1793457472191], pid[5339]"
+      },
+      "tunnel_start": {
+        "line": 972,
+        "time_kst": "2026-10-31T23:38:06.831+09:00",
+        "epoch": 1793457486.831,
+        "message": "TUNNEL: LOCALIZING waiting for odometry and lidar"
+      },
+      "first_entry": {
+        "line": 979,
+        "time_kst": "2026-10-31T23:38:08.315+09:00",
+        "epoch": 1793457488.315,
+        "message": "TUNNEL: ENTRY wall alignment x=0.221m y=-0.026m yaw=-3.03deg rms=0.0105m"
+      },
+      "entry_alignment": {
+        "line": 979,
+        "time_kst": "2026-10-31T23:38:08.315+09:00",
+        "epoch": 1793457488.315,
+        "message": "TUNNEL: ENTRY wall alignment x=0.221m y=-0.026m yaw=-3.03deg rms=0.0105m"
+      },
+      "entry_complete": {
+        "line": 984,
+        "time_kst": "2026-10-31T23:38:09.281+09:00",
+        "epoch": 1793457489.281,
+        "message": "TUNNEL: PLANNING aligned straight entry complete: front clearance; traveled=0.000m, front_clearance=0.552m, required_gap=0.600m"
+      },
+      "following_start": {
+        "line": 987,
+        "time_kst": "2026-10-31T23:38:09.511+09:00",
+        "epoch": 1793457489.511,
+        "message": "TUNNEL: FOLLOWING following current-pose local arc; global route 1 updated in 0.102s"
+      },
+      "first_block": null,
+      "block_message_count": 0,
+      "wall_residual_too_large_count": 0,
+      "alignment_expired_or_robot_moved_count": 0,
+      "complete": {
+        "line": 1035,
+        "time_kst": "2026-10-31T23:38:19.157+09:00",
+        "epoch": 1793457499.157,
+        "message": "TUNNEL: COMPLETE exit crossed; handing control to lane tracking"
+      },
+      "last_tunnel_status": {
+        "line": 1035,
+        "time_kst": "2026-10-31T23:38:19.157+09:00",
+        "epoch": 1793457499.157,
+        "message": "TUNNEL: COMPLETE exit crossed; handing control to lane tracking"
+      },
+      "shutdown": {
+        "line": 1061,
+        "time_kst": "2026-10-31T23:38:19.777+09:00",
+        "epoch": 1793457499.777,
+        "message": "signal_shutdown [signal-2]"
+      },
+      "log_end": {
+        "line": 1098,
+        "time_kst": "2026-10-31T23:38:20.401+09:00",
+        "epoch": 1793457500.401,
+        "message": "signal_shutdown [atexit]"
+      },
+      "result": "COMPLETE logged (exit crossed); later SIGINT",
+      "contact_evidence": "Controller logs do not measure physical contact. Map/clearance blockage is a map-based condition; no user-reported contact assigned to this run in this log-only review.",
+      "motion_review_window_epoch": [
+        1793457484.831,
+        1793457501.777
+      ],
+      "full_process_window_epoch": [
+        1793457471.228,
+        1793457501.401
+      ]
+    },
+    {
+      "pid": 5482,
+      "source_file": "/home/sj/.ros/log/controller_5482_1793457517339.log",
+      "file_name": "controller_5482_1793457517339.log",
+      "sha256": "9a256a61f1d92c987849a877224adbd5014e89fe8fc986cfb02dba0e93eee2ea",
+      "size_bytes": 75643,
+      "start": {
+        "line": 1,
+        "time_kst": "2026-10-31T23:38:37.375+09:00",
+        "epoch": 1793457517.375,
+        "message": "init_node, name[/controller_5482_1793457517339], pid[5482]"
+      },
+      "tunnel_start": {
+        "line": 974,
+        "time_kst": "2026-10-31T23:38:51.976+09:00",
+        "epoch": 1793457531.976,
+        "message": "TUNNEL: LOCALIZING waiting for odometry and lidar"
+      },
+      "first_entry": {
+        "line": 981,
+        "time_kst": "2026-10-31T23:38:53.661+09:00",
+        "epoch": 1793457533.661,
+        "message": "TUNNEL: ENTRY wall alignment x=0.213m y=-0.023m yaw=-1.08deg rms=0.0113m"
+      },
+      "entry_alignment": {
+        "line": 981,
+        "time_kst": "2026-10-31T23:38:53.661+09:00",
+        "epoch": 1793457533.661,
+        "message": "TUNNEL: ENTRY wall alignment x=0.213m y=-0.023m yaw=-1.08deg rms=0.0113m"
+      },
+      "entry_complete": {
+        "line": 987,
+        "time_kst": "2026-10-31T23:38:54.741+09:00",
+        "epoch": 1793457534.741,
+        "message": "TUNNEL: PLANNING aligned straight entry complete: front clearance; traveled=0.000m, front_clearance=0.549m, required_gap=0.600m"
+      },
+      "following_start": {
+        "line": 990,
+        "time_kst": "2026-10-31T23:38:54.947+09:00",
+        "epoch": 1793457534.947,
+        "message": "TUNNEL: FOLLOWING following current-pose local arc; global route 1 updated in 0.117s"
+      },
+      "first_block": null,
+      "block_message_count": 0,
+      "wall_residual_too_large_count": 0,
+      "alignment_expired_or_robot_moved_count": 0,
+      "complete": {
+        "line": 1038,
+        "time_kst": "2026-10-31T23:39:04.456+09:00",
+        "epoch": 1793457544.456,
+        "message": "TUNNEL: COMPLETE exit crossed; handing control to lane tracking"
+      },
+      "last_tunnel_status": {
+        "line": 1038,
+        "time_kst": "2026-10-31T23:39:04.456+09:00",
+        "epoch": 1793457544.456,
+        "message": "TUNNEL: COMPLETE exit crossed; handing control to lane tracking"
+      },
+      "shutdown": {
+        "line": 1049,
+        "time_kst": "2026-10-31T23:39:04.698+09:00",
+        "epoch": 1793457544.698,
+        "message": "signal_shutdown [signal-2]"
+      },
+      "log_end": {
+        "line": 1065,
+        "time_kst": "2026-10-31T23:39:05.304+09:00",
+        "epoch": 1793457545.304,
+        "message": "signal_shutdown [atexit]"
+      },
+      "result": "COMPLETE logged (exit crossed); later SIGINT",
+      "contact_evidence": "Controller logs do not measure physical contact. Map/clearance blockage is a map-based condition; no user-reported contact assigned to this run in this log-only review.",
+      "motion_review_window_epoch": [
+        1793457529.976,
+        1793457546.698
+      ],
+      "full_process_window_epoch": [
+        1793457516.375,
+        1793457546.304
+      ]
+    },
+    {
+      "pid": 5627,
+      "source_file": "/home/sj/.ros/log/controller_5627_1793457610634.log",
+      "file_name": "controller_5627_1793457610634.log",
+      "sha256": "01b71fcd295ded0c8e71d5b3b7b5bf2c68d4a8e64e5301ef293b66b1d1aea436",
+      "size_bytes": 75830,
+      "start": {
+        "line": 1,
+        "time_kst": "2026-10-31T23:40:10.669+09:00",
+        "epoch": 1793457610.669,
+        "message": "init_node, name[/controller_5627_1793457610634], pid[5627]"
+      },
+      "tunnel_start": {
+        "line": 965,
+        "time_kst": "2026-10-31T23:40:25.120+09:00",
+        "epoch": 1793457625.12,
+        "message": "TUNNEL: LOCALIZING waiting for odometry and lidar"
+      },
+      "first_entry": {
+        "line": 972,
+        "time_kst": "2026-10-31T23:40:26.652+09:00",
+        "epoch": 1793457626.652,
+        "message": "TUNNEL: ENTRY wall alignment x=0.204m y=-0.024m yaw=-0.63deg rms=0.0114m"
+      },
+      "entry_alignment": {
+        "line": 972,
+        "time_kst": "2026-10-31T23:40:26.652+09:00",
+        "epoch": 1793457626.652,
+        "message": "TUNNEL: ENTRY wall alignment x=0.204m y=-0.024m yaw=-0.63deg rms=0.0114m"
+      },
+      "entry_complete": {
+        "line": 980,
+        "time_kst": "2026-10-31T23:40:27.873+09:00",
+        "epoch": 1793457627.873,
+        "message": "TUNNEL: PLANNING aligned straight entry complete: front clearance; traveled=0.000m, front_clearance=0.497m, required_gap=0.600m"
+      },
+      "following_start": {
+        "line": 982,
+        "time_kst": "2026-10-31T23:40:28.144+09:00",
+        "epoch": 1793457628.144,
+        "message": "TUNNEL: FOLLOWING following current-pose local arc; global route 1 updated in 0.175s"
+      },
+      "first_block": null,
+      "block_message_count": 0,
+      "wall_residual_too_large_count": 0,
+      "alignment_expired_or_robot_moved_count": 0,
+      "complete": null,
+      "last_tunnel_status": {
+        "line": 1036,
+        "time_kst": "2026-10-31T23:40:38.763+09:00",
+        "epoch": 1793457638.763,
+        "message": "TUNNEL: FOLLOWING following current-pose local arc; global route 34 updated in 0.030s"
+      },
+      "shutdown": {
+        "line": 1037,
+        "time_kst": "2026-10-31T23:40:38.852+09:00",
+        "epoch": 1793457638.852,
+        "message": "signal_shutdown [signal-2]"
+      },
+      "log_end": {
+        "line": 1056,
+        "time_kst": "2026-10-31T23:40:39.459+09:00",
+        "epoch": 1793457639.459,
+        "message": "signal_shutdown [atexit]"
+      },
+      "result": "No COMPLETE; still FOLLOWING; SIGINT",
+      "contact_evidence": "Controller logs do not measure physical contact. Map/clearance blockage is a map-based condition; no user-reported contact assigned to this run in this log-only review.",
+      "motion_review_window_epoch": [
+        1793457623.12,
+        1793457640.852
+      ],
+      "full_process_window_epoch": [
+        1793457609.669,
+        1793457640.459
+      ]
+    },
+    {
+      "pid": 5873,
+      "source_file": "/home/sj/.ros/log/controller_5873_1793458075489.log",
+      "file_name": "controller_5873_1793458075489.log",
+      "sha256": "9f6d3de0e82d75b1d9bd76f917490cbeadf117f3bc3873f226eb0014fced659e",
+      "size_bytes": 86574,
+      "start": {
+        "line": 1,
+        "time_kst": "2026-10-31T23:47:55.519+09:00",
+        "epoch": 1793458075.519,
+        "message": "init_node, name[/controller_5873_1793458075489], pid[5873]"
+      },
+      "tunnel_start": {
+        "line": 960,
+        "time_kst": "2026-10-31T23:48:09.919+09:00",
+        "epoch": 1793458089.919,
+        "message": "TUNNEL: LOCALIZING waiting for odometry and lidar"
+      },
+      "first_entry": null,
+      "entry_alignment": null,
+      "entry_complete": null,
+      "following_start": null,
+      "first_block": null,
+      "block_message_count": 0,
+      "wall_residual_too_large_count": 64,
+      "alignment_expired_or_robot_moved_count": 5,
+      "complete": null,
+      "last_tunnel_status": {
+        "line": 1182,
+        "time_kst": "2026-10-31T23:49:27.419+09:00",
+        "epoch": 1793458167.419,
+        "message": "TUNNEL: LOCALIZING collecting stopped wall observations"
+      },
+      "shutdown": {
+        "line": 1183,
+        "time_kst": "2026-10-31T23:49:27.424+09:00",
+        "epoch": 1793458167.424,
+        "message": "signal_shutdown [signal-2]"
+      },
+      "log_end": {
+        "line": 1199,
+        "time_kst": "2026-10-31T23:49:28.025+09:00",
+        "epoch": 1793458168.025,
+        "message": "signal_shutdown [atexit]"
+      },
+      "result": "No COMPLETE; still LOCALIZING; SIGINT",
+      "contact_evidence": "Controller logs do not measure physical contact. Map/clearance blockage is a map-based condition; no user-reported contact assigned to this run in this log-only review.",
+      "motion_review_window_epoch": [
+        1793458087.919,
+        1793458169.424
+      ],
+      "full_process_window_epoch": [
+        1793458074.519,
+        1793458169.025
+      ]
+    },
+    {
+      "pid": 6021,
+      "source_file": "/home/sj/.ros/log/controller_6021_1793458189037.log",
+      "file_name": "controller_6021_1793458189037.log",
+      "sha256": "8bdce3a1a6dd90e4f11ca79b5148f758b47559d0bebd34ea4a7f5bdba0806fb2",
+      "size_bytes": 77657,
+      "start": {
+        "line": 1,
+        "time_kst": "2026-10-31T23:49:49.072+09:00",
+        "epoch": 1793458189.072,
+        "message": "init_node, name[/controller_6021_1793458189037], pid[6021]"
+      },
+      "tunnel_start": {
+        "line": 958,
+        "time_kst": "2026-10-31T23:50:03.424+09:00",
+        "epoch": 1793458203.424,
+        "message": "TUNNEL: LOCALIZING waiting for odometry and lidar"
+      },
+      "first_entry": {
+        "line": 990,
+        "time_kst": "2026-10-31T23:50:12.356+09:00",
+        "epoch": 1793458212.356,
+        "message": "TUNNEL: ENTRY wall alignment x=0.222m y=-0.009m yaw=1.00deg rms=0.0119m"
+      },
+      "entry_alignment": {
+        "line": 990,
+        "time_kst": "2026-10-31T23:50:12.356+09:00",
+        "epoch": 1793458212.356,
+        "message": "TUNNEL: ENTRY wall alignment x=0.222m y=-0.009m yaw=1.00deg rms=0.0119m"
+      },
+      "entry_complete": {
+        "line": 1011,
+        "time_kst": "2026-10-31T23:50:18.277+09:00",
+        "epoch": 1793458218.277,
+        "message": "TUNNEL: PLANNING aligned straight entry complete: distance target; traveled=0.690m, front_clearance=infm, required_gap=0.600m"
+      },
+      "following_start": {
+        "line": 1013,
+        "time_kst": "2026-10-31T23:50:18.553+09:00",
+        "epoch": 1793458218.553,
+        "message": "TUNNEL: FOLLOWING following current-pose local arc; global route 1 updated in 0.154s"
+      },
+      "first_block": null,
+      "block_message_count": 0,
+      "wall_residual_too_large_count": 6,
+      "alignment_expired_or_robot_moved_count": 1,
+      "complete": {
+        "line": 1058,
+        "time_kst": "2026-10-31T23:50:27.558+09:00",
+        "epoch": 1793458227.558,
+        "message": "TUNNEL: COMPLETE exit crossed; handing control to lane tracking"
+      },
+      "last_tunnel_status": {
+        "line": 1058,
+        "time_kst": "2026-10-31T23:50:27.558+09:00",
+        "epoch": 1793458227.558,
+        "message": "TUNNEL: COMPLETE exit crossed; handing control to lane tracking"
+      },
+      "shutdown": {
+        "line": 1063,
+        "time_kst": "2026-10-31T23:50:27.644+09:00",
+        "epoch": 1793458227.644,
+        "message": "signal_shutdown [signal-2]"
+      },
+      "log_end": {
+        "line": 1080,
+        "time_kst": "2026-10-31T23:50:28.245+09:00",
+        "epoch": 1793458228.245,
+        "message": "signal_shutdown [atexit]"
+      },
+      "result": "COMPLETE logged (exit crossed); later SIGINT",
+      "contact_evidence": "Controller logs do not measure physical contact. Map/clearance blockage is a map-based condition; no user-reported contact assigned to this run in this log-only review.",
+      "motion_review_window_epoch": [
+        1793458201.424,
+        1793458229.644
+      ],
+      "full_process_window_epoch": [
+        1793458188.072,
+        1793458229.245
+      ]
+    },
+    {
+      "pid": 6197,
+      "source_file": "/home/sj/.ros/log/controller_6197_1793458284241.log",
+      "file_name": "controller_6197_1793458284241.log",
+      "sha256": "73bd5b7a89cbb68a39344f2f28670e7e05d4a6ab74e9252e50c9d467da5d2314",
+      "size_bytes": 76561,
+      "start": {
+        "line": 1,
+        "time_kst": "2026-10-31T23:51:24.271+09:00",
+        "epoch": 1793458284.271,
+        "message": "init_node, name[/controller_6197_1793458284241], pid[6197]"
+      },
+      "tunnel_start": {
+        "line": 960,
+        "time_kst": "2026-10-31T23:51:38.678+09:00",
+        "epoch": 1793458298.678,
+        "message": "TUNNEL: LOCALIZING waiting for odometry and lidar"
+      },
+      "first_entry": {
+        "line": 967,
+        "time_kst": "2026-10-31T23:51:40.261+09:00",
+        "epoch": 1793458300.261,
+        "message": "TUNNEL: ENTRY wall alignment x=0.206m y=-0.015m yaw=0.69deg rms=0.0109m"
+      },
+      "entry_alignment": {
+        "line": 967,
+        "time_kst": "2026-10-31T23:51:40.261+09:00",
+        "epoch": 1793458300.261,
+        "message": "TUNNEL: ENTRY wall alignment x=0.206m y=-0.015m yaw=0.69deg rms=0.0109m"
+      },
+      "entry_complete": {
+        "line": 986,
+        "time_kst": "2026-10-31T23:51:46.278+09:00",
+        "epoch": 1793458306.278,
+        "message": "TUNNEL: PLANNING aligned straight entry complete: front clearance; traveled=0.703m, front_clearance=0.608m, required_gap=0.600m"
+      },
+      "following_start": {
+        "line": 989,
+        "time_kst": "2026-10-31T23:51:46.557+09:00",
+        "epoch": 1793458306.557,
+        "message": "TUNNEL: FOLLOWING turning toward route; global route 1 updated in 0.161s"
+      },
+      "first_block": null,
+      "block_message_count": 0,
+      "wall_residual_too_large_count": 0,
+      "alignment_expired_or_robot_moved_count": 0,
+      "complete": {
+        "line": 1045,
+        "time_kst": "2026-10-31T23:51:57.677+09:00",
+        "epoch": 1793458317.677,
+        "message": "TUNNEL: COMPLETE exit crossed; handing control to lane tracking"
+      },
+      "last_tunnel_status": {
+        "line": 1045,
+        "time_kst": "2026-10-31T23:51:57.677+09:00",
+        "epoch": 1793458317.677,
+        "message": "TUNNEL: COMPLETE exit crossed; handing control to lane tracking"
+      },
+      "shutdown": {
+        "line": 1050,
+        "time_kst": "2026-10-31T23:51:57.747+09:00",
+        "epoch": 1793458317.747,
+        "message": "signal_shutdown [signal-2]"
+      },
+      "log_end": {
+        "line": 1065,
+        "time_kst": "2026-10-31T23:51:58.348+09:00",
+        "epoch": 1793458318.348,
+        "message": "signal_shutdown [atexit]"
+      },
+      "result": "COMPLETE logged (exit crossed); later SIGINT",
+      "contact_evidence": "Controller logs do not measure physical contact. Map/clearance blockage is a map-based condition; no user-reported contact assigned to this run in this log-only review.",
+      "motion_review_window_epoch": [
+        1793458296.678,
+        1793458319.747
+      ],
+      "full_process_window_epoch": [
+        1793458283.271,
+        1793458319.348
+      ]
+    },
+    {
+      "pid": 6409,
+      "source_file": "/home/sj/.ros/log/controller_6409_1793458546704.log",
+      "file_name": "controller_6409_1793458546704.log",
+      "sha256": "2b31d3066f5dad2cb633a4551b24e5727e11b6f6cca471f938601ff5a5e104a4",
+      "size_bytes": 84853,
+      "start": {
+        "line": 1,
+        "time_kst": "2026-10-31T23:55:46.740+09:00",
+        "epoch": 1793458546.74,
+        "message": "init_node, name[/controller_6409_1793458546704], pid[6409]"
+      },
+      "tunnel_start": {
+        "line": 965,
+        "time_kst": "2026-10-31T23:56:01.239+09:00",
+        "epoch": 1793458561.239,
+        "message": "TUNNEL: LOCALIZING waiting for odometry and lidar"
+      },
+      "first_entry": {
+        "line": 972,
+        "time_kst": "2026-10-31T23:56:02.822+09:00",
+        "epoch": 1793458562.822,
+        "message": "TUNNEL: ENTRY wall alignment x=0.228m y=-0.023m yaw=-0.09deg rms=0.0110m"
+      },
+      "entry_alignment": {
+        "line": 972,
+        "time_kst": "2026-10-31T23:56:02.822+09:00",
+        "epoch": 1793458562.822,
+        "message": "TUNNEL: ENTRY wall alignment x=0.228m y=-0.023m yaw=-0.09deg rms=0.0110m"
+      },
+      "entry_complete": {
+        "line": 988,
+        "time_kst": "2026-10-31T23:56:08.289+09:00",
+        "epoch": 1793458568.289,
+        "message": "TUNNEL: PLANNING aligned straight entry complete: distance target; traveled=0.686m, front_clearance=infm, required_gap=0.600m"
+      },
+      "following_start": {
+        "line": 990,
+        "time_kst": "2026-10-31T23:56:08.563+09:00",
+        "epoch": 1793458568.563,
+        "message": "TUNNEL: FOLLOWING following current-pose local arc; global route 1 updated in 0.133s"
+      },
+      "first_block": {
+        "line": 1021,
+        "time_kst": "2026-10-31T23:56:14.692+09:00",
+        "epoch": 1793458574.692,
+        "message": "TUNNEL: FOLLOWING localized footprint or clearance is blocked in map; physical contact not measured"
+      },
+      "block_message_count": 43,
+      "wall_residual_too_large_count": 0,
+      "alignment_expired_or_robot_moved_count": 0,
+      "complete": null,
+      "last_tunnel_status": {
+        "line": 1104,
+        "time_kst": "2026-10-31T23:56:57.483+09:00",
+        "epoch": 1793458617.483,
+        "message": "TUNNEL: FOLLOWING localized footprint or clearance is blocked in map; physical contact not measured"
+      },
+      "shutdown": {
+        "line": 1106,
+        "time_kst": "2026-10-31T23:56:57.573+09:00",
+        "epoch": 1793458617.573,
+        "message": "signal_shutdown [signal-2]"
+      },
+      "log_end": {
+        "line": 1121,
+        "time_kst": "2026-10-31T23:56:58.201+09:00",
+        "epoch": 1793458618.201,
+        "message": "signal_shutdown [atexit]"
+      },
+      "result": "No COMPLETE; map/clearance blocked; SIGINT",
+      "contact_evidence": "Controller logs do not measure physical contact. Map/clearance blockage is a map-based condition; no user-reported contact assigned to this run in this log-only review.",
+      "motion_review_window_epoch": [
+        1793458559.239,
+        1793458619.573
+      ],
+      "full_process_window_epoch": [
+        1793458545.74,
+        1793458619.201
+      ]
+    },
+    {
+      "pid": 6848,
+      "source_file": "/home/sj/.ros/log/controller_6848_1793458659971.log",
+      "file_name": "controller_6848_1793458659971.log",
+      "sha256": "1ed5b7316f526f9cd2864520fb0fd1eb29575cbb7b5cc0154f0af4ad4ebcf63c",
+      "size_bytes": 82709,
+      "start": {
+        "line": 1,
+        "time_kst": "2026-10-31T23:57:40.004+09:00",
+        "epoch": 1793458660.004,
+        "message": "init_node, name[/controller_6848_1793458659971], pid[6848]"
+      },
+      "tunnel_start": {
+        "line": 953,
+        "time_kst": "2026-10-31T23:57:54.308+09:00",
+        "epoch": 1793458674.308,
+        "message": "TUNNEL: LOCALIZING waiting for measured rest before wall alignment"
+      },
+      "first_entry": {
+        "line": 959,
+        "time_kst": "2026-10-31T23:57:55.841+09:00",
+        "epoch": 1793458675.841,
+        "message": "TUNNEL: ENTRY wall alignment x=0.210m y=-0.030m yaw=-3.44deg rms=0.0105m"
+      },
+      "entry_alignment": {
+        "line": 959,
+        "time_kst": "2026-10-31T23:57:55.841+09:00",
+        "epoch": 1793458675.841,
+        "message": "TUNNEL: ENTRY wall alignment x=0.210m y=-0.030m yaw=-3.44deg rms=0.0105m"
+      },
+      "entry_complete": {
+        "line": 981,
+        "time_kst": "2026-10-31T23:58:01.431+09:00",
+        "epoch": 1793458681.431,
+        "message": "TUNNEL: PLANNING aligned straight entry complete: distance target; traveled=0.705m, front_clearance=infm, required_gap=0.600m"
+      },
+      "following_start": {
+        "line": 984,
+        "time_kst": "2026-10-31T23:58:01.637+09:00",
+        "epoch": 1793458681.637,
+        "message": "TUNNEL: FOLLOWING following current-pose local arc; global route 1 updated in 0.132s"
+      },
+      "first_block": {
+        "line": 1013,
+        "time_kst": "2026-10-31T23:58:07.423+09:00",
+        "epoch": 1793458687.423,
+        "message": "TUNNEL: FOLLOWING localized footprint or clearance is blocked in map; physical contact not measured"
+      },
+      "block_message_count": 3,
+      "wall_residual_too_large_count": 0,
+      "alignment_expired_or_robot_moved_count": 0,
+      "complete": {
+        "line": 1075,
+        "time_kst": "2026-10-31T23:58:20.120+09:00",
+        "epoch": 1793458700.12,
+        "message": "TUNNEL: COMPLETE exit crossed; handing control to lane tracking"
+      },
+      "last_tunnel_status": {
+        "line": 1075,
+        "time_kst": "2026-10-31T23:58:20.120+09:00",
+        "epoch": 1793458700.12,
+        "message": "TUNNEL: COMPLETE exit crossed; handing control to lane tracking"
+      },
+      "shutdown": {
+        "line": 1087,
+        "time_kst": "2026-10-31T23:58:20.380+09:00",
+        "epoch": 1793458700.38,
+        "message": "signal_shutdown [signal-2]"
+      },
+      "log_end": {
+        "line": 1126,
+        "time_kst": "2026-10-31T23:58:21.004+09:00",
+        "epoch": 1793458701.004,
+        "message": "signal_shutdown [atexit]"
+      },
+      "result": "COMPLETE logged (exit crossed); later SIGINT",
+      "contact_evidence": "Controller logs do not measure physical contact. Map/clearance blockage is a map-based condition; no user-reported contact assigned to this run in this log-only review.",
+      "motion_review_window_epoch": [
+        1793458672.308,
+        1793458702.38
+      ],
+      "full_process_window_epoch": [
+        1793458659.004,
+        1793458702.004
+      ]
+    },
+    {
+      "pid": 7646,
+      "source_file": "/home/sj/.ros/log/controller_7646_1793459152216.log",
+      "file_name": "controller_7646_1793459152216.log",
+      "sha256": "12c8a368c9c554f91fc72f1957675dae957d69b3c1351def5375cff500cd07ba",
+      "size_bytes": 72404,
+      "start": {
+        "line": 1,
+        "time_kst": "2026-11-01T00:05:52.248+09:00",
+        "epoch": 1793459152.248,
+        "message": "init_node, name[/controller_7646_1793459152216], pid[7646]"
+      },
+      "tunnel_start": {
+        "line": 957,
+        "time_kst": "2026-11-01T00:06:06.601+09:00",
+        "epoch": 1793459166.601,
+        "message": "TUNNEL: LOCALIZING waiting for odometry and lidar"
+      },
+      "first_entry": {
+        "line": 967,
+        "time_kst": "2026-11-01T00:06:08.294+09:00",
+        "epoch": 1793459168.294,
+        "message": "TUNNEL: ENTRY wall alignment x=0.217m y=-0.012m yaw=2.16deg rms=0.0111m"
+      },
+      "entry_alignment": {
+        "line": 967,
+        "time_kst": "2026-11-01T00:06:08.294+09:00",
+        "epoch": 1793459168.294,
+        "message": "TUNNEL: ENTRY wall alignment x=0.217m y=-0.012m yaw=2.16deg rms=0.0111m"
+      },
+      "entry_complete": {
+        "line": 983,
+        "time_kst": "2026-11-01T00:06:13.750+09:00",
+        "epoch": 1793459173.75,
+        "message": "TUNNEL: PLANNING aligned straight entry complete: distance target; traveled=0.697m, front_clearance=infm, required_gap=0.600m"
+      },
+      "following_start": {
+        "line": 986,
+        "time_kst": "2026-11-01T00:06:13.977+09:00",
+        "epoch": 1793459173.977,
+        "message": "TUNNEL: FOLLOWING following current-pose local arc; global route 1 updated in 0.138s"
+      },
+      "first_block": null,
+      "block_message_count": 0,
+      "wall_residual_too_large_count": 0,
+      "alignment_expired_or_robot_moved_count": 0,
+      "complete": null,
+      "last_tunnel_status": {
+        "line": 1013,
+        "time_kst": "2026-11-01T00:06:19.605+09:00",
+        "epoch": 1793459179.605,
+        "message": "TUNNEL: FOLLOWING following current-pose local arc; global route 18 updated in 0.092s"
+      },
+      "shutdown": {
+        "line": 1014,
+        "time_kst": "2026-11-01T00:06:19.799+09:00",
+        "epoch": 1793459179.799,
+        "message": "signal_shutdown [signal-2]"
+      },
+      "log_end": {
+        "line": 1029,
+        "time_kst": "2026-11-01T00:06:20.401+09:00",
+        "epoch": 1793459180.401,
+        "message": "signal_shutdown [atexit]"
+      },
+      "result": "No COMPLETE; still FOLLOWING; SIGINT",
+      "contact_evidence": "Controller logs do not measure physical contact. Map/clearance blockage is a map-based condition; no user-reported contact assigned to this run in this log-only review.",
+      "motion_review_window_epoch": [
+        1793459164.601,
+        1793459181.799
+      ],
+      "full_process_window_epoch": [
+        1793459151.248,
+        1793459181.401
+      ]
+    },
+    {
+      "pid": 7788,
+      "source_file": "/home/sj/.ros/log/controller_7788_1793459279617.log",
+      "file_name": "controller_7788_1793459279617.log",
+      "sha256": "0215665ab61105e855a8b1c430b2a02e70557f8a465bac685a19c411e0733504",
+      "size_bytes": 77392,
+      "start": {
+        "line": 1,
+        "time_kst": "2026-11-01T00:07:59.648+09:00",
+        "epoch": 1793459279.648,
+        "message": "init_node, name[/controller_7788_1793459279617], pid[7788]"
+      },
+      "tunnel_start": {
+        "line": 962,
+        "time_kst": "2026-11-01T00:08:14.051+09:00",
+        "epoch": 1793459294.051,
+        "message": "TUNNEL: LOCALIZING waiting for odometry and lidar"
+      },
+      "first_entry": {
+        "line": 969,
+        "time_kst": "2026-11-01T00:08:15.638+09:00",
+        "epoch": 1793459295.638,
+        "message": "TUNNEL: ENTRY wall alignment x=0.213m y=-0.021m yaw=0.57deg rms=0.0111m"
+      },
+      "entry_alignment": {
+        "line": 969,
+        "time_kst": "2026-11-01T00:08:15.638+09:00",
+        "epoch": 1793459295.638,
+        "message": "TUNNEL: ENTRY wall alignment x=0.213m y=-0.021m yaw=0.57deg rms=0.0111m"
+      },
+      "entry_complete": {
+        "line": 985,
+        "time_kst": "2026-11-01T00:08:21.351+09:00",
+        "epoch": 1793459301.351,
+        "message": "TUNNEL: PLANNING aligned straight entry complete: distance target; traveled=0.700m, front_clearance=infm, required_gap=0.600m"
+      },
+      "following_start": {
+        "line": 988,
+        "time_kst": "2026-11-01T00:08:21.595+09:00",
+        "epoch": 1793459301.595,
+        "message": "TUNNEL: FOLLOWING following current-pose local arc; global route 1 updated in 0.096s"
+      },
+      "first_block": {
+        "line": 1017,
+        "time_kst": "2026-11-01T00:08:26.821+09:00",
+        "epoch": 1793459306.821,
+        "message": "TUNNEL: FOLLOWING localized footprint or clearance is blocked in map; physical contact not measured"
+      },
+      "block_message_count": 16,
+      "wall_residual_too_large_count": 0,
+      "alignment_expired_or_robot_moved_count": 0,
+      "complete": null,
+      "last_tunnel_status": {
+        "line": 1047,
+        "time_kst": "2026-11-01T00:08:42.200+09:00",
+        "epoch": 1793459322.2,
+        "message": "TUNNEL: FOLLOWING localized footprint or clearance is blocked in map; physical contact not measured"
+      },
+      "shutdown": {
+        "line": 1049,
+        "time_kst": "2026-11-01T00:08:42.859+09:00",
+        "epoch": 1793459322.859,
+        "message": "signal_shutdown [signal-2]"
+      },
+      "log_end": {
+        "line": 1065,
+        "time_kst": "2026-11-01T00:08:43.462+09:00",
+        "epoch": 1793459323.462,
+        "message": "signal_shutdown [atexit]"
+      },
+      "result": "No COMPLETE; map/clearance blocked; SIGINT",
+      "contact_evidence": "Controller logs do not measure physical contact. Map/clearance blockage is a map-based condition; no user-reported contact assigned to this run in this log-only review.",
+      "motion_review_window_epoch": [
+        1793459292.051,
+        1793459324.859
+      ],
+      "full_process_window_epoch": [
+        1793459278.648,
+        1793459324.462
+      ]
+    },
+    {
+      "pid": 7977,
+      "source_file": "/home/sj/.ros/log/controller_7977_1793459339707.log",
+      "file_name": "controller_7977_1793459339707.log",
+      "sha256": "1ea2b9fd49395655aef5f80b83810d6f228f67416aeb8388fe59e5f8a3e819f5",
+      "size_bytes": 72751,
+      "start": {
+        "line": 1,
+        "time_kst": "2026-11-01T00:08:59.740+09:00",
+        "epoch": 1793459339.74,
+        "message": "init_node, name[/controller_7977_1793459339707], pid[7977]"
+      },
+      "tunnel_start": {
+        "line": 960,
+        "time_kst": "2026-11-01T00:09:14.141+09:00",
+        "epoch": 1793459354.141,
+        "message": "TUNNEL: LOCALIZING waiting for odometry and lidar"
+      },
+      "first_entry": {
+        "line": 967,
+        "time_kst": "2026-11-01T00:09:15.687+09:00",
+        "epoch": 1793459355.687,
+        "message": "TUNNEL: ENTRY wall alignment x=0.215m y=-0.020m yaw=0.87deg rms=0.0110m"
+      },
+      "entry_alignment": {
+        "line": 967,
+        "time_kst": "2026-11-01T00:09:15.687+09:00",
+        "epoch": 1793459355.687,
+        "message": "TUNNEL: ENTRY wall alignment x=0.215m y=-0.020m yaw=0.87deg rms=0.0110m"
+      },
+      "entry_complete": {
+        "line": 983,
+        "time_kst": "2026-11-01T00:09:21.260+09:00",
+        "epoch": 1793459361.26,
+        "message": "TUNNEL: PLANNING aligned straight entry complete: distance target; traveled=0.696m, front_clearance=infm, required_gap=0.600m"
+      },
+      "following_start": {
+        "line": 986,
+        "time_kst": "2026-11-01T00:09:21.496+09:00",
+        "epoch": 1793459361.496,
+        "message": "TUNNEL: FOLLOWING following current-pose local arc; global route 1 updated in 0.173s"
+      },
+      "first_block": null,
+      "block_message_count": 0,
+      "wall_residual_too_large_count": 0,
+      "alignment_expired_or_robot_moved_count": 0,
+      "complete": null,
+      "last_tunnel_status": {
+        "line": 1015,
+        "time_kst": "2026-11-01T00:09:27.397+09:00",
+        "epoch": 1793459367.397,
+        "message": "TUNNEL: FOLLOWING following current-pose local arc; global route 19 updated in 0.053s"
+      },
+      "shutdown": {
+        "line": 1016,
+        "time_kst": "2026-11-01T00:09:27.473+09:00",
+        "epoch": 1793459367.473,
+        "message": "signal_shutdown [signal-2]"
+      },
+      "log_end": {
+        "line": 1032,
+        "time_kst": "2026-11-01T00:09:28.076+09:00",
+        "epoch": 1793459368.076,
+        "message": "signal_shutdown [atexit]"
+      },
+      "result": "No COMPLETE; still FOLLOWING; SIGINT",
+      "contact_evidence": "Controller logs do not measure physical contact. Map/clearance blockage is a map-based condition; no user-reported contact assigned to this run in this log-only review.",
+      "motion_review_window_epoch": [
+        1793459352.141,
+        1793459369.473
+      ],
+      "full_process_window_epoch": [
+        1793459338.74,
+        1793459369.076
+      ]
+    }
+  ]
+}

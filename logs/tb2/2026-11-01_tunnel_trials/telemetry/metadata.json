@@ -1,0 +1,561 @@
+{
+  "export_format_version": 1,
+  "created_at_utc": "2026-10-31T15:15:19.321738+00:00",
+  "method": "Offline read-only rosbag Python API; no ROS node, publisher, playback, or motor command was started.",
+  "source_bag_inclusion": "Original bag files remain local; only selected numeric telemetry and static transforms are included here.",
+  "requested_topics": [
+    "/cmd_vel",
+    "/odom",
+    "/sensor_state",
+    "/motor_power",
+    "/step",
+    "/tf_static"
+  ],
+  "not_exported_topics": [
+    "/camera/color/image_raw",
+    "/livox/lidar",
+    "/rosout",
+    "/tf"
+  ],
+  "csv_format": {
+    "encoding": "UTF-8",
+    "delimiter": ",",
+    "header_row": true,
+    "compression": "gzip",
+    "one_row_per": "Original message, with original topic order preserved; no resampling, interpolation, or joining.",
+    "timestamps": "bag_time_epoch_ns is the exact rosbag record timestamp as integer nanoseconds; bag_time_epoch_s is the same timestamp as a decimal string with nine fractional digits. header_stamp_* preserves the original message header stamp and is blank for /cmd_vel, which is geometry_msgs/Twist without a header. Nanosecond columns must be parsed as integers, not floating point.",
+    "floats": "Python round-trip decimal representation of the decoded original ROS value; no rounding, filtering, calibration, or coordinate transform applied.",
+    "boolean": "torque_raw uses 1 for true and 0 for false.",
+    "frames": "Odometry pose is in frame_id; its twist is in child_frame_id, as specified by nav_msgs/Odometry.",
+    "units": "Raw ROS numerical values. Nominal ROS units: linear position m, linear velocity m/s, angular velocity rad/s, battery V, encoders counts. Physical linear distance/speed calibration is required for this robot.",
+    "omissions": "Odometry pose/twist covariance arrays are not exported. All pose coordinates, quaternion components, and twist components are retained.",
+    "columns_by_topic": {
+      "/cmd_vel": [
+        "bag_time_epoch_ns",
+        "bag_time_epoch_s",
+        "header_stamp_ns",
+        "header_stamp_s",
+        "callerid",
+        "cmd_linear_x_raw",
+        "cmd_linear_y_raw",
+        "cmd_linear_z_raw",
+        "cmd_angular_x_raw",
+        "cmd_angular_y_raw",
+        "cmd_angular_z_raw"
+      ],
+      "/odom": [
+        "bag_time_epoch_ns",
+        "bag_time_epoch_s",
+        "header_stamp_ns",
+        "header_stamp_s",
+        "callerid",
+        "header_seq",
+        "frame_id",
+        "child_frame_id",
+        "pose_x_raw",
+        "pose_y_raw",
+        "pose_z_raw",
+        "orientation_x_raw",
+        "orientation_y_raw",
+        "orientation_z_raw",
+        "orientation_w_raw",
+        "twist_linear_x_raw",
+        "twist_linear_y_raw",
+        "twist_linear_z_raw",
+        "twist_angular_x_raw",
+        "twist_angular_y_raw",
+        "twist_angular_z_raw"
+      ],
+      "/sensor_state": [
+        "bag_time_epoch_ns",
+        "bag_time_epoch_s",
+        "header_stamp_ns",
+        "header_stamp_s",
+        "callerid",
+        "header_seq",
+        "frame_id",
+        "bumper_raw",
+        "cliff_raw",
+        "sonar_raw",
+        "illumination_raw",
+        "led_raw",
+        "button_raw",
+        "torque_raw",
+        "left_encoder_raw",
+        "right_encoder_raw",
+        "battery_raw"
+      ]
+    }
+  },
+  "calibration": {
+    "applied_to_exports": false,
+    "linear_scale_reference": 2.893939393939394,
+    "angular_command_scale_reference": 3.3,
+    "reference_files": [
+      "codes/stepbystep/tunnel.real.yaml",
+      "codes/final_codes/tunnel.real.yaml",
+      "codes/tunnel/odometry.py"
+    ],
+    "interpretation": [
+      "Raw /odom and /cmd_vel values are preserved exactly as decoded; no 2.8939 or 3.3 factor was applied.",
+      "The referenced tunnel controller scales planar odometry x/y and measured linear speed by linear_scale (0.0955 / 0.033, approximately 2.893939) for its internal physical-distance calculation.",
+      "The referenced tunnel controller divides its internal linear command by linear_scale and its angular command by angular_command_scale before publishing /cmd_vel. Only when the matching configuration and tunnel control mode are confirmed, multiply the recorded cmd linear.x and angular.z by their respective factors to reconstruct the internal targets.",
+      "Do not multiply measured odometry quaternion/yaw or angular velocity by the angular command factor. Do not apply the factors blindly to commands from other callers or other mission modes.",
+      "These are repository calibration references, not values measured from the bag. Use the saved run configuration and controller logs to establish the settings active for a particular message."
+    ]
+  },
+  "bags": [
+    {
+      "source_bag": "run_2026-10-31-23-37-47.bag",
+      "source_local_path": "/home/sj/tb_logs/run_2026-10-31-23-37-47.bag",
+      "source_size_bytes": 38388049944,
+      "source_mtime_ns": 1793458635038656275,
+      "start": {
+        "epoch_ns": 1793457467190858283,
+        "epoch_s": "1793457467.190858283",
+        "utc": "2026-10-31T14:37:47.190858283Z",
+        "asia_seoul": "2026-10-31T23:37:47.190858283+09:00"
+      },
+      "end": {
+        "epoch_ns": 1793458634507896589,
+        "epoch_s": "1793458634.507896589",
+        "utc": "2026-10-31T14:57:14.507896589Z",
+        "asia_seoul": "2026-10-31T23:57:14.507896589+09:00"
+      },
+      "duration_s": "1167.317038306",
+      "total_indexed_message_count": 162980,
+      "topics": {
+        "/camera/color/image_raw": {
+          "ros_type": "sensor_msgs/Image",
+          "indexed_message_count": 35003,
+          "connection_count": 1,
+          "median_frequency_hz": 29.99337819380582
+        },
+        "/cmd_vel": {
+          "ros_type": "geometry_msgs/Twist",
+          "indexed_message_count": 7298,
+          "connection_count": 7,
+          "median_frequency_hz": 22.68429791399629
+        },
+        "/livox/lidar": {
+          "ros_type": "sensor_msgs/PointCloud2",
+          "indexed_message_count": 11671,
+          "connection_count": 1,
+          "median_frequency_hz": 9.999282411573915
+        },
+        "/odom": {
+          "ros_type": "nav_msgs/Odometry",
+          "indexed_message_count": 33911,
+          "connection_count": 1,
+          "median_frequency_hz": 28.968888674013115
+        },
+        "/rosout": {
+          "ros_type": "rosgraph_msgs/Log",
+          "indexed_message_count": 7275,
+          "connection_count": 9,
+          "median_frequency_hz": 118.9569755239797
+        },
+        "/sensor_state": {
+          "ros_type": "turtlebot3_msgs/SensorState",
+          "indexed_message_count": 33910,
+          "connection_count": 1,
+          "median_frequency_hz": 28.97058945419884
+        },
+        "/tf": {
+          "ros_type": "tf/tfMessage",
+          "indexed_message_count": 33909,
+          "connection_count": 1,
+          "median_frequency_hz": 28.970189252659207
+        },
+        "/tf_static": {
+          "ros_type": "tf2_msgs/TFMessage",
+          "indexed_message_count": 3,
+          "connection_count": 3,
+          "median_frequency_hz": 3476.4227103191047
+        }
+      },
+      "requested_topics_absent": [
+        "/motor_power",
+        "/step"
+      ],
+      "extraction": {
+        "/cmd_vel": {
+          "indexed_message_count": 7298,
+          "extracted_message_count": 7298,
+          "complete": true,
+          "callerid_counts": {
+            "/controller_5339_1793457472191": 691,
+            "/controller_5482_1793457517339": 684,
+            "/controller_5627_1793457610634": 698,
+            "/controller_5873_1793458075489": 1971,
+            "/controller_6021_1793458189037": 906,
+            "/controller_6197_1793458284241": 804,
+            "/controller_6409_1793458546704": 1544
+          },
+          "first_bag_time_epoch_ns": 1793457472633041905,
+          "last_bag_time_epoch_ns": 1793458617599595551,
+          "file": "run_2026-10-31-23-37-47.cmd_vel.csv.gz",
+          "size_bytes": 131352,
+          "sha256": "f3024ccc4cc3774faaf44d3568a65a5b507976450ef5c86075b9c082eb7dccf3"
+        },
+        "/odom": {
+          "indexed_message_count": 33911,
+          "extracted_message_count": 33911,
+          "complete": true,
+          "callerid_counts": {
+            "/turtlebot3_core": 33911
+          },
+          "first_bag_time_epoch_ns": 1793457467388125247,
+          "last_bag_time_epoch_ns": 1793458634507896589,
+          "file": "run_2026-10-31-23-37-47.odom.csv.gz",
+          "size_bytes": 1688837,
+          "sha256": "46db3934adfd36575d5b808d360d062a2f840d70ca7f62575887737932218327"
+        },
+        "/sensor_state": {
+          "indexed_message_count": 33910,
+          "extracted_message_count": 33910,
+          "complete": true,
+          "callerid_counts": {
+            "/turtlebot3_core": 33910
+          },
+          "first_bag_time_epoch_ns": 1793457467419843298,
+          "last_bag_time_epoch_ns": 1793458634505669179,
+          "file": "run_2026-10-31-23-37-47.sensor_state.csv.gz",
+          "size_bytes": 785374,
+          "sha256": "d0f9e4f00ca252d9c2b7ace7880d9c3549d62025a1d8c65d64f51608ca456653"
+        },
+        "/motor_power": {
+          "indexed_message_count": 0,
+          "extracted_message_count": 0,
+          "complete": true,
+          "callerid_counts": {},
+          "status": "No messages in the source bag; no substitute or synthetic records exported."
+        },
+        "/step": {
+          "indexed_message_count": 0,
+          "extracted_message_count": 0,
+          "complete": true,
+          "callerid_counts": {},
+          "status": "No messages in the source bag; no substitute or synthetic records exported."
+        },
+        "/tf_static": {
+          "indexed_message_count": 3,
+          "extracted_message_count": 3,
+          "complete": true,
+          "callerid_counts": {
+            "/camera/realsense2_camera_manager": 1,
+            "/camera_mount": 1,
+            "/lidar_mount": 1
+          },
+          "first_bag_time_epoch_ns": 1793457467390618779,
+          "last_bag_time_epoch_ns": 1793457467391194154,
+          "file": "run_2026-10-31-23-37-47.tf_static.json",
+          "size_bytes": 3796,
+          "sha256": "f8923eff2543eaa3a0c5ee0251283fed84f43bffe2e0bf40770766b7b26c3038"
+        }
+      },
+      "extracted_message_count": 75122,
+      "extraction_elapsed_s": 34.733,
+      "source_unchanged_during_export": true
+    },
+    {
+      "source_bag": "run_2026-10-31-23-57-36.bag",
+      "source_local_path": "/home/sj/tb_logs/run_2026-10-31-23-57-36.bag",
+      "source_size_bytes": 2020474230,
+      "source_mtime_ns": 1793458718141535877,
+      "start": {
+        "epoch_ns": 1793458656275349737,
+        "epoch_s": "1793458656.275349737",
+        "utc": "2026-10-31T14:57:36.275349737Z",
+        "asia_seoul": "2026-10-31T23:57:36.275349737+09:00"
+      },
+      "end": {
+        "epoch_ns": 1793458717895790836,
+        "epoch_s": "1793458717.895790836",
+        "utc": "2026-10-31T14:58:37.895790836Z",
+        "asia_seoul": "2026-10-31T23:58:37.895790836+09:00"
+      },
+      "duration_s": "61.620441099",
+      "total_indexed_message_count": 9783,
+      "topics": {
+        "/camera/color/image_raw": {
+          "ros_type": "sensor_msgs/Image",
+          "indexed_message_count": 1842,
+          "connection_count": 1,
+          "median_frequency_hz": 30.001316128293897
+        },
+        "/cmd_vel": {
+          "ros_type": "geometry_msgs/Twist",
+          "indexed_message_count": 918,
+          "connection_count": 1,
+          "median_frequency_hz": 29.66688357617768
+        },
+        "/livox/lidar": {
+          "ros_type": "sensor_msgs/PointCloud2",
+          "indexed_message_count": 614,
+          "connection_count": 1,
+          "median_frequency_hz": 9.998078715456806
+        },
+        "/odom": {
+          "ros_type": "nav_msgs/Odometry",
+          "indexed_message_count": 1784,
+          "connection_count": 1,
+          "median_frequency_hz": 29.009461627842636
+        },
+        "/rosout": {
+          "ros_type": "rosgraph_msgs/Log",
+          "indexed_message_count": 1053,
+          "connection_count": 3,
+          "median_frequency_hz": 84.30338173961107
+        },
+        "/sensor_state": {
+          "ros_type": "turtlebot3_msgs/SensorState",
+          "indexed_message_count": 1785,
+          "connection_count": 1,
+          "median_frequency_hz": 29.000235082624627
+        },
+        "/tf": {
+          "ros_type": "tf/tfMessage",
+          "indexed_message_count": 1784,
+          "connection_count": 1,
+          "median_frequency_hz": 28.998230088495575
+        },
+        "/tf_static": {
+          "ros_type": "tf2_msgs/TFMessage",
+          "indexed_message_count": 3,
+          "connection_count": 3,
+          "median_frequency_hz": 4758.144072603517
+        }
+      },
+      "requested_topics_absent": [
+        "/motor_power",
+        "/step"
+      ],
+      "extraction": {
+        "/cmd_vel": {
+          "indexed_message_count": 918,
+          "extracted_message_count": 918,
+          "complete": true,
+          "callerid_counts": {
+            "/controller_6848_1793458659971": 918
+          },
+          "first_bag_time_epoch_ns": 1793458660404383912,
+          "last_bag_time_epoch_ns": 1793458700391864234,
+          "file": "run_2026-10-31-23-57-36.cmd_vel.csv.gz",
+          "size_bytes": 21085,
+          "sha256": "4c055191e6f676e20febbc1496e70c3f754c463ba132952f627757792c9ff250"
+        },
+        "/odom": {
+          "indexed_message_count": 1784,
+          "extracted_message_count": 1784,
+          "complete": true,
+          "callerid_counts": {
+            "/turtlebot3_core": 1784
+          },
+          "first_bag_time_epoch_ns": 1793458656497168522,
+          "last_bag_time_epoch_ns": 1793458717864690669,
+          "file": "run_2026-10-31-23-57-36.odom.csv.gz",
+          "size_bytes": 113782,
+          "sha256": "42de6659ca54da3cb0f66dd32ed64bbc321ab0e92b011ed3b68379224a6a241d"
+        },
+        "/sensor_state": {
+          "indexed_message_count": 1785,
+          "extracted_message_count": 1785,
+          "complete": true,
+          "callerid_counts": {
+            "/turtlebot3_core": 1785
+          },
+          "first_bag_time_epoch_ns": 1793458656494868799,
+          "last_bag_time_epoch_ns": 1793458717895790836,
+          "file": "run_2026-10-31-23-57-36.sensor_state.csv.gz",
+          "size_bytes": 47425,
+          "sha256": "d715057d576c365207e1fb41b578ace5f62afaab6e92545b3b391435d67c7e99"
+        },
+        "/motor_power": {
+          "indexed_message_count": 0,
+          "extracted_message_count": 0,
+          "complete": true,
+          "callerid_counts": {},
+          "status": "No messages in the source bag; no substitute or synthetic records exported."
+        },
+        "/step": {
+          "indexed_message_count": 0,
+          "extracted_message_count": 0,
+          "complete": true,
+          "callerid_counts": {},
+          "status": "No messages in the source bag; no substitute or synthetic records exported."
+        },
+        "/tf_static": {
+          "indexed_message_count": 3,
+          "extracted_message_count": 3,
+          "complete": true,
+          "callerid_counts": {
+            "/camera/realsense2_camera_manager": 1,
+            "/camera_mount": 1,
+            "/lidar_mount": 1
+          },
+          "first_bag_time_epoch_ns": 1793458656473900102,
+          "last_bag_time_epoch_ns": 1793458656474320320,
+          "file": "run_2026-10-31-23-57-36.tf_static.json",
+          "size_bytes": 3796,
+          "sha256": "63645620ab1fddbf058ec5bef59fa3d47a24cf77cb3abbfa17da3f1e88e30190"
+        }
+      },
+      "extracted_message_count": 4490,
+      "extraction_elapsed_s": 1.893,
+      "source_unchanged_during_export": true
+    },
+    {
+      "source_bag": "run_2026-11-01-00-05-29.bag",
+      "source_local_path": "/home/sj/tb_logs/run_2026-11-01-00-05-29.bag",
+      "source_size_bytes": 7889396462,
+      "source_mtime_ns": 1793459369701889988,
+      "start": {
+        "epoch_ns": 1793459129680934788,
+        "epoch_s": "1793459129.680934788",
+        "utc": "2026-10-31T15:05:29.680934788Z",
+        "asia_seoul": "2026-11-01T00:05:29.680934788+09:00"
+      },
+      "end": {
+        "epoch_ns": 1793459369680406505,
+        "epoch_s": "1793459369.680406505",
+        "utc": "2026-10-31T15:09:29.680406505Z",
+        "asia_seoul": "2026-11-01T00:09:29.680406505+09:00"
+      },
+      "duration_s": "239.999471717",
+      "total_indexed_message_count": 35846,
+      "topics": {
+        "/camera/color/image_raw": {
+          "ros_type": "sensor_msgs/Image",
+          "indexed_message_count": 7193,
+          "connection_count": 1,
+          "median_frequency_hz": 29.997882992418823
+        },
+        "/cmd_vel": {
+          "ros_type": "geometry_msgs/Twist",
+          "indexed_message_count": 2352,
+          "connection_count": 3,
+          "median_frequency_hz": 28.418811700058946
+        },
+        "/livox/lidar": {
+          "ros_type": "sensor_msgs/PointCloud2",
+          "indexed_message_count": 2398,
+          "connection_count": 1,
+          "median_frequency_hz": 9.999723442096881
+        },
+        "/odom": {
+          "ros_type": "nav_msgs/Odometry",
+          "indexed_message_count": 6975,
+          "connection_count": 1,
+          "median_frequency_hz": 28.959188041564538
+        },
+        "/rosout": {
+          "ros_type": "rosgraph_msgs/Log",
+          "indexed_message_count": 2976,
+          "connection_count": 5,
+          "median_frequency_hz": 225.8888410168031
+        },
+        "/sensor_state": {
+          "ros_type": "turtlebot3_msgs/SensorState",
+          "indexed_message_count": 6974,
+          "connection_count": 1,
+          "median_frequency_hz": 28.951392244295043
+        },
+        "/tf": {
+          "ros_type": "tf/tfMessage",
+          "indexed_message_count": 6975,
+          "connection_count": 1,
+          "median_frequency_hz": 28.959887869696853
+        },
+        "/tf_static": {
+          "ros_type": "tf2_msgs/TFMessage",
+          "indexed_message_count": 3,
+          "connection_count": 3,
+          "median_frequency_hz": 3396.1975708502023
+        }
+      },
+      "requested_topics_absent": [
+        "/motor_power",
+        "/step"
+      ],
+      "extraction": {
+        "/cmd_vel": {
+          "indexed_message_count": 2352,
+          "extracted_message_count": 2352,
+          "complete": true,
+          "callerid_counts": {
+            "/controller_7646_1793459152216": 686,
+            "/controller_7788_1793459279617": 976,
+            "/controller_7977_1793459339707": 690
+          },
+          "first_bag_time_epoch_ns": 1793459152606892916,
+          "last_bag_time_epoch_ns": 1793459367474992055,
+          "file": "run_2026-11-01-00-05-29.cmd_vel.csv.gz",
+          "size_bytes": 50040,
+          "sha256": "8139bbd121a7b3beb0b5d41147176cc333528ecbf8ac649a305861c44897c306"
+        },
+        "/odom": {
+          "indexed_message_count": 6975,
+          "extracted_message_count": 6975,
+          "complete": true,
+          "callerid_counts": {
+            "/turtlebot3_core": 6975
+          },
+          "first_bag_time_epoch_ns": 1793459129899731724,
+          "last_bag_time_epoch_ns": 1793459369679283442,
+          "file": "run_2026-11-01-00-05-29.odom.csv.gz",
+          "size_bytes": 390539,
+          "sha256": "4dba69fe89b767919f336035d7c10be743ea64fb2e65260f7ab4bbd6641ef4a0"
+        },
+        "/sensor_state": {
+          "indexed_message_count": 6974,
+          "extracted_message_count": 6974,
+          "complete": true,
+          "callerid_counts": {
+            "/turtlebot3_core": 6974
+          },
+          "first_bag_time_epoch_ns": 1793459129932465535,
+          "last_bag_time_epoch_ns": 1793459369676955743,
+          "file": "run_2026-11-01-00-05-29.sensor_state.csv.gz",
+          "size_bytes": 169860,
+          "sha256": "e2ad8876e0b9dde66aa66b1317c03d80ca0e3ff4ef076e8325119842d76272a4"
+        },
+        "/motor_power": {
+          "indexed_message_count": 0,
+          "extracted_message_count": 0,
+          "complete": true,
+          "callerid_counts": {},
+          "status": "No messages in the source bag; no substitute or synthetic records exported."
+        },
+        "/step": {
+          "indexed_message_count": 0,
+          "extracted_message_count": 0,
+          "complete": true,
+          "callerid_counts": {},
+          "status": "No messages in the source bag; no substitute or synthetic records exported."
+        },
+        "/tf_static": {
+          "indexed_message_count": 3,
+          "extracted_message_count": 3,
+          "complete": true,
+          "callerid_counts": {
+            "/camera/realsense2_camera_manager": 1,
+            "/camera_mount": 1,
+            "/lidar_mount": 1
+          },
+          "first_bag_time_epoch_ns": 1793459129900326232,
+          "last_bag_time_epoch_ns": 1793459129900915183,
+          "file": "run_2026-11-01-00-05-29.tf_static.json",
+          "size_bytes": 3796,
+          "sha256": "da1976cad32a0a426254b71461ace72be81ff36e2aa552ba9268a44c19965854"
+        }
+      },
+      "extracted_message_count": 16304,
+      "extraction_elapsed_s": 7.378,
+      "source_unchanged_during_export": true
+    }
+  ],
+  "total_extracted_messages": 95916,
+  "total_csv_rows": 95907,
+  "total_data_file_bytes": 3409682
+}

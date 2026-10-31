@@ -1,0 +1,144 @@
+[rospy.client][INFO] 2026-10-31 23:32:48,921: init_node, name[/turtlebot3_core], pid[4550]
+[xmlrpc][INFO] 2026-10-31 23:32:48,921: XML-RPC server binding to 0.0.0.0:0
+[xmlrpc][INFO] 2026-10-31 23:32:48,922: Started XML-RPC server [http://192.168.50.199:37889/]
+[rospy.init][INFO] 2026-10-31 23:32:48,922: ROS Slave URI: [http://192.168.50.199:37889/]
+[rospy.impl.masterslave][INFO] 2026-10-31 23:32:48,922: _ready: http://192.168.50.199:37889/
+[rospy.registration][INFO] 2026-10-31 23:32:48,922: Registering with master node http://192.168.50.199:11311
+[xmlrpc][INFO] 2026-10-31 23:32:48,922: xml rpc node: starting XML-RPC server
+[rospy.init][INFO] 2026-10-31 23:32:49,022: registered with master
+[rospy.rosout][INFO] 2026-10-31 23:32:49,022: initializing /rosout core topic
+[rospy.rosout][INFO] 2026-10-31 23:32:49,024: connected to core topic /rosout
+[rospy.simtime][INFO] 2026-10-31 23:32:49,025: /use_sim_time is not set, will not subscribe to simulated time [/clock] topic
+[rosout][INFO] 2026-10-31 23:32:49,026: ROS Serial Python Node
+[rosout][INFO] 2026-10-31 23:32:49,028: Connecting to /dev/serial/by-id/usb-ROBOTIS_OpenCR_Virtual_ComPort_in_FS_Mode_FFFFFFFEFFFF-if00 at 115200 baud
+[rospy.internal][INFO] 2026-10-31 23:32:49,304: topic[/rosout] adding connection to [/rosout], count 0
+[rosout][INFO] 2026-10-31 23:32:51,130: Requesting topics...
+[rosout][INFO] 2026-10-31 23:32:51,144: Note: publish buffer size is 1024 bytes
+[rosout][INFO] 2026-10-31 23:32:51,145: Setup publisher on sensor_state [turtlebot3_msgs/SensorState]
+[rosout][INFO] 2026-10-31 23:32:51,148: Setup publisher on firmware_version [turtlebot3_msgs/VersionInfo]
+[rosout][INFO] 2026-10-31 23:32:51,170: Setup publisher on imu [sensor_msgs/Imu]
+[rosout][INFO] 2026-10-31 23:32:51,172: Setup publisher on cmd_vel_rc100 [geometry_msgs/Twist]
+[rosout][INFO] 2026-10-31 23:32:51,182: Setup publisher on odom [nav_msgs/Odometry]
+[rosout][INFO] 2026-10-31 23:32:51,184: Setup publisher on joint_states [sensor_msgs/JointState]
+[rosout][INFO] 2026-10-31 23:32:51,187: Setup publisher on battery_state [sensor_msgs/BatteryState]
+[rosout][INFO] 2026-10-31 23:32:51,189: Setup publisher on magnetic_field [sensor_msgs/MagneticField]
+[rosout][INFO] 2026-10-31 23:32:51,207: Setup publisher on /tf [tf/tfMessage]
+[rosout][INFO] 2026-10-31 23:32:51,210: Note: subscribe buffer size is 1024 bytes
+[rosout][INFO] 2026-10-31 23:32:51,211: Setup subscriber on cmd_vel [geometry_msgs/Twist]
+[rosout][INFO] 2026-10-31 23:32:51,213: Setup subscriber on sound [turtlebot3_msgs/Sound]
+[rosout][INFO] 2026-10-31 23:32:51,217: Setup subscriber on motor_power [std_msgs/Bool]
+[rosout][INFO] 2026-10-31 23:32:51,219: Setup subscriber on reset [std_msgs/Empty]
+[rosout][INFO] 2026-10-31 23:32:54,258: Setup TF on Odometry [odom]
+[rosout][INFO] 2026-10-31 23:32:54,260: Setup TF on IMU [imu_link]
+[rosout][INFO] 2026-10-31 23:32:54,262: Setup TF on MagneticField [mag_link]
+[rosout][INFO] 2026-10-31 23:32:54,264: Setup TF on JointState [base_link]
+[rosout][INFO] 2026-10-31 23:32:54,275: --------------------------
+[rosout][INFO] 2026-10-31 23:32:54,277: Connected to OpenCR board!
+[rosout][INFO] 2026-10-31 23:32:54,279: This core(v1.2.6) is compatible with TB3 Burger
+[rosout][INFO] 2026-10-31 23:32:54,280: --------------------------
+[rosout][INFO] 2026-10-31 23:32:54,282: Start Calibration of Gyro
+[rosout][INFO] 2026-10-31 23:32:56,824: Calibration End
+[rospy.internal][INFO] 2026-10-31 23:33:05,226: topic[/motor_power] adding connection to [http://192.168.50.199:33477/], count 0
+[rospy.internal][INFO] 2026-10-31 23:33:08,149: topic[/motor_power] removing connection to http://192.168.50.199:33477/
+[rospy.internal][INFO] 2026-10-31 23:33:21,628: topic[/tf] adding connection to [/controller_4742_1793457201434], count 0
+[rospy.internal][INFO] 2026-10-31 23:33:21,634: topic[/odom] adding connection to [/controller_4742_1793457201434], count 0
+[rospy.internal][INFO] 2026-10-31 23:33:21,650: topic[/cmd_vel] adding connection to [http://192.168.50.199:39639/], count 0
+[rospy.internal][INFO] 2026-10-31 23:33:53,449: topic[/cmd_vel] removing connection to http://192.168.50.199:39639/
+[rospy.internal][INFO] 2026-10-31 23:33:53,499: topic[/odom] removing connection to /controller_4742_1793457201434
+[rospy.internal][INFO] 2026-10-31 23:33:53,501: topic[/tf] removing connection to /controller_4742_1793457201434
+[rospy.internal][INFO] 2026-10-31 23:35:53,647: topic[/cmd_vel] adding connection to [http://192.168.50.199:44017/], count 0
+[rospy.internal][INFO] 2026-10-31 23:35:53,670: topic[/tf] adding connection to [/controller_4902_1793457353488], count 0
+[rospy.internal][INFO] 2026-10-31 23:35:53,677: topic[/odom] adding connection to [/controller_4902_1793457353488], count 0
+[rospy.internal][INFO] 2026-10-31 23:36:24,186: topic[/cmd_vel] removing connection to http://192.168.50.199:44017/
+[rospy.internal][INFO] 2026-10-31 23:36:24,227: topic[/odom] removing connection to /controller_4902_1793457353488
+[rospy.internal][INFO] 2026-10-31 23:36:24,228: topic[/tf] removing connection to /controller_4902_1793457353488
+[rospy.internal][INFO] 2026-10-31 23:37:47,386: topic[/odom] adding connection to [/record_1793457467156932746], count 0
+[rospy.internal][INFO] 2026-10-31 23:37:47,389: topic[/rosout] adding connection to [/record_1793457467156932746], count 1
+[rospy.internal][INFO] 2026-10-31 23:37:47,389: topic[/sensor_state] adding connection to [/record_1793457467156932746], count 0
+[rospy.internal][INFO] 2026-10-31 23:37:47,390: topic[/tf] adding connection to [/record_1793457467156932746], count 0
+[rospy.internal][INFO] 2026-10-31 23:37:52,376: topic[/tf] adding connection to [/controller_5339_1793457472191], count 1
+[rospy.internal][INFO] 2026-10-31 23:37:52,382: topic[/odom] adding connection to [/controller_5339_1793457472191], count 1
+[rospy.internal][INFO] 2026-10-31 23:37:52,395: topic[/cmd_vel] adding connection to [http://192.168.50.199:38737/], count 0
+[rospy.internal][INFO] 2026-10-31 23:38:19,804: topic[/cmd_vel] removing connection to http://192.168.50.199:38737/
+[rospy.internal][INFO] 2026-10-31 23:38:19,853: topic[/odom] removing connection to /controller_5339_1793457472191
+[rospy.internal][INFO] 2026-10-31 23:38:19,854: topic[/tf] removing connection to /controller_5339_1793457472191
+[rospy.internal][INFO] 2026-10-31 23:38:37,521: topic[/tf] adding connection to [/controller_5482_1793457517339], count 1
+[rospy.internal][INFO] 2026-10-31 23:38:37,530: topic[/odom] adding connection to [/controller_5482_1793457517339], count 1
+[rospy.internal][INFO] 2026-10-31 23:38:37,554: topic[/cmd_vel] adding connection to [http://192.168.50.199:43429/], count 0
+[rospy.internal][INFO] 2026-10-31 23:39:04,706: topic[/cmd_vel] removing connection to http://192.168.50.199:43429/
+[rospy.internal][INFO] 2026-10-31 23:39:04,746: topic[/odom] removing connection to /controller_5482_1793457517339
+[rospy.internal][INFO] 2026-10-31 23:39:04,748: topic[/tf] removing connection to /controller_5482_1793457517339
+[rospy.internal][INFO] 2026-10-31 23:40:10,815: topic[/tf] adding connection to [/controller_5627_1793457610634], count 1
+[rospy.internal][INFO] 2026-10-31 23:40:10,821: topic[/odom] adding connection to [/controller_5627_1793457610634], count 1
+[rospy.internal][INFO] 2026-10-31 23:40:10,913: topic[/cmd_vel] adding connection to [http://192.168.50.199:43015/], count 0
+[rospy.internal][INFO] 2026-10-31 23:40:38,862: topic[/cmd_vel] removing connection to http://192.168.50.199:43015/
+[rospy.internal][INFO] 2026-10-31 23:40:38,881: topic[/odom] removing connection to /controller_5627_1793457610634
+[rospy.internal][INFO] 2026-10-31 23:40:38,881: topic[/tf] removing connection to /controller_5627_1793457610634
+[rospy.internal][INFO] 2026-10-31 23:47:55,664: topic[/tf] adding connection to [/controller_5873_1793458075489], count 1
+[rospy.internal][INFO] 2026-10-31 23:47:55,670: topic[/odom] adding connection to [/controller_5873_1793458075489], count 1
+[rospy.internal][INFO] 2026-10-31 23:47:55,698: topic[/cmd_vel] adding connection to [http://192.168.50.199:34233/], count 0
+[rospy.internal][INFO] 2026-10-31 23:49:27,426: topic[/cmd_vel] removing connection to http://192.168.50.199:34233/
+[rospy.internal][INFO] 2026-10-31 23:49:27,484: topic[/odom] removing connection to /controller_5873_1793458075489
+[rospy.internal][INFO] 2026-10-31 23:49:27,485: topic[/tf] removing connection to /controller_5873_1793458075489
+[rospy.internal][INFO] 2026-10-31 23:49:49,219: topic[/tf] adding connection to [/controller_6021_1793458189037], count 1
+[rospy.internal][INFO] 2026-10-31 23:49:49,228: topic[/odom] adding connection to [/controller_6021_1793458189037], count 1
+[rospy.internal][INFO] 2026-10-31 23:49:49,246: topic[/cmd_vel] adding connection to [http://192.168.50.199:36579/], count 0
+[rospy.internal][INFO] 2026-10-31 23:50:27,647: topic[/cmd_vel] removing connection to http://192.168.50.199:36579/
+[rospy.internal][INFO] 2026-10-31 23:50:27,701: topic[/odom] removing connection to /controller_6021_1793458189037
+[rospy.internal][INFO] 2026-10-31 23:50:27,702: topic[/tf] removing connection to /controller_6021_1793458189037
+[rospy.internal][INFO] 2026-10-31 23:51:24,424: topic[/tf] adding connection to [/controller_6197_1793458284241], count 1
+[rospy.internal][INFO] 2026-10-31 23:51:24,430: topic[/odom] adding connection to [/controller_6197_1793458284241], count 1
+[rospy.internal][INFO] 2026-10-31 23:51:24,520: topic[/cmd_vel] adding connection to [http://192.168.50.199:33363/], count 0
+[rospy.internal][INFO] 2026-10-31 23:51:57,750: topic[/cmd_vel] removing connection to http://192.168.50.199:33363/
+[rospy.internal][INFO] 2026-10-31 23:51:57,809: topic[/odom] removing connection to /controller_6197_1793458284241
+[rospy.internal][INFO] 2026-10-31 23:51:57,811: topic[/tf] removing connection to /controller_6197_1793458284241
+[rospy.internal][INFO] 2026-10-31 23:55:46,885: topic[/tf] adding connection to [/controller_6409_1793458546704], count 1
+[rospy.internal][INFO] 2026-10-31 23:55:46,891: topic[/odom] adding connection to [/controller_6409_1793458546704], count 1
+[rospy.internal][INFO] 2026-10-31 23:55:46,911: topic[/cmd_vel] adding connection to [http://192.168.50.199:39211/], count 0
+[rospy.internal][INFO] 2026-10-31 23:56:57,603: topic[/cmd_vel] removing connection to http://192.168.50.199:39211/
+[rospy.internal][INFO] 2026-10-31 23:56:57,661: topic[/odom] removing connection to /controller_6409_1793458546704
+[rospy.internal][INFO] 2026-10-31 23:56:57,662: topic[/tf] removing connection to /controller_6409_1793458546704
+[rospy.internal][INFO] 2026-10-31 23:57:14,677: topic[/sensor_state] removing connection to /record_1793457467156932746
+[rospy.internal][INFO] 2026-10-31 23:57:14,680: topic[/odom] removing connection to /record_1793457467156932746
+[rospy.internal][INFO] 2026-10-31 23:57:14,681: topic[/tf] removing connection to /record_1793457467156932746
+[rospy.internal][INFO] 2026-10-31 23:57:14,933: topic[/rosout] removing connection to /record_1793457467156932746
+[rospy.internal][INFO] 2026-10-31 23:57:36,470: topic[/odom] adding connection to [/record_1793458656241097641], count 0
+[rospy.internal][INFO] 2026-10-31 23:57:36,472: topic[/rosout] adding connection to [/record_1793458656241097641], count 1
+[rospy.internal][INFO] 2026-10-31 23:57:36,472: topic[/sensor_state] adding connection to [/record_1793458656241097641], count 0
+[rospy.internal][INFO] 2026-10-31 23:57:36,473: topic[/tf] adding connection to [/record_1793458656241097641], count 0
+[rospy.internal][INFO] 2026-10-31 23:57:40,150: topic[/tf] adding connection to [/controller_6848_1793458659971], count 1
+[rospy.internal][INFO] 2026-10-31 23:57:40,160: topic[/cmd_vel] adding connection to [http://192.168.50.199:40171/], count 0
+[rospy.internal][INFO] 2026-10-31 23:57:40,161: topic[/odom] adding connection to [/controller_6848_1793458659971], count 1
+[rospy.internal][INFO] 2026-10-31 23:58:20,406: topic[/cmd_vel] removing connection to http://192.168.50.199:40171/
+[rospy.internal][INFO] 2026-10-31 23:58:20,446: topic[/odom] removing connection to /controller_6848_1793458659971
+[rospy.internal][INFO] 2026-10-31 23:58:20,447: topic[/tf] removing connection to /controller_6848_1793458659971
+[rospy.internal][INFO] 2026-10-31 23:58:37,933: topic[/odom] removing connection to /record_1793458656241097641
+[rospy.internal][INFO] 2026-10-31 23:58:37,934: topic[/tf] removing connection to /record_1793458656241097641
+[rospy.internal][INFO] 2026-10-31 23:58:37,965: topic[/sensor_state] removing connection to /record_1793458656241097641
+[rospy.internal][INFO] 2026-10-31 23:58:38,172: topic[/rosout] removing connection to /record_1793458656241097641
+[rospy.internal][INFO] 2026-11-01 00:05:29,896: topic[/odom] adding connection to [/record_1793459129648293361], count 0
+[rospy.internal][INFO] 2026-11-01 00:05:29,899: topic[/rosout] adding connection to [/record_1793459129648293361], count 1
+[rospy.internal][INFO] 2026-11-01 00:05:29,899: topic[/sensor_state] adding connection to [/record_1793459129648293361], count 0
+[rospy.internal][INFO] 2026-11-01 00:05:29,899: topic[/tf] adding connection to [/record_1793459129648293361], count 0
+[rospy.internal][INFO] 2026-11-01 00:05:52,372: topic[/cmd_vel] adding connection to [http://192.168.50.199:46085/], count 0
+[rospy.internal][INFO] 2026-11-01 00:05:52,395: topic[/tf] adding connection to [/controller_7646_1793459152216], count 1
+[rospy.internal][INFO] 2026-11-01 00:05:52,402: topic[/odom] adding connection to [/controller_7646_1793459152216], count 1
+[rospy.internal][INFO] 2026-11-01 00:06:19,802: topic[/cmd_vel] removing connection to http://192.168.50.199:46085/
+[rospy.internal][INFO] 2026-11-01 00:06:19,839: topic[/odom] removing connection to /controller_7646_1793459152216
+[rospy.internal][INFO] 2026-11-01 00:06:19,841: topic[/tf] removing connection to /controller_7646_1793459152216
+[rospy.internal][INFO] 2026-11-01 00:07:59,796: topic[/tf] adding connection to [/controller_7788_1793459279617], count 1
+[rospy.internal][INFO] 2026-11-01 00:07:59,798: topic[/cmd_vel] adding connection to [http://192.168.50.199:44027/], count 0
+[rospy.internal][INFO] 2026-11-01 00:07:59,802: topic[/odom] adding connection to [/controller_7788_1793459279617], count 1
+[rospy.internal][INFO] 2026-11-01 00:08:42,876: topic[/cmd_vel] removing connection to http://192.168.50.199:44027/
+[rospy.internal][INFO] 2026-11-01 00:08:42,916: topic[/odom] removing connection to /controller_7788_1793459279617
+[rospy.internal][INFO] 2026-11-01 00:08:42,917: topic[/tf] removing connection to /controller_7788_1793459279617
+[rospy.internal][INFO] 2026-11-01 00:08:59,876: topic[/cmd_vel] adding connection to [http://192.168.50.199:33471/], count 0
+[rospy.internal][INFO] 2026-11-01 00:08:59,886: topic[/tf] adding connection to [/controller_7977_1793459339707], count 1
+[rospy.internal][INFO] 2026-11-01 00:08:59,893: topic[/odom] adding connection to [/controller_7977_1793459339707], count 1
+[rospy.internal][INFO] 2026-11-01 00:09:27,478: topic[/cmd_vel] removing connection to http://192.168.50.199:33471/
+[rospy.internal][INFO] 2026-11-01 00:09:27,536: topic[/odom] removing connection to /controller_7977_1793459339707
+[rospy.internal][INFO] 2026-11-01 00:09:27,537: topic[/tf] removing connection to /controller_7977_1793459339707
+[rospy.internal][INFO] 2026-11-01 00:09:29,919: topic[/odom] removing connection to /record_1793459129648293361
+[rospy.internal][INFO] 2026-11-01 00:09:29,920: topic[/tf] removing connection to /record_1793459129648293361
+[rospy.internal][INFO] 2026-11-01 00:09:29,951: topic[/sensor_state] removing connection to /record_1793459129648293361
+[rospy.internal][INFO] 2026-11-01 00:09:30,383: topic[/rosout] removing connection to /record_1793459129648293361

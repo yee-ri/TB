@@ -1,0 +1,99 @@
+# Practice tunnel: 1.820 m outer square, 0.002 m walls, 0.300 m openings.
+# Map origin: nominal axle centre 0.140 m outside the entrance, facing inward.
+localization:
+  geometry: maps/tunnel_practice_1820.geometry.json
+  search_bounds: [-0.35, -0.07, 0.45, 0.07]
+  yaw_limit_deg: 20.0
+  confirmation_scans: 3
+  observation_window: 1.0
+  height_band: [0.04, 0.23]
+  tracking_period: 0.20 # Moving wall alignment in a separate worker; 0 disables it.
+  tracking_max_translation: 0.08 # Maximum correction per accepted fit, metres.
+  tracking_max_yaw_deg: 6.0
+odometry:
+  linear_scale: 2.893939393939394 # Multiply input odom XY and linear speed; divide tunnel linear commands.
+  angular_command_scale: 3.3 # Divide tunnel angular commands; measured IMU yaw/rate are unchanged.
+goal:
+  pose: [1.808, 1.868, 90.0] # [x, y, yaw_deg] in the tunnel map frame.
+  position_tolerance: 0.035
+  heading_tolerance_deg: 10.0
+  exit_crossing: # Hand off after the entire body crosses this opening outward.
+    - [1.658, 1.668]
+    - [1.958, 1.668]
+footprint:
+  front: 0.067645
+  rear: 0.118073
+  half_width: 0.0903
+  padding: 0.0 # Use the measured body dimensions without added padding.
+sensors:
+  base_frame: base_footprint
+  livox_particle_filter: true # Reject non-normal particle-confidence tags (bits 2..3).
+  livox_motion_compensation: true # Transform each point using its acquisition timestamp.
+  horizontal_half_angle_deg: 0.5 # LiDAR-plane angle filter before transforms; replaces the ground-height band.
+  minimum_intensity: 2 # Rejected points do not create free-space rays.
+  z_min: 0.03
+  z_max: 0.22
+  range_min: 0.05
+  range_max: 3.0
+  angular_bins: 720
+  maximum_age: 0.3 # Initial wall alignment and background wall-fit result age, seconds.
+  maximum_future_stamp: 0.06
+  lane_maximum_age: 0.3
+  minimum_lane_pixels: 30
+grid:
+  bounds: [-0.5, -0.4, 2.4, 2.2]
+  resolution: 0.02
+  static_map:
+    image: maps/tunnel_practice_1820.pgm
+    geometry: maps/tunnel_practice_1820.geometry.json
+    origin: [-0.5, -0.4]
+    quarter_turns: 0
+  static_hit_exclusion_radius: 0.1
+  static_occupied_threshold: 65
+  dynamic_cell_size: 0.005
+  mark_observations: 2 # Consecutive scans, not point count.
+  clear_observations: 2
+  endpoint_clear_guard_radius: 0.03
+  dynamic_inflation_radius: 0.06
+  dynamic_inflation_value: 64
+entry:
+  distance: 0.92
+  obstacle_clearance: 0.6 # Entry stopping gap from the front edge of the body, metres.
+  obstacle_half_width: 0.0903
+  obstacle_right_width: 0.0903
+  obstacle_left_far_width: 0.3 # Left half-width at the far end of the entry obstacle-check trapezoid.
+  obstacle_check_distance: 0.8 # Forward reach from the front bumper, metres.
+  cruise_velocity: 0.3
+  linear_acceleration: 0.2
+  heading_offset_deg: 5.0 # Initial left pivot; entry then holds the reached heading.
+  alignment_angular_velocity: 0.3
+  alignment_angular_acceleration: 1.0
+  alignment_tolerance_deg: 0.3
+  maximum_curvature: 0.35
+planner:
+  keep_in_rectangles: # Permitted base-centre regions; body collision is checked separately.
+    - [-0.42, -0.15, 0.34, 0.15]
+    - [0.142, -0.15, 1.958, 1.666]
+    - [1.658, 1.488, 1.958, 2.068]
+  minimum_turning_radius: 0.18
+  goal_heading_tolerance: 0.1396263402 # Local rotation tolerance, radians.
+  collision_check_step: 0.01
+  collision_check_angle: 0.0523598776
+control:
+  period: 0.05
+  cruise_velocity: 0.4
+  entry_velocity: 0.04
+  maximum_angular_velocity: 1.4
+  maximum_lateral_acceleration: 0.3
+  linear_acceleration: 0.25
+  linear_deceleration: 0.4
+  angular_acceleration: 8.0
+  safety_linear_deceleration: 0.15 # Local command deceleration cap; also used by entry speed control.
+  safety_angular_deceleration: 0.55 # Initial alignment deceleration.
+  safety_reaction_time: 0.1 # Reaction time used by initial entry/alignment only.
+  safety_distance_margin: 0.01 # Initial entry stopping margin, metres.
+  planning_stopped_linear: 0.008
+  planning_stopped_angular: 0.03
+  heading_gain: 0.3
+profiles:
+  normal: {}

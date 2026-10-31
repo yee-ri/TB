@@ -1,0 +1,137 @@
+{
+  "source_bag": "run_2026-11-01-00-05-29.bag",
+  "topic": "/tf_static",
+  "message_count": 3,
+  "transform_count": 6,
+  "messages": [
+    {
+      "bag_time_epoch_ns": 1793459129900326232,
+      "bag_time_epoch_s": "1793459129.900326232",
+      "callerid": "/lidar_mount",
+      "transforms": [
+        {
+          "header_seq": 0,
+          "header_stamp_ns": 1793457168757242985,
+          "header_stamp_s": "1793457168.757242985",
+          "frame_id": "base_footprint",
+          "child_frame_id": "livox_frame",
+          "translation_raw": {
+            "x": -0.033073,
+            "y": 0.0,
+            "z": 0.19165
+          },
+          "rotation_raw": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          }
+        }
+      ]
+    },
+    {
+      "bag_time_epoch_ns": 1793459129900672525,
+      "bag_time_epoch_s": "1793459129.900672525",
+      "callerid": "/camera_mount",
+      "transforms": [
+        {
+          "header_seq": 0,
+          "header_stamp_ns": 1793457168760954559,
+          "header_stamp_s": "1793457168.760954559",
+          "frame_id": "base_footprint",
+          "child_frame_id": "camera_link",
+          "translation_raw": {
+            "x": 0.058026,
+            "y": 0.009,
+            "z": 0.131384
+          },
+          "rotation_raw": {
+            "x": 0.0,
+            "y": 0.14780941112961063,
+            "z": 0.0,
+            "w": 0.9890158633619168
+          }
+        }
+      ]
+    },
+    {
+      "bag_time_epoch_ns": 1793459129900915183,
+      "bag_time_epoch_s": "1793459129.900915183",
+      "callerid": "/camera/realsense2_camera_manager",
+      "transforms": [
+        {
+          "header_seq": 0,
+          "header_stamp_ns": 1793457169496816559,
+          "header_stamp_s": "1793457169.496816559",
+          "frame_id": "camera_link",
+          "child_frame_id": "camera_depth_frame",
+          "translation_raw": {
+            "x": 0.0,
+            "y": -0.0,
+            "z": -0.0
+          },
+          "rotation_raw": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "w": 1.0
+          }
+        },
+        {
+          "header_seq": 0,
+          "header_stamp_ns": 1793457169496816559,
+          "header_stamp_s": "1793457169.496816559",
+          "frame_id": "camera_depth_frame",
+          "child_frame_id": "camera_depth_optical_frame",
+          "translation_raw": {
+            "x": 0.0,
+            "y": -0.0,
+            "z": -0.0
+          },
+          "rotation_raw": {
+            "x": -0.5,
+            "y": 0.4999999999999999,
+            "z": -0.5,
+            "w": 0.5000000000000001
+          }
+        },
+        {
+          "header_seq": 0,
+          "header_stamp_ns": 1793457169497089268,
+          "header_stamp_s": "1793457169.497089268",
+          "frame_id": "camera_link",
+          "child_frame_id": "camera_color_frame",
+          "translation_raw": {
+            "x": -9.998439963965211e-06,
+            "y": -9.877559023152571e-06,
+            "z": 1.003015222522663e-05
+          },
+          "rotation_raw": {
+            "x": -0.0013664969010278583,
+            "y": 0.00015582359628751874,
+            "z": -7.893516885815188e-05,
+            "w": 0.9999990463256836
+          }
+        },
+        {
+          "header_seq": 0,
+          "header_stamp_ns": 1793457169497089268,
+          "header_stamp_s": "1793457169.497089268",
+          "frame_id": "camera_color_frame",
+          "child_frame_id": "camera_color_optical_frame",
+          "translation_raw": {
+            "x": 0.0,
+            "y": -0.0,
+            "z": -0.0
+          },
+          "rotation_raw": {
+            "x": -0.5,
+            "y": 0.4999999999999999,
+            "z": -0.5,
+            "w": 0.5000000000000001
+          }
+        }
+      ]
+    }
+  ]
+}
