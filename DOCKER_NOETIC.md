@@ -42,7 +42,7 @@ TB_GAZEBO_GUI=false docker compose -f compose.gazebo.yaml up -d
 docker compose -f compose.gazebo.yaml down
 ```
 
-단위 검사와 ROS 연결 검사를 실행한다.
+주행 코드 단위 검사·실행 파일 선택 검사·ROS 연결 검사를 실행한다.
 
 ```bash
 docker compose -f compose.gazebo.yaml run --rm --no-deps gazebo bash -lc 'source /opt/ros/noetic/setup.bash && source /workspace/devel/setup.bash && python3 -m unittest discover -s tests && python3 tests/ros_smoke.py'

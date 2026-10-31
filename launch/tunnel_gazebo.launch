@@ -19,7 +19,7 @@
     <param name="start_step" value="9"/>
     <param name="lidar_type" value="laserscan"/>
     <param name="lidar_topic" value="/scan_mid360_raw"/>
-    <param name="tunnel_config" value="$(find tb_tunnel_sim)/codes/stepbystep/tunnel.yaml"/>
+    <param name="tunnel_config" value="$(find tb_tunnel_sim)/config/tunnel.yaml"/>
     <param name="tunnel_profile" value="$(arg tunnel_profile)"/>
     <remap from="/odom" to="/odometry/filtered"/>
   </node>
