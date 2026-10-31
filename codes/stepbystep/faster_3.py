@@ -6,6 +6,9 @@ import os
 import numpy as np
 from pathlib import Path
 from threading import RLock
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tf.transformations import euler_from_quaternion,quaternion_matrix
 from sensor_msgs.msg import Image,PointCloud2,LaserScan
 from sensor_msgs import point_cloud2

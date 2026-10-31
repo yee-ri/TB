@@ -101,7 +101,7 @@ class ParkingTuner:
             return
         self.check_odom()
         # 주차 동작 전 직진: 속도(m/s), 시간(초)을 여기서 수정하세요.
-        self.timed_move(0.06, 0.5)
+        # self.timed_move(0.06, 0.5)
         self.check_odom()
         base = self.yaw
         direction = 1.0 if self.args.side == 'right' else -1.0
@@ -116,7 +116,7 @@ class ParkingTuner:
         self.turn(entry, direction)
 
         # 회전 없이 직선 후진: 속도(m/s), 시간(초)
-        self.timed_move(-0.06, 1)
+        # self.timed_move(-0.06, 1)
 
         # 이후 후진하면서 출구 방향으로 회전
         self.turn(exit_yaw, direction, reverse=True)
@@ -131,10 +131,10 @@ def parse_args():
     a = p.parse_args(rospy.myargv()[1:])
 
     # 아래 값을 코드에서 직접 수정하세요. 속도는 m/s, 각속도는 rad/s입니다.
-    a.entry_speed = 0.09      # 주차 방향으로 회전하는 동안 전진 속도
+    a.entry_speed = 0.06    # 주차 방향으로 회전하는 동안 전진 속도
     a.entry_angular = 0.35    # 진입 회전 속도 상한
     a.entry_angle = 90        # 진입 회전각 (도)
-    a.reverse_speed = 0.045   # 후진 회전 속력
+    a.reverse_speed = 0.06   # 후진 회전 속력
     a.max_angular = 0.35       # 후진 회전 속도 상한
     a.gain = 1.2
     a.tolerance = 2           # 방향 허용 오차 (도)

@@ -15,6 +15,9 @@ from nav_msgs.msg import Odometry
 from std_msgs.msg import UInt8
 import tf2_ros
 import tf2_sensor_msgs.tf2_sensor_msgs
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tunnel.mission import TunnelMission, load_config
 from tunnel.odometry import read_linear_scale, read_angular_command_scale, scale_pose
 from tunnel.cloud import tunnel_cloud_xy
@@ -724,21 +727,6 @@ class turtlebot():
                 msg=Twist()
             self.cmd_pub.publish(msg)
 
-    # def check_obstacle_end(self): # 장애물 구간 끝났는지 확인
-    #     if self.front_distance>0.9 and self.left_distance>0.5 and self.right_distance>0.5 :#and self.white_area>=200:
-    #         self.obstacle_clear_count+=1
-    #         rospy.loginfo("OBSTACLE CLEAR COUNT: %d",self.obstacle_clear_count)
-    #     else:
-    #         self.obstacle_clear_count=0
-
-    #     if self.obstacle_clear_count>=40:
-    #         self.step=4
-    #         self.obstacle_clear_count=0
-    #         self.obstacle_direction=None
-    #         rospy.loginfo("@@@@@@ OBSTACLE END -> STEP 5 @@@@@@")
-    #         return True
-
-    #     return False
     def check_obstacle_end(self):
         if self.obstacle_stage != 'done': return False
         if self.obstacle_last_lidar_count == self.lidar_update_count: return False
@@ -834,6 +822,8 @@ class turtlebot():
             white_mask[:3*height//4,:] = 0
             # white_mask[:,:width//2]=0
             white_mask[:,:width//2]=0
+        elif self.turn_direction == 'obstacle':
+            
 
         elif self.turn_direction=='left_yellow':
             yellow_mask[:,width//2:]=0
@@ -921,14 +911,6 @@ class turtlebot():
                     target_x=0.25*target_x+0.75*self.prev_target_x
 
                 self.prev_target_x=target_x
-
-            if self.step == 3 and self.show_lane_debug:
-                target_view = cv2.cvtColor(cv2.bitwise_or(white_mask, yellow_mask), cv2.COLOR_GRAY2BGR)
-                cv2.line(target_view, (int(target_x), 0), (int(target_x), height - 1), (0, 0, 255), 2)
-                cv2.line(target_view, (int(center_x), 0), (int(center_x), height - 1), (0, 255, 0), 2)
-                cv2.imshow("OBSTACLE TARGET - RED target GREEN center", target_view)
-                cv2.waitKey(1)
-
             err_x=target_x-center_x
 
             if self.step == 3: rospy.loginfo("LANE: W=%d Y=%d TARGET=%.1f CENTER=%.1f ERR=%.1f", cv2.countNonZero(white_mask), cv2.countNonZero(yellow_mask), target_x, center_x, err_x)
@@ -1025,7 +1007,6 @@ class turtlebot():
             rospy.loginfo("LANE LOST -> SLOW STRAIGHT")
 
             self.move(0.06,0.0)
-
 
     def parking(self, image):
         if self.parking_end is not None:
@@ -1228,18 +1209,7 @@ class turtlebot():
         image = self.bridge.imgmsg_to_cv2(data, 'bgr8')
 
         now = rospy.Time.now().to_sec()
-        if now - getattr(self, 'last_view_time', 0.0) >= 0.2:
-            self.last_view_time = now
 
-            view = cv2.resize(image, (320, 240))
-            hsv_view = cv2.cvtColor(view, cv2.COLOR_BGR2HSV)
-            white_view = cv2.inRange(hsv_view, np.array([0, 0, 210]), np.array([179, 55, 255]))
-            yellow_view = cv2.inRange(hsv_view, np.array([15, 100, 100]), np.array([50, 255, 255]))
-
-            masks = cv2.cvtColor(cv2.hconcat([white_view, yellow_view]), cv2.COLOR_GRAY2BGR)
-            camera = cv2.hconcat([view, view])
-            cv2.imshow('CAMERA / WHITE / YELLOW', cv2.vconcat([camera, masks]))
-            cv2.waitKey(1)
 
         # Keep the start stage fixed until motor preparation is complete.
         if not self.drive_ready:
@@ -1277,10 +1247,12 @@ class turtlebot():
 
 
         elif self.step == 3:
+
             # 첫 장애물 감지 시 회피 순서 시작
             if self.obstacle_stage is None:
                 if not self.check_obstacle_start():
                     self.lane_tracking(image)
+                    self.turn_direction = 'obstacle'
                     return
 
                 self.obstacle_stage = 'left'
