@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'codes'))
@@ -56,6 +57,16 @@ class TunnelProfileTests(unittest.TestCase):
         self.assertAlmostEqual(fast['planner']['goal_heading_tolerance'], math.radians(10.))
         # Source exit apron world x_max=.45 in the frozen staging frame.
         self.assertAlmostEqual(fast['planner']['keep_in_rectangles'][-1][-1], 2.1975895)
+
+    def test_active_profiles_use_body_dimensions_without_added_padding(self):
+        for directory in ('stepbystep', 'final_codes'):
+            for name in ('tunnel.yaml', 'tunnel.real.yaml', 'tunnel.competition.yaml'):
+                path = ROOT / 'codes' / directory / name
+                for profile in ('normal', 'fast') if name == 'tunnel.yaml' else ('normal',):
+                    with self.subTest(directory=directory, config=name, profile=profile):
+                        config = (yaml.safe_load(path.read_text()) if name == 'tunnel.competition.yaml'
+                                  else load_config(path, profile))
+                        self.assertEqual(config['footprint']['padding'], 0.)
 
     def test_profile_merge_does_not_mutate_normal_or_duplicate_calibration(self):
         normal = load_config(CONFIG)
@@ -157,6 +168,7 @@ class TunnelProfileTests(unittest.TestCase):
 
     def test_entry_distance_ramp_uses_its_own_acceleration(self):
         config = load_config(CONFIG, 'fast')
+        config.pop('localization', None)
         config['entry']['linear_acceleration'] = .10
         config['grid'].pop('static_map')
         config['grid'].pop('static_hit_exclusion_radius')
@@ -190,6 +202,8 @@ class TunnelProfileTests(unittest.TestCase):
 
     def goal_mission(self):
         config = load_config(CONFIG, 'fast')
+        config.pop('localization', None)
+        config['goal'].pop('exit_crossing', None)
         config['grid'].pop('static_map')
         config['grid'].pop('static_hit_exclusion_radius')
         config['planner']['keep_in_rectangles'] = None

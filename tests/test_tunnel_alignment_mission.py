@@ -67,6 +67,9 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
         # These lifecycle tests supply fits directly. Separate cases below
         # enable accumulation and test its independent timing/frame behavior.
         config['localization']['observation_window'] = observation_window
+        # Moving localization has separate lifecycle tests; these fixtures
+        # deliberately supply the initial fit, independently of raw geometry.
+        config['localization']['tracking_period'] = 0.
         mission = TunnelMission(config)
         mission.localizer.estimate = Mock(return_value=AlignmentResult(
             True, Pose2D(*fitted), 'fixture fit', .001, 120, 140))
@@ -151,14 +154,15 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
                 mission.localizer.estimate.assert_not_called()
         self.join(mission)
         mission.localizer.estimate.assert_called_once()
+        self.assertEqual(mission.localizer.estimate.call_args.args[1], SENSOR[:2])
         merged = mission.localizer.estimate.call_args.args[0]
         self.assertEqual(merged.shape, (30, 2))
         # Every scan saw these same physical points. After transforming each
         # acquisition, all ten copies agree in the final base frame.
         np.testing.assert_allclose(merged, np.tile(measured_base, (10, 1)), atol=1e-12)
 
-    def test_observation_window_restarts_after_motion_or_stale_input(self):
-        for interruption in ('motion', 'stale'):
+    def test_observation_window_restarts_after_motion_or_future_input(self):
+        for interruption in ('motion', 'future'):
             with self.subTest(interruption=interruption):
                 mission = self.mission(observation_window=1.)
                 for index in range(8):
@@ -170,7 +174,7 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
                     self.feed(mission, 10.8, velocity=(.02, 0.))
                     self.assertEqual(mission.step(10.8), (0., 0., False))
                 else:
-                    self.assertEqual(mission.step(11.1), (0., 0., False))
+                    self.assertEqual(mission.step(10.6), (0., 0., False))
                 for index in range(10):
                     now = 11.2 + .1*index
                     self.feed(mission, now)
@@ -257,11 +261,11 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
         self.assertIn('measured rest', mission.reason)
         mission.localizer.estimate.assert_not_called()
 
-    def test_stale_inputs_cannot_start_alignment(self):
+    def test_future_inputs_cannot_start_alignment(self):
         mission = self.mission()
         self.feed(mission, 10.)
-        self.assertEqual(mission.step(10.4), (0., 0., False))
-        self.assertIn('fresh', mission.reason)
+        self.assertEqual(mission.step(9.9), (0., 0., False))
+        self.assertIn('future', mission.reason)
         mission.localizer.estimate.assert_not_called()
 
     def test_worker_result_expiring_before_acceptance_is_rejected(self):
@@ -345,7 +349,7 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
         mission = self.mission()
         started, release = threading.Event(), threading.Event()
         accepted = mission.localizer.estimate.return_value
-        def delayed(_points):
+        def delayed(_points, _sensor_origin):
             started.set()
             if not release.wait(timeout=3.):
                 raise RuntimeError('test wall fit was never released')
@@ -370,7 +374,7 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
         mission = self.mission()
         started, release = threading.Event(), threading.Event()
         accepted = mission.localizer.estimate.return_value
-        def delayed(_points):
+        def delayed(_points, _sensor_origin):
             started.set()
             if not release.wait(timeout=3.):
                 raise RuntimeError('test wall fit was never released')

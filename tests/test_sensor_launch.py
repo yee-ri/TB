@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SensorLaunchTests(unittest.TestCase):
-    def test_camera_stream_does_not_force_exposure_or_gain(self):
+    def test_camera_stream_and_verified_manual_exposure(self):
         launch = ET.parse(ROOT / 'launch/sensors.launch').getroot()
         camera = launch.find("include[@file='$(find realsense2_camera)/launch/rs_camera.launch']")
         self.assertIsNotNone(camera)
@@ -17,9 +17,10 @@ class SensorLaunchTests(unittest.TestCase):
                             'color_fps': '30', 'infra_rgb': 'true',
                             'publish_tf': 'true'}.items():
             self.assertEqual(arguments[name], value)
-        overrides = {'enable_auto_exposure', 'exposure', 'gain'}
-        for setting in list(launch.iter('param')) + list(launch.iter('arg')):
-            self.assertNotIn(setting.get('name', '').rsplit('/', 1)[-1], overrides)
+        parameters = {param.get('name'): param.get('value') for param in launch.iter('param')}
+        for name, value in {'enable_auto_exposure': 'false', 'exposure': '20000',
+                            'gain': '16'}.items():
+            self.assertEqual(parameters['camera/stereo_module/'+name], value)
 
     def test_depth_is_optional_and_forwarded_to_the_camera(self):
         launch = ET.parse(ROOT / 'launch/sensors.launch').getroot()

@@ -28,9 +28,6 @@ def integrate(pose, linear, angular, period):
 class TunnelEntryHeadingTest(unittest.TestCase):
     def configuration(self):
         config = load_config(ROOT / 'codes/stepbystep/tunnel.real.yaml')
-        # Exercise the normal freshness guard independently of an active
-        # physical diagnostic override; null behavior has dedicated tests.
-        config['sensors'].pop('lidar_maximum_age', None)
         config.pop('localization', None)
         config['grid'].pop('static_map', None)
         config['grid'].pop('static_hit_exclusion_radius', None)
@@ -183,17 +180,20 @@ class TunnelEntryHeadingTest(unittest.TestCase):
                 self.assertEqual(mission.entry_phase, 'DRIVE')
                 self.assertAlmostEqual(mission.entry_drive_yaw, crossed[2])
 
-    def test_direct_entry_transition_keeps_freshness_body_and_front_stop_gates(self):
-        for gate in ('stale', 'body', 'front'):
+    def test_direct_entry_accepts_old_scan_but_keeps_body_and_front_checks(self):
+        for gate in ('old_scan', 'body', 'front'):
             with self.subTest(gate=gate):
                 mission = self.make_mission()
                 self.feed(mission, (0., 0., 0.), 10.)
                 self.assertGreater(mission.step(10.)[1], 0.)
                 reached = (0., 0., math.radians(5.))
-                if gate == 'stale':
+                if gate == 'old_scan':
                     mission.update_odometry(reached, 0., .08, 10.5)
-                    self.assertEqual(mission.step(10.5), (0., 0., False))
-                    self.assertIn('waiting for fresh', mission.reason)
+                    linear, angular, complete = mission.step(10.5)
+                    self.assertGreater(linear, 0., mission.reason)
+                    self.assertAlmostEqual(angular, 0.)
+                    self.assertFalse(complete)
+                    self.assertEqual(mission.entry_phase, 'DRIVE')
                 else:
                     self.feed(mission, reached, 10.05, angular=.08)
                     if gate == 'body':
@@ -273,7 +273,7 @@ class TunnelEntryHeadingTest(unittest.TestCase):
                 with patch.object(mission, '_grid', return_value=grid), \
                         patch.object(mission.geometry, 'primitive_is_collision_free',
                                      side_effect=AssertionError('entry predicted a moving sweep')) as sweep:
-                    linear, angular, _ = mission._enter(pose, .05, 10.)
+                    linear, angular, _ = mission._enter(pose, .05)
                 sweep.assert_not_called()
                 self.assertGreater(linear, 0.)
                 self.assertAlmostEqual(linear, .13 if braking else
@@ -405,7 +405,7 @@ class TunnelEntryHeadingTest(unittest.TestCase):
             pose = Pose2D(.2, 0., .05)
             self.feed(mission, (pose.x, pose.y, pose.yaw), 10.)
             with patch.object(mission, '_grid', side_effect=AssertionError('straight entry grid check')):
-                commands.append(mission._enter(pose, .05, 10.))
+                commands.append(mission._enter(pose, .05))
         self.assertEqual(commands[0], commands[1])
         self.assertGreater(commands[0][0], 0.)
         self.assertLess(commands[0][1], 0.)

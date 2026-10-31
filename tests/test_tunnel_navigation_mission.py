@@ -122,46 +122,40 @@ class GlobalLocalMissionTest(unittest.TestCase):
         self.assertEqual(local.call_count, 1)
         self.assertIs(local.call_args.args[0], grid)
 
-    def test_stale_scan_stops_before_local_motion(self):
+    def test_old_odometry_and_lidar_still_reach_the_local_planner(self):
         mission = self.make_mission()
-        mission.update_odometry((.2, 0., 0.), .12, 0., 11.)
-        with patch.object(mission.local_planner, 'local_command') as local:
-            self.assertEqual(mission.step(11.), (0., 0., False))
-        local.assert_not_called()
-        self.assertIn('lidar', mission.reason.lower())
+        with patch.object(mission.local_planner, 'local_command',
+                          wraps=mission.local_planner.local_command) as local:
+            self.assertGreater(mission.step(11.)[0], 0., mission.reason)
+        local.assert_called_once()
+        self.assertEqual(mission.odom[-1], 10.)
+        self.assertEqual(mission.scan[-1], 10.)
 
-    def test_recorded_lidar_delays_can_use_existing_map_for_real_local_commands(self):
-        for age in (.305, .335):
-            for settings in ({}, {'lidar_maximum_age': None}):
-                with self.subTest(age=age, settings=settings):
-                    mission = self.make_mission(sensors=settings)
-                    route, grid = mission.global_path, mission._grid()
-                    mission.update_odometry((.2, 0., 0.), .12, 0., 10.+age)
-                    with patch.object(mission.local_planner, 'local_command',
-                                      wraps=mission.local_planner.local_command) as local:
-                        result = mission.step(10.+age)
-                    if settings:
-                        self.assertGreater(result[0], 0., mission.reason)
-                        self.assertEqual(local.call_count, 1)
-                        self.assertIs(local.call_args.args[0], grid)
-                        self.assertEqual(local.call_args.args[1], Pose2D(.2, 0., 0.))
-                    else:
-                        self.assertEqual(result, (0., 0., False))
-                        local.assert_not_called()
-                        self.assertIn('waiting for fresh', mission.reason)
-                    self.assertFalse(result[2])
-                    self.assertIs(mission.global_path, route)
-                    self.assertEqual(mission.scan[-1], 10.)
+    def test_older_lidar_uses_existing_map_for_local_commands(self):
+        for age in (.305, .335, 5.):
+            with self.subTest(age=age):
+                mission = self.make_mission()
+                route, grid = mission.global_path, mission._grid()
+                mission.update_odometry((.2, 0., 0.), .12, 0., 10.+age)
+                with patch.object(mission.local_planner, 'local_command',
+                                  wraps=mission.local_planner.local_command) as local:
+                    result = mission.step(10.+age)
+                self.assertGreater(result[0], 0., mission.reason)
+                self.assertEqual(local.call_count, 1)
+                self.assertIs(local.call_args.args[0], grid)
+                self.assertEqual(local.call_args.args[1], Pose2D(.2, 0., 0.))
+                self.assertFalse(result[2])
+                self.assertIs(mission.global_path, route)
+                self.assertEqual(mission.scan[-1], 10.)
 
-    def test_disabled_lidar_expiry_keeps_missing_data_odometry_and_future_input_stops(self):
-        for invalid in ('old_odometry', 'future_odometry', 'future_lidar',
+    def test_missing_inputs_and_future_timestamps_still_stop_before_local_motion(self):
+        for invalid in ('future_odometry', 'future_lidar',
                         'missing_odometry', 'missing_lidar'):
             with self.subTest(invalid=invalid):
-                mission = self.make_mission(sensors={'lidar_maximum_age': None})
+                mission = self.make_mission()
                 now = 10.335
-                if invalid != 'old_odometry':
-                    stamp = now+.1 if invalid == 'future_odometry' else now
-                    mission.update_odometry((.2, 0., 0.), .12, 0., stamp)
+                stamp = now+.1 if invalid == 'future_odometry' else now
+                mission.update_odometry((.2, 0., 0.), .12, 0., stamp)
                 if invalid == 'future_lidar':
                     mission.update_cloud(wall_returns((.2, 0., 0.)),
                                          (-.033073, 0., 0.), (.2, 0., 0.), now+.1)
@@ -173,11 +167,10 @@ class GlobalLocalMissionTest(unittest.TestCase):
                     self.assertEqual(mission.step(now), (0., 0., False))
                 local.assert_not_called()
 
-    def test_disabled_lidar_expiry_preserves_body_and_candidate_collision_stops(self):
+    def test_old_input_preserves_body_and_candidate_collision_stops(self):
         for collision in ('body', 'candidate'):
             with self.subTest(collision=collision):
-                mission = self.make_mission(velocity=.2,
-                                            sensors={'lidar_maximum_age': None})
+                mission = self.make_mission(velocity=.2)
                 now = 10.335
                 pose = Pose2D(.2, 0., 0.)
                 mission.update_odometry((pose.x, pose.y, pose.yaw), .2, 0., now)
@@ -317,21 +310,18 @@ class GlobalLocalMissionTest(unittest.TestCase):
         self.feed(mission, 10.25, (.6, 0., math.radians(9.)), 0., 0.)
         self.assertEqual(mission.step(10.25), (0., 0., True))
 
-    def test_wait_stop_keeps_freshness_and_collision_checks_before_completion(self):
+    def test_wait_stop_checks_collision_with_older_lidar_before_completion(self):
         mission = self.make_mission(goal=(.6, 0., 0.), velocity=0.)
         self.feed(mission, 10.05, (.6, 0., 0.), 0.)
         mission.step(10.05)
         self.assertEqual(mission.state, 'WAIT_STOP')
         mission.update_odometry((.6, 0., 0.), 0., 0., 11.)
-        self.assertEqual(mission.step(11.), (0., 0., False))
-        self.assertIn('lidar', mission.reason.lower())
-        self.feed(mission, 11.05, (.6, 0., 0.), 0.)
         with patch.object(mission, '_grid', return_value=self.wall_grid(.6)):
-            self.assertEqual(mission.step(11.05), (0., 0., False))
+            self.assertEqual(mission.step(11.), (0., 0., False))
         self.assertIn('footprint overlaps', mission.reason)
         self.assertEqual(mission.state, 'WAIT_STOP')
-        self.feed(mission, 11.10, (.6, 0., 0.), 0.)
-        self.assertEqual(mission.step(11.10), (0., 0., True))
+        self.assertEqual(mission.scan[-1], 10.05)
+        self.assertEqual(mission.step(11.05), (0., 0., True))
 
     def test_recorded_exit_miss_finishes_without_turning_back(self):
         # 22:59 trial, rotated into an x-forward exit frame: 6 mm beyond
@@ -451,19 +441,16 @@ class GlobalLocalMissionTest(unittest.TestCase):
                     self.assertFalse(mission.exit_crossed)
                     self.assertFalse(mission._goal_reached(Pose2D(.54, 0., 0.)))
 
-    def test_finishing_still_stops_for_stale_lidar_and_current_collision(self):
+    def test_finishing_checks_current_collision_even_with_older_lidar(self):
         mission = self.make_mission(goal=(.6, 0., 0.), velocity=.12)
         self.feed(mission, 10.05, (.59, 0., 0.), .12)
         mission.step(10.05)
         mission.update_odometry((.64, 0., 0.), .1, 0., 11.)
-        self.assertEqual(mission.step(11.), (0., 0., False))
-        self.assertEqual(mission.state, 'FINISHING')
-        self.assertIn('lidar', mission.reason.lower())
-        self.feed(mission, 11.05, (.64, 0., 0.), 0.)
         with patch.object(mission, '_grid', return_value=self.wall_grid(.64)):
-            self.assertEqual(mission.step(11.05), (0., 0., False))
+            self.assertEqual(mission.step(11.), (0., 0., False))
         self.assertEqual(mission.state, 'FINISHING')
         self.assertIn('footprint overlaps', mission.reason)
+        self.assertEqual(mission.scan[-1], 10.05)
 
     def test_generic_finishing_checks_actual_command_collision(self):
         mission = self.make_mission(goal=(.6, 0., 0.), velocity=.12)
@@ -488,26 +475,23 @@ class GlobalLocalMissionTest(unittest.TestCase):
         self.assertFalse(complete)
         self.assertEqual(mission.state, 'FINISHING')
 
-    def test_physical_exit_keeps_sensor_and_current_body_collision_checks(self):
+    def test_physical_exit_checks_current_body_with_older_sensor_inputs(self):
         mission = self.make_mission(goal=(.6, 0., 90.), velocity=0.,
                                     exit_crossing=((.4, -.15), (.4, .15)))
         mission._goal_reached(Pose2D(.39, 0., 0.))
         self.feed(mission, 10.05, (.54, 0., .2), .12, .3)
         mission.update_odometry((.55, 0., .2), 0., 0., 11.)
-        self.assertEqual(mission.step(11.), (0., 0., False))
-        self.assertIn('lidar', mission.reason.lower())
-        self.feed(mission, 11.05, (.55, 0., .2), 0.)
         with patch.object(mission, '_grid', return_value=self.wall_grid(.55)):
-            self.assertEqual(mission.step(11.05), (0., 0., False))
+            self.assertEqual(mission.step(11.), (0., 0., False))
         self.assertEqual(mission.state, 'FOLLOWING')
         self.assertIn('footprint overlaps', mission.reason)
-        # Recovery completes on the very first safe fresh frame, even while
-        # moving, without returning to the old route or waiting for rest.
-        self.feed(mission, 11.10, (.55, 0., .2), .6, 1.4)
+        # Clear geometry permits handoff without a new scan or measured rest.
+        mission.update_odometry((.55, 0., .2), .6, 1.4, 11.10)
         with patch.object(mission.local_planner, 'local_command') as local:
-            self.assertEqual(mission.step(11.10), (0., 0., True))
+            self.assertEqual(mission.step(11.50), (0., 0., True))
             local.assert_not_called()
         self.assertEqual(mission.state, 'COMPLETE')
+        self.assertEqual(mission.scan[-1], 10.05)
 
     def test_exit_crossing_rejects_invalid_survey_geometry(self):
         segments = ([], ((.4, 0.),), ((.4, 0.), (.4, 0.)),
