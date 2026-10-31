@@ -137,8 +137,8 @@ def parse_args():
     p.add_argument('--entry-angular', type=float, default=0.25, help='최초 제자리 회전 상한 rad/s')
     p.add_argument('--entry-angle', type=float, default=90, help='통로→주차 회전각 도')
 
-    p.add_argument('--reverse-speed', type=float, default=0.05)
-    p.add_argument('--max-angular', type=float, default=0.3)
+    p.add_argument('--reverse-speed', type=float, default=0.09)
+    p.add_argument('--max-angular', type=float, default=0.35)
 
     p.add_argument('--gain', type=float, default=1.2, help='회전 오차 비례 계수')
     p.add_argument('--tolerance', type=float, default=2, help='방향 허용 오차 도')
