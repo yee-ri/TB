@@ -431,9 +431,6 @@ class TunnelCloudTests(unittest.TestCase):
             points = self.transform(message, translation=mount, settings=settings)
             self.assertFalse(mission.update_cloud(points, sensor, odom, 10.1 + index*.1))
             self.assertEqual(mission.scan[-1], 10.)
-        mission.update_odometry(odom, 0., 0., 10.5)
-        self.assertEqual(mission.step(10.5), (0., 0., False))
-        self.assertIn('waiting for fresh', mission.reason)
 
     def test_horizontal_slice_rejects_invalid_angles_or_unsupported_xyz_without_fallback(self):
         for angle in (True, False, np.bool_(True), None, '1', np.nan, np.inf, -np.inf,
@@ -551,9 +548,6 @@ class TunnelCloudTests(unittest.TestCase):
             self.assertEqual(points.shape, (0, 2))
             self.assertFalse(mission.update_cloud(points, sensor, odom, 10.1 + index * .1))
             self.assertEqual(mission.scan[-1], 10.)
-        mission.update_odometry(odom, 0., 0., 10.5)
-        self.assertEqual(mission.step(10.5), (0., 0., False))
-        self.assertIn('waiting for fresh', mission.reason)
 
     def test_wall_output_preserves_obstacle_xy_and_shares_point_read_and_acquisition_tf(self):
         rng = np.random.RandomState(12026)
@@ -607,9 +601,6 @@ class TunnelCloudTests(unittest.TestCase):
         self.assertEqual(wall.shape, (2, 2))
         self.assertFalse(mission.update_cloud(obstacle, sensor, odom, 10.1))
         self.assertEqual(mission.scan[-1], 10.)
-        mission.update_odometry(odom, 0., 0., 10.5)
-        self.assertEqual(mission.step(10.5), (0., 0., False))
-        self.assertIn('waiting for fresh', mission.reason)
 
     def test_wall_output_keeps_quality_range_height_and_invalid_intensity_checks(self):
         # x uniquely identifies each accepted input after FLOAT32 wire rounding.

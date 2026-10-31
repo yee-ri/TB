@@ -779,6 +779,33 @@ class TunnelWiringTests(unittest.TestCase):
                 self.assertEqual(stamp, header)
         node.cmd_pub.publish.assert_not_called()
 
+    def test_moving_localization_receives_weak_wall_points_in_both_entrypoints(self):
+        self.config['localization'] = {'height_band': [.04, .23], 'tracking_period': .2}
+        self.config['sensors'].update({'minimum_intensity': 2,
+                                        'horizontal_half_angle_deg': .5,
+                                        'livox_particle_filter': True})
+        for source in (SOURCE, ROOT/'codes/final_codes/try_maze.py'):
+            with self.subTest(source=source):
+                spec = importlib.util.spec_from_file_location('tracking_adapter_test', source)
+                target = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(target)
+                node = target.turtlebot()
+                node.odom_callback(self.odometry())
+                node.step = 10
+                node.tunnel.anchor = (0., 0., 0.)
+                self.tf_buffer.lookup_transform.return_value = transform(z=.19)
+                point = (.6, .2, 0.)
+                cloud = self.timed_cloud([point], [0.])
+                # The mocked ROS reader returns the requested XYZ/intensity/tag fields.
+                cloud.points = [(*point, 0., 0)]
+                cloud.data = struct.pack('<ffffBBd', *point, 0., 0, 0, 41.7e9)
+                node.scan_callback(cloud)
+                call = node.tunnel.update_cloud.call_args
+                self.assertIsNotNone(call)
+                self.assertEqual(np.asarray(call.args[0]).shape, (0, 2))
+                np.testing.assert_allclose(call.kwargs['localization_points'], [[.6, .2]], atol=1e-7)
+                node.cmd_pub.publish.assert_not_called()
+
     def test_tunnel_output_linear_and_angular_scales_are_independent(self):
         node = self.scaled_node()
         node.step = 9

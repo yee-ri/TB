@@ -27,6 +27,8 @@ def occupied(grid, column, row):
 def configuration(goal=(.65, 0., 0.)):
     config = copy.deepcopy(load_config(CONFIG))
     config['goal']['pose'] = list(goal)
+    config['goal'].pop('exit_crossing', None)
+    config.pop('localization', None)
     config['grid']['bounds'] = [-.5, -.75, 1.5, 1.25]
     # Synthetic rooms have their own walls, not the source Gazebo course map.
     config['grid'].pop('static_map', None)
@@ -113,12 +115,14 @@ class TunnelInputAndEntryTest(unittest.TestCase):
 
     def production_static_mission(self):
         """Initialize the actual default map without any dynamic endpoints."""
-        mission = TunnelMission(load_config(CONFIG))
+        config = load_config(CONFIG)
+        config.pop('localization', None)
+        mission = TunnelMission(config)
         self.addCleanup(mission.close)
         mission.update_odometry((0., 0., 0.), 0., 0., 10.)
         mission.update_scan([math.inf], 0., 1., .10, 4.,
                             (0., 0., 0.), (0., 0., 0.), 10.)
-        mission.step(10.)
+        mission._initialize((0., 0., 0.))
         return mission
 
     def confirm_point(self, mission, point):
@@ -322,28 +326,30 @@ class TunnelInputAndEntryTest(unittest.TestCase):
         grid = mission._grid()
         coarse = OccupancyGrid(grid.data, grid.resolution, grid.origin_x, grid.origin_y,
                                occupied_threshold=grid.occupied_threshold)
-        # Body front + padding reaches x=.308645, below the measured .3179 face.
-        empty_side = (.231, 0., 0.)
-        touching_face = (.240, 0., 0.)
+        # Place the actual front inside the coarse cell, then on the measured face.
+        empty_side = (.308-mission.footprint.front, 0., 0.)
+        touching_face = (.318-mission.footprint.front, 0., 0.)
         self.assertFalse(mission.geometry.pose_is_collision_free(coarse, empty_side))
         self.assertTrue(mission.geometry.pose_is_collision_free(grid, empty_side))
         self.assertFalse(mission.geometry.pose_is_collision_free(grid, touching_face))
         self.assertTrue(mission.geometry.primitive_is_collision_free(grid, (0., 0., 0.), 0., empty_side[0]))
         self.assertFalse(mission.geometry.primitive_is_collision_free(grid, (0., 0., 0.), 0., touching_face[0]))
 
-    def test_isolated_lidar_hit_keeps_full_coarse_collision_cell(self):
+    def test_isolated_lidar_hit_uses_configured_collision_resolution(self):
         mission = self.measured_surface(isolated=True)
         grid = mission._grid()
-        self.assertEqual(mission.costmap.refined_dynamic_cells(), {})
-        self.assertAlmostEqual(grid.collision_resolution, grid.resolution)
-        self.assertFalse(mission.geometry.pose_is_collision_free(grid, (.231, 0., 0.)))
-        self.assertFalse(mission.geometry.primitive_is_collision_free(grid, (0., 0., 0.), 0., .231))
+        self.assertTrue(mission.costmap.refined_dynamic_cells())
+        self.assertAlmostEqual(grid.collision_resolution, .005)
+        self.assertTrue(mission.geometry.pose_is_collision_free(grid, (.231, 0., 0.)))
+        self.assertFalse(mission.geometry.pose_is_collision_free(grid, (.250, 0., 0.)))
+        self.assertTrue(mission.geometry.primitive_is_collision_free(grid, (0., 0., 0.), 0., .231))
+        self.assertFalse(mission.geometry.primitive_is_collision_free(grid, (0., 0., 0.), 0., .250))
 
     def test_clearing_refined_surface_does_not_mutate_previous_planning_grid(self):
         mission = self.measured_surface()
         previous = mission._grid()
         previous_data = previous.data.copy()
-        touching_face = (.240, 0., 0.)
+        touching_face = (.318-mission.footprint.front, 0., 0.)
         stamp = mission.scan[-1]
         for _ in range(mission.config['grid']['clear_observations']):
             stamp += .05
@@ -382,48 +388,24 @@ class TunnelInputAndEntryTest(unittest.TestCase):
         self.assertEqual(mission.step(10.), (0., 0., False))
         self.assertIsNone(mission.anchor)
 
-    def test_lidar_age_limit_defaults_and_explicit_values(self):
-        for settings, expected in (({}, .3), ({'lidar_maximum_age': .4}, .4),
-                                   ({'lidar_maximum_age': None}, math.inf)):
-            with self.subTest(settings=settings):
-                mission = self.make_mission(sensors=settings)
-                self.assertEqual(mission.lidar_maximum_age, expected)
-                self.assertEqual(mission.sensors['maximum_age'], .3)
-        for value in (True, False, '0.3', 0, -.3, math.inf, -math.inf, math.nan):
-            with self.subTest(invalid=value):
-                config = configuration()
-                config['sensors']['lidar_maximum_age'] = value
-                with self.assertRaises(ValueError):
-                    TunnelMission(config)
-
-    def test_entry_lidar_expiry_can_be_disabled_without_changing_odometry_age(self):
-        for age in (.305, .335):
-            for settings in ({}, {'lidar_maximum_age': None}):
-                with self.subTest(age=age, settings=settings):
-                    mission = self.make_mission(sensors=settings)
+    def test_entry_uses_received_inputs_without_an_age_cutoff(self):
+        for age in (.335, 5.):
+            for old_input in ('odometry', 'lidar', 'both'):
+                with self.subTest(age=age, old_input=old_input):
+                    mission = self.make_mission()
                     self.feed(mission, 10.)
-                    mission.update_odometry((0., 0., 0.), 0., 0., 10.+age)
-                    linear, angular, complete = mission.step(10.+age)
-                    if settings:
-                        self.assertGreater(linear, 0., mission.reason)
-                        self.assertEqual(mission.state, 'ENTRY')
-                    else:
-                        self.assertEqual((linear, angular), (0., 0.))
-                        self.assertIn('waiting for fresh', mission.reason)
+                    if old_input == 'lidar':
+                        mission.update_odometry((0., 0., 0.), 0., 0., 10.+age)
+                    elif old_input == 'odometry':
+                        mission.update_cloud(wall_returns((0., 0., 0.)),
+                                             (-.033073, 0., 0.), (0., 0., 0.), 10.+age)
+                    linear, _, complete = mission.step(10.+age)
+                    self.assertGreater(linear, 0., mission.reason)
+                    self.assertEqual(mission.state, 'ENTRY')
                     self.assertFalse(complete)
 
-    def test_finite_lidar_override_keeps_its_own_expiry_boundary(self):
-        for age in (.335, .405):
-            with self.subTest(age=age):
-                mission = self.make_mission(sensors={'lidar_maximum_age': .4})
-                self.feed(mission, 10.)
-                mission.update_odometry((0., 0., 0.), 0., 0., 10.+age)
-                linear, _, complete = mission.step(10.+age)
-                self.assertEqual(linear > 0., age < .4, mission.reason)
-                self.assertFalse(complete)
-
-    def test_disabled_lidar_expiry_does_not_extend_wall_alignment_result_lifetime(self):
-        mission = self.make_mission(sensors={'lidar_maximum_age': None})
+    def test_wall_alignment_result_keeps_its_independent_lifetime(self):
+        mission = self.make_mission()
         self.feed(mission, 10.)
         mission.update_odometry((0., 0., 0.), 0., 0., 10.335)
         # The fit has already completed; only its independent acceptance
@@ -435,40 +417,32 @@ class TunnelInputAndEntryTest(unittest.TestCase):
         self.assertIsNone(mission.anchor)
         self.assertIn('wall alignment input expired', mission.reason)
 
-    def test_clock_refresh_after_waiting_for_lock_rejects_expired_inputs(self):
+    def test_clock_refresh_after_waiting_for_lock_keeps_received_inputs_usable(self):
         mission = self.make_mission()
         self.feed(mission, 10.)
         mission.clock = lambda: 10.5
-        self.assertEqual(mission.step(10.), (0., 0., False))
-        self.assertIsNone(mission.anchor)
+        self.assertGreater(mission.step(10.)[0], 0., mission.reason)
+        self.assertEqual(mission.last_time, 10.5)
+        self.assertIsNotNone(mission.anchor)
 
-    def test_odometry_expiring_during_calculation_is_not_used_to_drive(self):
-        for settings in ({}, {'lidar_maximum_age': None}):
-            with self.subTest(settings=settings):
-                mission = self.make_mission(sensors=settings)
-                self.feed(mission, 10.)
-                readings = iter((10., 10.2))
-                mission.clock = lambda: next(readings)
-                self.assertEqual(mission.step(10.), (0., 0., False))
-                self.assertIn('expired during', mission.reason)
+    def test_input_age_growing_during_calculation_does_not_cancel_command(self):
+        mission = self.make_mission()
+        self.feed(mission, 10.)
+        current_time = [10.]
+        mission.clock = lambda: current_time[0]
+        initialize = mission._initialize
 
-    def test_scan_expiring_during_calculation_respects_lidar_age_limit(self):
-        for settings in ({}, {'lidar_maximum_age': None}):
-            with self.subTest(settings=settings):
-                mission = self.make_mission(sensors=settings)
-                self.feed(mission, 10.)
-                mission.update_odometry((0., 0., 0.), 0., 0., 10.2)
-                mission.control['safety_reaction_time'] = .5
-                readings = iter((10.2, 10.35))
-                mission.clock = lambda: next(readings)
-                result = mission.step(10.2)
-                if settings:
-                    self.assertGreater(result[0], 0., mission.reason)
-                    self.assertFalse(result[2])
-                else:
-                    self.assertEqual(result, (0., 0., False))
-                    self.assertIn('expired during', mission.reason)
+        def delayed_initialization():
+            initialize()
+            current_time[0] = 11.
 
+        with patch.object(mission, '_initialize', side_effect=delayed_initialization):
+            linear, _, complete = mission.step(10.)
+        self.assertGreater(linear, 0., mission.reason)
+        self.assertFalse(complete)
+        self.assertEqual(mission.odom[-1], 10.)
+        self.assertEqual(mission.scan[-1], 10.)
+        self.assertEqual(current_time[0], 11.)
 
     def test_entry_does_not_require_grid_based_turning_room_selection(self):
         mission = self.make_mission()
@@ -528,8 +502,10 @@ class TunnelInputAndEntryTest(unittest.TestCase):
         self.assertEqual(mission.state, 'PLANNING')
 
     def test_entry_narrower_corridor_keeps_both_margin_returns_in_scan_and_costmap(self):
-        original = self.make_mission()
         config = configuration()
+        config['footprint']['padding'] = .01
+        original = TunnelMission(copy.deepcopy(config))
+        self.addCleanup(original.close)
         config['entry']['obstacle_half_width'] = config['footprint']['half_width']
         narrower = TunnelMission(config)
         self.addCleanup(narrower.close)
@@ -734,34 +710,27 @@ class TunnelInputAndEntryTest(unittest.TestCase):
         self.feed(mission, 10.15, pose=(.65, 0., 0.))
         self.assertEqual(mission.step(10.15), (0., 0., True))
 
-    def test_exit_handoff_rejects_stale_sensors_even_with_visible_lanes(self):
+    def test_exit_stop_confirmation_uses_new_odometry_with_older_lidar(self):
         mission = self.make_mission()
         self.prepare_following(mission)
         self.feed(mission, 10.05, pose=(.65, 0., 0.))
         self.assertEqual(mission.step(10.05), (0., 0., False))
-        for stamp in (10.10, 10.15, 10.20):
-            mission.update_lane(True, stamp)
         mission.update_odometry((.65, 0., 0.), 0., 0., 10.50)
-        self.assertEqual(mission.step(10.50), (0., 0., False))
-        self.assertEqual(mission.state, 'WAIT_STOP')
-        self.assertIn('fresh', mission.reason)
-        self.feed(mission, 10.55, pose=(.65, 0., 0.))
-        self.assertEqual(mission.step(10.55), (0., 0., True))
+        self.assertEqual(mission.step(10.50), (0., 0., True))
+        self.assertEqual(mission.state, 'COMPLETE')
+        self.assertEqual(mission.scan[-1], 10.05)
 
-    def test_stale_input_stops_without_discarding_valid_route(self):
+    def test_old_input_keeps_local_motion_and_the_valid_route(self):
         mission = self.make_mission()
         self.prepare_following(mission)
         self.feed(mission, 10.05)
         self.assertGreater(mission.step(10.05)[0], 0.)
         path = mission.global_path
-        mission.update_odometry((0., 0., 0.), 0., 0., 10.5)
-        self.assertEqual(mission.step(10.5), (0., 0., False))
+        self.assertGreater(mission.step(10.5)[0], 0., mission.reason)
         self.assertIs(mission.global_path, path)
         self.assertEqual(mission.plans, 0)
-        self.feed(mission, 10.55)
-        self.assertGreater(mission.step(10.55)[0], 0.)
-        self.assertIs(mission.global_path, path)
-
+        self.assertEqual(mission.odom[-1], 10.05)
+        self.assertEqual(mission.scan[-1], 10.05)
 
     def test_front_obstacle_finishes_entry_for_stopped_planning(self):
         mission = self.make_mission()
