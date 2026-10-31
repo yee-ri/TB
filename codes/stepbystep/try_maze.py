@@ -53,8 +53,6 @@ class turtlebot():
         self.tunnel=TunnelMission(self.tunnel_config,
                                    clock=lambda:rospy.Time.now().to_sec())
         rospy.loginfo("Tunnel config: %s",config_path)
-        if self.tunnel_config['sensors'].get('lidar_maximum_age', 0.) is None:
-            rospy.logwarn('Tunnel diagnostic: LiDAR age stop disabled (sensors.lidar_maximum_age=null)')
         self.cmd_pub=rospy.Publisher('/cmd_vel',Twist,queue_size=10)
         self.bridge=CvBridge()
         image_dir=Path(__file__).resolve().parents[2]/'images'
@@ -241,6 +239,9 @@ class turtlebot():
                 self.tunnel_logged_status=status
             else:
                 rospy.loginfo_throttle(1.0,"TUNNEL: %s %s",*status)
+            tracking=getattr(self.tunnel,'wall_tracking_report','')
+            if tracking:
+                rospy.loginfo_throttle(1.0,"TUNNEL WALL TRACKING: %s",tracking)
 
     def lane_detect(self,image):
         crop=image[300:,:]
@@ -276,8 +277,9 @@ class turtlebot():
                 # including its treatment of non-normalized quaternions.
                 kdl_rotation=tf2_sensor_msgs.tf2_sensor_msgs.transform_to_kdl(transform).M
                 rotation=np.array([[kdl_rotation[i,j] for j in range(3)] for i in range(3)])
-                wall_band=(self.tunnel_config.get('localization',{}).get('height_band')
-                           if self.tunnel.anchor is None else None)
+                localization=self.tunnel_config.get('localization',{})
+                wall_band=(localization.get('height_band') if self.tunnel.anchor is None
+                           or localization.get('tracking_period',0.) else None)
                 points=tunnel_cloud_xy(data,rotation,np.array([p.x,p.y,p.z]),
                                        self.tunnel_config['sensors'],point_cloud2.read_points,
                                        motion_poses=self.tunnel_motion_poses,wall_height_band=wall_band)

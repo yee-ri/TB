@@ -55,18 +55,21 @@ class GlobalLocalPlanner:
         for key in ('global_clearance', 'global_clearance_distance',
                     'global_clearance_weight', 'global_soft_cost_weight',
                     'local_lookahead', 'local_horizon', 'local_heading_weight',
-                    'local_steering_weight', 'local_rotation_gain', 'local_rotation_tolerance'):
+                    'local_steering_weight', 'local_clearance_distance',
+                    'local_clearance_weight', 'local_rotation_gain', 'local_rotation_tolerance'):
             value = defaults[key]
             if isinstance(value, bool) or not math.isfinite(float(value)) or value < 0:
                 raise ValueError('%s must be finite and nonnegative' % key)
             setattr(self, key, float(value))
-        for key in ('global_maximum_iterations', 'local_steering_samples'):
+        for key in ('global_maximum_iterations', 'local_steering_samples', 'local_clearance_samples'):
             value = defaults[key]
             if isinstance(value, bool) or int(value) != value or value <= 0:
                 raise ValueError('%s must be a positive integer' % key)
             setattr(self, key, int(value))
         if self.local_steering_samples < 3 or self.local_steering_samples % 2 != 1:
             raise ValueError('local_steering_samples must be odd and at least three')
+        if self.local_clearance_samples < 2:
+            raise ValueError('local_clearance_samples must be at least two')
         if min(self.local_lookahead, self.local_horizon, self.local_rotation_gain) <= 0:
             raise ValueError('local lookahead, horizon and rotation gain must be positive')
         if self.global_clearance_distance < self.global_clearance:
@@ -350,7 +353,16 @@ class GlobalLocalPlanner:
         # Limit the actual command deceleration.
         decel = min(control['linear_deceleration'], control['safety_linear_deceleration'])
         target_speed = control['cruise_velocity']
-        for _, _, curvature in sorted(ranked):
+        ranked = [(score, magnitude, curvature, False) for score, magnitude, curvature in ranked]
+        heapq.heapify(ranked)
+        while ranked:
+            score, magnitude, curvature, scored = heapq.heappop(ranked)
+            if not scored:
+                # Base scores are lower bounds: evaluate clearance only until
+                # the next fully scored candidate has the smallest total cost.
+                score += self._clearance_cost(grid, pose, curvature, distance)
+                heapq.heappush(ranked, (score, magnitude, curvature, True))
+                continue
             if not self.geometry.primitive_is_collision_free(grid, pose, curvature, distance):
                 continue
             command = limit_tracking_command(
@@ -364,3 +376,15 @@ class GlobalLocalPlanner:
                 return replace(command, reason='following current-pose local arc')
         return self._rotation_command(grid, pose, bearing_error, control,
             last_linear, last_angular, elapsed)
+
+    def _clearance_cost(self, grid, pose, curvature, distance):
+        """Prefer arcs that leave space around every padded body component."""
+        if self.local_clearance_weight == 0. or self.local_clearance_distance == 0.:
+            return 0.
+        clearances = self.geometry.primitive_clearances(
+            grid, pose, curvature, distance, self.local_clearance_distance,
+            samples=self.local_clearance_samples)
+        shortfall = 1. - clearances / self.local_clearance_distance
+        # Averaging the whole arc rewards moving away even when every
+        # candidate starts at the same small clearance.
+        return self.local_clearance_weight * float(np.mean(shortfall * shortfall))

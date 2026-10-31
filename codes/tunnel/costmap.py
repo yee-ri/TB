@@ -39,10 +39,11 @@ class TunnelCostmap:
             box and is clipped to the source map.
         static_occupied_threshold: Static values at or above this value are
             immutable obstacles.
-        mark_observations: Consecutive scan updates containing a hit in a cell
-            before it becomes a dynamic obstacle.
-        clear_observations: Consecutive scan updates ray-clearing a dynamic
-            obstacle before it is removed.
+        mark_observations: Hit observations needed to confirm an obstacle.
+            Refined cells retain evidence while unseen; a free ray resets it.
+            Unrefined cells require consecutive scans.
+        clear_observations: Free-ray observations needed to remove an obstacle.
+            A new hit resets clearing evidence; unseen refined cells retain it.
         decay_updates: Number of consecutive scan updates in which a confirmed
             dynamic obstacle is not observed before it is removed.  Zero
             disables decay.
@@ -65,10 +66,10 @@ class TunnelCostmap:
             this radius when exporting planner occupancy.  Distances are
             between cell centres; the raw dynamic layer is unchanged.  Zero
             exports only the confirmed cells themselves.
-        dynamic_cell_size: Maximum side of supported sensor-surface subcells.
-            Zero retains source-grid geometry. Confirmation and clearing still
-            use source cells; adjacent accepted returns within one source-cell
-            distance define a surface segment. Isolated returns stay coarse.
+        dynamic_cell_size: Maximum side of sensor-hit and surface collision cells.
+            Each refined cell has its own confirmation and clearing evidence.
+            Zero retains source-grid geometry. Adjacent accepted returns within
+            one source-cell distance define a surface segment.
 
     A cell is counted at most once per scan, so ``mark_observations`` and
     ``clear_observations`` are counts of scans rather than counts of beams.
@@ -175,14 +176,13 @@ class TunnelCostmap:
         self.static_hit_exclusion_radius = static_hit_exclusion_radius
         self.endpoint_clear_guard_radius = endpoint_clear_guard_radius
         self.dynamic_inflation_radius = dynamic_inflation_radius
-        # Observation/clearing counters retain their source-map cell identity.
-        # Only supported sensor surfaces acquire smaller collision cells.
         self.dynamic_subdivisions = (
             max(1, int(math.ceil(resolution / dynamic_cell_size - 1e-6)))
             if dynamic_cell_size > 0.0 else 1
         )
         self.dynamic_cell_size = resolution / self.dynamic_subdivisions
         self._dynamic_subcells = {}
+        self._subcell_evidence = {}
 
         # Keep the source mask, rather than only the crop, so an endpoint near
         # a planning-window edge can still be matched to a wall immediately
@@ -363,10 +363,9 @@ class TunnelCostmap:
     def refined_dynamic_cells(self):
         """Confirmed sensor-cell rectangles; other cells keep their full area.
 
-        A missing/None surface stays coarse, including an isolated return.
         Static occupied and unknown cells can never be reduced by refinement.
-        Geometry persists until the same coarse clear/decay contract removes
-        the observation, so looking elsewhere cannot erase a known surface.
+        Only independently confirmed subcells are exported. An unseen surface
+        persists until free-ray evidence or configured decay removes it.
         """
         rectangles = {}
         subdivisions = self.dynamic_subdivisions
@@ -575,6 +574,7 @@ class TunnelCostmap:
         hit_cells = set()
         clear_cells = set()
         surface_points = {}
+        free_subcells = {}
         for beam_index, raw_distance in enumerate(values):
             try:
                 distance = float(raw_distance)
@@ -597,9 +597,14 @@ class TunnelCostmap:
             endpoint_x = sensor_x + ray_length * math.cos(angle)
             endpoint_y = sensor_y + ray_length * math.sin(angle)
             endpoint_cell = self.world_to_cell(endpoint_x, endpoint_y)
-            ray_cells = self._ray_cells(
-                sensor_x, sensor_y, endpoint_x, endpoint_y
-            )
+            if self.dynamic_subdivisions > 1:
+                ray_cells = set()
+                for index, subcells in self._free_subcells_on_ray(
+                        sensor_x, sensor_y, endpoint_x, endpoint_y).items():
+                    free_subcells.setdefault(index, set()).update(subcells)
+            else:
+                ray_cells = self._ray_cells(
+                    sensor_x, sensor_y, endpoint_x, endpoint_y)
             if has_hit:
                 if endpoint_cell is not None:
                     endpoint_index = (
@@ -641,19 +646,21 @@ class TunnelCostmap:
                     hit_cells.add(index)
             for beam, point in surface_points.items():
                 if beam not in supported_beams:
-                    # No supported surface extent: retain the complete source
-                    # cell, not a point-only obstacle with an invented extent.
-                    surface_cells[point[2]] = None
+                    # Keep the measured hit at the configured collision-cell
+                    # resolution without dropping any already observed surface.
+                    for index, subcells in self._surface_subcells(point, point).items():
+                        surface_cells.setdefault(index, set()).update(subcells)
 
         # An endpoint observed by any beam is occupied even if a neighbouring
         # beam traverses the same raster cell.
         clear_cells.difference_update(hit_cells)
         if self.endpoint_clear_guard_radius > 0.0:
-            clear_cells.difference_update(
-                self._endpoint_clear_guard_cells(hit_cells)
-            )
+            guarded = self._endpoint_clear_guard_cells(hit_cells)
+            clear_cells.difference_update(guarded)
+            for index in guarded:
+                free_subcells.pop(index, None)
         marked_cells, cleared_cells, decayed_cells, refined_cells = self._apply_observations(
-            hit_cells, clear_cells, surface_cells
+            hit_cells, clear_cells, surface_cells, free_subcells
         )
         return ScanUpdate(
             marked_cells=marked_cells,
@@ -771,7 +778,107 @@ class TunnelCostmap:
                 result.setdefault(index, set()).add(subcell)
         return result
 
-    def _apply_observations(self, hit_cells, clear_cells, surface_cells=None):
+    def _free_subcells_on_ray(self, start_x, start_y, end_x, end_y):
+        """Clear only tracked small cells intersected by this measured ray.
+
+        Coarse-grid traversal limits the work to nearby tracked surfaces;
+        segment/rectangle intersection supplies the fine-cell evidence.
+        """
+        if not self._subcell_evidence:
+            return {}
+        clipped = self._clip_segment(start_x, start_y, end_x, end_y)
+        if clipped is None:
+            return {}
+        x, y, end_x, end_y = clipped
+        dx, dy = end_x-x, end_y-y
+        if abs(dx)+abs(dy) <= 1e-15:
+            return {}
+        column, row = self.world_to_cell(x, y)
+        sx, sy = (1 if dx > 0. else -1), (1 if dy > 0. else -1)
+        tx = ((self.origin_x+(column+(dx > 0.))*self.resolution-x)/dx
+              if dx else math.inf)
+        ty = ((self.origin_y+(row+(dy > 0.))*self.resolution-y)/dy
+              if dy else math.inf)
+        dtx = self.resolution/abs(dx) if dx else math.inf
+        dty = self.resolution/abs(dy) if dy else math.inf
+        result, entering = {}, 0.
+        while 0 <= column < self.width and 0 <= row < self.height:
+            leaving = min(tx, ty, 1.)
+            index = row*self.width+column
+            if leaving > entering+1e-12:
+                for subcell in self._subcell_evidence.get(index, {}):
+                    subrow, subcolumn = divmod(subcell, self.dynamic_subdivisions)
+                    xmin = self.origin_x+column*self.resolution+subcolumn*self.dynamic_cell_size
+                    ymin = self.origin_y+row*self.resolution+subrow*self.dynamic_cell_size
+                    low, high = entering, leaving
+                    for start, delta, minimum in ((x, dx, xmin), (y, dy, ymin)):
+                        if abs(delta) <= 1e-15:
+                            if not minimum-1e-12 <= start <= minimum+self.dynamic_cell_size+1e-12:
+                                high = -1.
+                                break
+                        else:
+                            a = (minimum-start)/delta
+                            b = (minimum+self.dynamic_cell_size-start)/delta
+                            low, high = max(low, min(a, b)), min(high, max(a, b))
+                    if high > low+1e-12:
+                        result.setdefault(index, set()).add(subcell)
+            if leaving >= 1.:
+                break
+            cross_x, cross_y = tx <= ty+1e-12, ty <= tx+1e-12
+            if cross_x:
+                column += sx
+                tx += dtx
+            if cross_y:
+                row += sy
+                ty += dty
+            entering = leaving
+        return result
+
+    def _apply_subcell_observations(self, hits, free):
+        """Update each fine cell before deriving coarse occupancy for routing."""
+        marked = cleared = decayed = refined = 0
+        for index in self._subcell_evidence.keys() | hits.keys():
+            if self._static_occupied[index]:
+                continue
+            evidence = self._subcell_evidence.setdefault(index, {})
+            before = self._dynamic_subcells.get(index, set())
+            confirmed = set(before)
+            observed, traversed = hits.get(index, set()), free.get(index, set())
+            expired = False
+            for subcell in evidence.keys() | observed:
+                state = evidence.setdefault(subcell, [0, 0, 0])
+                if subcell in observed:
+                    state[:] = [min(self.mark_observations, state[0]+1), 0, 0]
+                    if state[0] >= self.mark_observations:
+                        confirmed.add(subcell)
+                elif subcell in traversed:
+                    state[:] = [0, min(self.clear_observations, state[1]+1), 0]
+                    if subcell not in confirmed or state[1] >= self.clear_observations:
+                        confirmed.discard(subcell)
+                        del evidence[subcell]
+                elif self.decay_updates > 0:
+                    state[2] += 1
+                    if state[2] >= self.decay_updates:
+                        expired |= subcell in confirmed
+                        confirmed.discard(subcell)
+                        del evidence[subcell]
+            self._dynamic_occupied[index] = bool(confirmed)
+            if confirmed:
+                self._dynamic_subcells[index] = confirmed
+            else:
+                self._dynamic_subcells.pop(index, None)
+            if not evidence:
+                self._subcell_evidence.pop(index, None)
+            marked += bool(confirmed) and not before
+            cleared += bool(before) and not confirmed and not expired
+            decayed += bool(before) and not confirmed and expired
+            refined += bool(before) and bool(confirmed) and before != confirmed
+        return marked, cleared, decayed, refined
+
+    def _apply_observations(self, hit_cells, clear_cells, surface_cells=None,
+                            free_subcells=None):
+        if surface_cells is not None:
+            return self._apply_subcell_observations(surface_cells, free_subcells or {})
         marked_cells = 0
         cleared_cells = 0
         decayed_cells = 0
@@ -783,22 +890,6 @@ class TunnelCostmap:
                 continue
 
             if index in hit_cells:
-                if surface_cells is not None:
-                    old = self._dynamic_subcells.get(index)
-                    old_size = -1 if old is None else len(old)
-                    if not self._dynamic_occupied[index] and self._hit_counts[index] == 0:
-                        self._dynamic_subcells.pop(index, None)
-                    observed = surface_cells.get(index)
-                    if index not in self._dynamic_subcells:
-                        self._dynamic_subcells[index] = None if observed is None else set(observed)
-                    elif observed is None:
-                        self._dynamic_subcells[index] = None
-                    elif self._dynamic_subcells[index] is not None:
-                        self._dynamic_subcells[index].update(observed)
-                    new = self._dynamic_subcells[index]
-                    new_size = -1 if new is None else len(new)
-                    if self._dynamic_occupied[index] and old_size != new_size:
-                        refined_cells += 1
                 self._unobserved_updates[index] = 0
                 self._clear_counts[index] = 0
                 self._hit_counts[index] = min(

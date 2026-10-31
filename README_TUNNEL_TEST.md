@@ -81,9 +81,12 @@ rosbag record -o "$HOME/tb_logs/tunnel" \
 Python/YAML은 별도 빌드가 필요 없다.
 `tunnel.competition.yaml`은 지도·목표가 미입력 상태이므로 실행에 사용하지 않는다.
 
-현재 실차의 `sensors.lidar_maximum_age: null`은 LiDAR 지연 정지 검사를 해제한다.
-LiDAR가 끊겨도 마지막 지도·전방 거리로 계산할 수 있다. `0.30`으로 바꾸거나 이 항목을 삭제하면
-0.30초 제한으로 복원된다. odom·TF·미래 timestamp·초기 위치 정합 결과의 유효시간 검사는 유지된다.
+주행 중 벽 위치 보정은 `tunnel.real.yaml`의 `localization.tracking_period: 0.20`으로 설정한다(초).
+`tracking_max_translation: 0.08`과 `tracking_max_yaw_deg: 6.0`은 한 번에 허용할 위치·방향 보정량이다.
+`tracking_period: 0`으로 끌 수 있으며, 보정 상태는 ROS 로그의 `TUNNEL WALL TRACKING`에서 확인한다.
+
+터널 주행은 odom·LiDAR 자료의 경과시간만으로 정지하지 않으며, 마지막으로 받은 위치·지도·전방 거리를 사용한다.
+차체 충돌 여유 `footprint.padding`은 `0.0`이다. `sensors.maximum_age`는 벽 위치 정합 결과에만 적용한다.
 
 실물 설정의 경로 속도 `0.40m/s`와 진입 속도 `0.30m/s`는 미션 내부 목표값이다.
 선속도 출력은 `odometry.linear_scale`, 각속도 출력은 `odometry.angular_command_scale`로 나눈다.
