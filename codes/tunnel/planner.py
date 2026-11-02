@@ -9,7 +9,7 @@ import numpy as np
 import yaml
 
 from .geometry import CollisionGeometry, OccupancyGrid, Pose2D, normalize_angle
-from .tracking import LimitedCommand, limit_tracking_command, turn_command
+from .tracking import LimitedCommand, limit_tracking_command
 
 
 def load_navigation_settings(overrides=None):
@@ -51,12 +51,11 @@ class GlobalLocalPlanner:
         self.geometry = geometry
         defaults = load_navigation_settings(settings)
         defaults.setdefault('global_clearance', geometry.footprint.half_width + geometry.footprint.padding)
-        defaults.setdefault('local_rotation_tolerance', math.radians(7.5))
         for key in ('global_clearance', 'global_clearance_distance',
                     'global_clearance_weight', 'global_soft_cost_weight',
                     'local_lookahead', 'local_horizon', 'local_heading_weight',
                     'local_steering_weight', 'local_clearance_distance',
-                    'local_clearance_weight', 'local_rotation_gain', 'local_rotation_tolerance'):
+                    'local_clearance_weight', 'local_rotation_gain'):
             value = defaults[key]
             if isinstance(value, bool) or not math.isfinite(float(value)) or value < 0:
                 raise ValueError('%s must be finite and nonnegative' % key)
@@ -296,7 +295,20 @@ class GlobalLocalPlanner:
         if linear > 1e-9:
             return self.geometry.primitive_is_collision_free(
                 grid, pose, angular/linear, linear*duration)
-        angle = angular*duration
+        return self.rotation_is_collision_free(grid, pose, angular*duration)
+
+    def route_heading(self, route, pose):
+        """Direction to the local target, ignoring tiny grid-connection headings."""
+        pose = self._pose(pose)
+        tx, ty, _, tangent = self.select_target(route, pose, self.local_lookahead)
+        dx, dy = tx-pose.x, ty-pose.y
+        return math.atan2(dy, dx) if math.hypot(dx, dy) > 1e-9 else tangent
+
+    def rotation_is_collision_free(self, grid, pose, angle):
+        """Check a stationary body's full angular sweep, including its endpoints."""
+        pose = self._pose(pose)
+        if pose is None or not math.isfinite(angle):
+            return False
         radius = math.hypot(max(self.geometry.footprint.front, self.geometry.footprint.rear)
                             + self.geometry.footprint.padding,
                             self.geometry.footprint.half_width+self.geometry.footprint.padding)
@@ -305,23 +317,9 @@ class GlobalLocalPlanner:
         return all(self.geometry.pose_is_collision_free(
             grid, Pose2D(pose.x, pose.y, pose.yaw+angle*i/count)) for i in range(count+1))
 
-    def _rotation_command(self, grid, pose, error, control, last_linear,
-                          last_angular, elapsed):
-        if abs(error) <= self.local_rotation_tolerance:
-            return None
-        # Limit the actual command deceleration.
-        linear = max(0., last_linear-min(control['linear_deceleration'],
-                                        control['safety_linear_deceleration'])*elapsed)
-        command = turn_command(error, linear, last_angular, elapsed, control,
-                               self.local_rotation_gain)
-        command = replace(command, reason='turning toward route')
-        if self.command_is_collision_free(grid, pose, command, control):
-            return command
-        return None
-
     def local_command(self, grid, pose, route, control, last_linear, last_angular,
                       elapsed):
-        """Return a collision-checked short arc or turn from the current pose."""
+        """Return a collision-checked forward arc, or None when none is available."""
         pose = self._pose(pose)
         values = (last_linear, last_angular, elapsed)
         if (pose is None or not all(math.isfinite(float(v)) for v in values)
@@ -332,8 +330,7 @@ class GlobalLocalPlanner:
         dx, dy = tx-pose.x, ty-pose.y
         bearing_error = normalize_angle(math.atan2(dy, dx)-pose.yaw)
         if abs(bearing_error) >= math.pi/2.:
-            return self._rotation_command(grid, pose, bearing_error, control,
-                last_linear, last_angular, elapsed)
+            return None
         distance = min(self.local_horizon, max(remaining, math.hypot(dx, dy)))
         if distance <= 1e-9:
             command = LimitedCommand(0., 0., 'at route endpoint')
@@ -374,8 +371,7 @@ class GlobalLocalPlanner:
                 continue
             if self.command_is_collision_free(grid, pose, command, control):
                 return replace(command, reason='following current-pose local arc')
-        return self._rotation_command(grid, pose, bearing_error, control,
-            last_linear, last_angular, elapsed)
+        return None
 
     def _clearance_cost(self, grid, pose, curvature, distance):
         """Prefer arcs that leave space around every padded body component."""
