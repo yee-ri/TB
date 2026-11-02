@@ -44,7 +44,7 @@ class TemplateMatch:
         # red_mask=cv2.inRange(hsv,np.array([0,220,175]),np.array([8,255,225]))
         # red_mask=cv2.inRange(hsv,np.array([0,220,165]),np.array([8,255,225]))
         # mask=cv2.bitwise_or(yellow_mask,white_mask)
-        red_mask=cv2.inRange(hsv,np.array([0,180,158]),np.array([5,255,191]))
+        red_mask=cv2.inRange( hsv, np.array([0, 180, 107]), np.array([5, 255, 194]))
         mask=cv2.bitwise_or(yellow_mask,white_mask)
 
         mask=cv2.bitwise_or(mask,red_mask)
@@ -69,8 +69,8 @@ class TemplateMatch:
 
         right_percent=rmax_val*100
 
-        rospy.loginfo("LEFT sign: %.1f%% RIGHT sign: %.1f%%",left_percent,right_percent)
-        # rospy.loginfo("YELLOW is %.3f",yellow_area)
+        # rospy.loginfo("LEFT sign: %.1f%% RIGHT sign: %.1f%%",left_percent,right_percent)
+        rospy.loginfo("RED is %.3f",red_area)
 
 if __name__=='__main__':
     node=TemplateMatch()
