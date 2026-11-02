@@ -15,9 +15,6 @@ from nav_msgs.msg import Odometry
 from std_msgs.msg import UInt8
 import tf2_ros
 import tf2_sensor_msgs.tf2_sensor_msgs
-import sys
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tunnel.mission import TunnelMission, load_config
 from tunnel.odometry import read_linear_scale, read_angular_command_scale, scale_pose
 from tunnel.cloud import tunnel_cloud_xy
