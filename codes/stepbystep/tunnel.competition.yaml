@@ -4,10 +4,15 @@ goal:
   position_tolerance: 0.035
   heading_tolerance_deg: 10.0
 footprint:
-  front: 0.067645
+  front: 0.0678
   rear: 0.118073
   half_width: 0.0903
   padding: 0.0 # Use the measured body dimensions without added padding.
+  parts: # [xmin, ymin, xmax, ymax] in base_footprint, metres.
+    - [-0.118073, -0.0611, 0.067645, 0.0611] # Chassis.
+    - [-0.04775, 0.0611, 0.04775, 0.0903] # Left wheel and protruding fasteners.
+    - [-0.04775, -0.0903, 0.04775, -0.0611] # Right wheel and protruding fasteners.
+    - [0.033525, -0.021, 0.0678, 0.021] # Camera projection at its mounted pitch.
 sensors:
   base_frame: base_footprint
   z_min: 0.03
@@ -41,7 +46,6 @@ entry:
 planner:
   keep_in_rectangles: null # Permitted base-centre regions; body collision is checked separately.
   minimum_turning_radius: 0.18
-  goal_heading_tolerance: 0.1396263402 # Local rotation tolerance, radians.
   collision_check_step: 0.01
   collision_check_angle: 0.0523598776
 control:

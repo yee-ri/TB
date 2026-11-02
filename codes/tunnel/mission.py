@@ -67,6 +67,15 @@ class RouteUpdate:
     duration: float
 
 
+@dataclass
+class RouteTurn:
+    phase: str
+    target_yaw: float
+    target_angle: float = 0.
+    direction: float = 0.
+    angle: float = 0.
+
+
 class TunnelMission:
     def __init__(self, config, clock=None):
         self.navigation = load_navigation_settings(config.get('navigation'))
@@ -74,6 +83,11 @@ class TunnelMission:
         if (isinstance(period, bool) or not isinstance(period, (int, float))
                 or not math.isfinite(period) or period <= 0):
             raise ValueError('navigation/replan_period must be finite and positive')
+        change_angle = self.navigation['route_change_alignment_angle_deg']
+        if (isinstance(change_angle, bool) or not isinstance(change_angle, (int, float))
+                or not math.isfinite(change_angle) or not 0. < change_angle <= 180.):
+            raise ValueError('navigation/route_change_alignment_angle_deg must be in (0, 180]')
+        self.route_change_alignment_angle = math.radians(change_angle)
         self.config = config
         self.clock = clock
         self.control, self.sensors = config['control'], config['sensors']
@@ -192,9 +206,7 @@ class TunnelMission:
         self.worker = None
         self.wall_tracking_worker = None
         self.reset()
-        settings = dict(self.navigation)
-        settings['local_rotation_tolerance'] = config['planner'].get('goal_heading_tolerance', math.radians(7.5))
-        self.local_planner = GlobalLocalPlanner(self.geometry, settings)
+        self.local_planner = GlobalLocalPlanner(self.geometry, self.navigation)
         self.completion = config['goal'].get('completion', 'stop')
         if self.completion not in ('stop', 'lane'):
             raise ValueError('goal/completion must be stop or lane')
@@ -232,6 +244,7 @@ class TunnelMission:
             self.initial_map_updates = 0
 
             self.global_path = None
+            self.route_turn = None
             self.pending_route = None
             self.global_updates = 0
             self.global_report = 'waiting for first global route'
@@ -254,12 +267,24 @@ class TunnelMission:
                 return self._zero('current footprint overlaps mapped obstacle')
             if self.state in ('WAIT_STOP', 'WAIT_LANE'):
                 return self._wait_for_completion(pose, elapsed, now, grid)
-            if self.state == 'FINISHING' or self._goal_reached(pose):
+            if self.route_turn is None and (self.state == 'FINISHING' or self._goal_reached(pose)):
                 return self._finish_goal(pose, elapsed, now, grid)
-            self._accept_global_plan()
+            previous_route = self.global_path
+            updated = self._accept_global_plan()
             self._request_global_plan(pose, now)
             if self.global_path is None:
                 return self._zero('waiting for first global route; ' + self.global_report)
+            if updated:
+                heading = self.local_planner.route_heading(self.global_path, pose)
+                changed = (previous_route is None or abs(normalize_angle(
+                    heading-self.local_planner.route_heading(previous_route, pose)))
+                    >= self.route_change_alignment_angle)
+                if changed:
+                    return self._start_route_alignment(heading)
+            if self.route_turn is not None:
+                response = self._follow_route_turn(grid, pose, elapsed)
+                if response is not None:
+                    return response
             command = self.local_planner.local_command(
                 grid, pose, self.global_path, self.control,
                 self.last_linear, self.last_angular, elapsed)
@@ -276,6 +301,35 @@ class TunnelMission:
                 return False
             self.odom = values
         return True
+
+    def _start_route_alignment(self, heading):
+        self.route_turn = RouteTurn('PREPARE', heading)
+        return self._zero('route alignment: stopping before heading change')
+
+    def _follow_route_turn(self, grid, pose, elapsed):
+        turn = self.route_turn
+        if turn.phase == 'PREPARE':
+            error = normalize_angle(turn.target_yaw-pose.yaw)
+            for angle in (error, error-math.copysign(2.*math.pi, error)):
+                if self.local_planner.rotation_is_collision_free(grid, pose, angle):
+                    turn.direction = math.copysign(1., angle)
+                    turn.target_angle = abs(angle)
+                    turn.phase = 'TURN'
+                    break
+            else:
+                return self._zero('route alignment: requested rotation blocked')
+        if turn.angle >= turn.target_angle:
+            self.route_turn = None
+            return None
+        # Send the requested turn at the configured pivot speed; do not taper
+        # into a motor dead zone or wait for a measured final heading.
+        target = turn.direction * self.entry_alignment_angular_velocity
+        delta = self.control['angular_acceleration'] * min(elapsed, self.control['period'])
+        angular = max(self.last_angular-delta, min(self.last_angular+delta, target))
+        command = LimitedCommand(0., angular)
+        if not self.local_planner.command_is_collision_free(grid, pose, command, self.control):
+            return self._zero('route alignment: next rotation command overlaps mapped obstacle')
+        return self._command(command, 'route alignment: turning toward route heading')
 
     def update_lane(self, visible, stamp):
         with self.lock:
@@ -549,8 +603,6 @@ class TunnelMission:
                     self.localization_report = 'wall alignment x=%.3fm y=%.3fm yaw=%.2fdeg rms=%.4fm' % (
                         pose.x, pose.y, math.degrees(pose.yaw), result.rms)
                     self.reason = self.localization_report
-                    # Freeze the measured entry direction. The optional bias
-                    # is relative to it and is applied only while advancing.
                     self.state = 'ENTRY'
                     return True
         if self.worker is not None and self.worker.is_alive():
@@ -716,6 +768,10 @@ class TunnelMission:
             now = self.clock()
         elapsed = self.control['period'] if self.last_time is None else max(0., now-self.last_time)
         self.last_time = now
+        if self.route_turn is not None:
+            # Integrate the command held since the previous tick, before any
+            # stop branch can reset it. This is commanded, not measured, yaw.
+            self.route_turn.angle += self.route_turn.direction * self.last_angular * elapsed
         if self.state == 'COMPLETE':
             return None, self._zero(self.reason)
         if self.odom is None or self.scan is None:
@@ -822,12 +878,12 @@ class TunnelMission:
 
     def _accept_global_plan(self):
         if self.pending_route is None:
-            return
+            return False
         update = self.pending_route
         self.pending_route = None
         if update.route is None:
             self.global_report = update.error
-            return
+            return False
         # This polyline is guidance, not a committed trajectory. A new scan or
         # motion during search need not discard it: local control projects from
         # the current pose and checks the actual body against the current map.
@@ -835,6 +891,7 @@ class TunnelMission:
         self.global_updates += 1
         self.state = 'FOLLOWING'
         self.global_report = 'global route %d updated in %.3fs' % (self.global_updates, update.duration)
+        return True
 
     def _finish_goal(self, pose, elapsed, now, grid):
         """Hand off after physical passage; retain endpoint alignment otherwise."""
