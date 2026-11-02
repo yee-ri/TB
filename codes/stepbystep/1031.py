@@ -624,12 +624,19 @@ class turtlebot():
     def check_turn(self, image):
         sign = self.detect_sign(image)
 
+        if self.step != 1:
+            return False
+
+        left_ready = self.max_val_l >= 0.87 and self.max_val_l > self.max_val_r
+
         if self.turn_detect is None and sign in ('left', 'right'):
             self.turn_detect = sign
             rospy.loginfo("@@@@@@ %s SIGN SAVED @@@@@@", sign.upper())
 
-        if self.step == 1 and self.turn_detect in ('left', 'right') and math.isfinite(self.front_distance) and 0 < self.front_distance <= 0.65:
-            self.turn_direction = self.turn_detect
+        right_ready = self.turn_detect == 'right' and math.isfinite(self.front_distance) and 0 < self.front_distance <= 0.45
+
+        if left_ready or right_ready:
+            self.turn_direction = 'left' if left_ready else 'right'
             self.turn_detect = None
             self.prev_error = 0.0
             self.prev_target_x = None
@@ -647,7 +654,7 @@ class turtlebot():
             return True
 
         return False
-
+  
     def turn_time(self,direction,duration,linear_speed,angular_speed):
         msg=Twist()
         msg.linear.x=linear_speed
@@ -679,12 +686,12 @@ class turtlebot():
 
         self.obstacle_last_lidar_count = self.lidar_update_count
 
-        if math.isfinite(self.front_distance) and self.front_distance <= 0.55:
+        if math.isfinite(self.front_distance) and self.front_distance <= 0.5:
             self.obstacle_pass_count += 1
         else:
             self.obstacle_pass_count = 0
 
-        if self.obstacle_pass_count >= 7:
+        if self.obstacle_pass_count >= 5:
             self.obstacle_pass_count = 0
             self.turn_direction = None
             self.obstacle_direction = None
@@ -732,21 +739,38 @@ class turtlebot():
                 self.turn_direction = 'straight'
                 self.prev_error = 0.0
                 self.prev_target_x = None
+
+                self.obstacle_yellow_count = 0
+                self.obstacle_second_ready = False
+
                 rospy.loginfo("FIRST OBSTACLE CLEAR -> LANE TRACKING")
                 return
 
             self.move(turn_speed, left_angular)
             return
         # 2. 차선 추종 중 정면 0.2m 이내면 오른쪽 회피
+        # 2. 노란선 확인 후 두 번째 장애물 거리 판단
         if self.obstacle_stage == 'lane':
-            if math.isfinite(self.front_distance) and self.front_distance <= 0.28:
+            if not self.obstacle_second_ready:
+                if yellow_area >= 5000:
+                    self.obstacle_yellow_count += 1
+                else:
+                    self.obstacle_yellow_count = 0
+
+                rospy.loginfo("YELLOW AREA: %d / COUNT: %d / 10",yellow_area, self.obstacle_yellow_count)
+
+                if self.obstacle_yellow_count >= 10:
+                    self.obstacle_second_ready = True
+                    rospy.loginfo("YELLOW CONFIRMED -> SECOND OBSTACLE CHECK")
+
+            if (self.obstacle_second_ready and math.isfinite(self.front_distance) and self.front_distance <= 0.31):
                 self.obstacle_stage = 'right'
                 self.obstacle_stage_count = 0
                 self.obstacle_turn_start = now
                 self.obstacle_direction = 'right'
                 self.obstacle_lane_started = False
                 self.move(turn_speed, right_angular)
-                rospy.loginfo("FRONT <= 0.2 -> TURN RIGHT")
+                rospy.loginfo("FRONT <= 0.31 -> TURN RIGHT")
                 return
 
             self.turn_direction = 'straight'
@@ -931,7 +955,7 @@ class turtlebot():
         if M_w['m00']>0 and M_y['m00']>0:
             cx_w=int(M_w['m10']/M_w['m00'])
             cx_y=int(M_y['m10']/M_y['m00'])
-            target_x=(cx_w+cx_y)/2.0 
+            target_x=(cx_w+cx_y)/2.0 -20
 
         elif M_w['m00']>0:
             cx_w=int(M_w['m10']/M_w['m00'])
@@ -944,7 +968,6 @@ class turtlebot():
             M_lower=cv2.moments(lower_mask)
             if self.step ==3 and self.speed ==2:
                 offset = 400
-                print("HEHEHEHEH")
             else:
                 offset=350
 
@@ -1022,7 +1045,7 @@ class turtlebot():
             if self.speed==1: #gate bar 포착되면 속도 늦추는 거임
                 Kp=0.15
                 Kd=0.008
-                linear=7.0
+                linear=6.0
                 max_angular=45.0
 
 
@@ -1032,8 +1055,7 @@ class turtlebot():
                 linear=17.0
                 max_angular=60.0
                 rospy.loginfo("speed 2 active")
-                # Kp 증가: 차선 중심에서 벗어났을 때 더 강하게 회전함.
-                # Kd 증가: 오차가 빠르게 변할 때 반응을 더 크게 만듦. 급격한 흔들림이 생길 수도 있음.
+
             elif self.step ==6:
                 Kp=0.15
                 Kd=0.015
@@ -1069,7 +1091,7 @@ class turtlebot():
                     rospy.loginfo("IMHERE")
                 else:
                     Kp=0.2#0.23 -> 0.17 ->0.10
-                    Kd=0.4#0.008 -> 0.0025 ->0.25
+                    Kd=0.5#0.008 -> 0.0025 ->0.4
                     linear=32.0 #22.0 ->30
                     max_angular=85.0 #0.85 ->95 ->85
 
@@ -1135,6 +1157,8 @@ class turtlebot():
                 self.move(0, 0)
                 return
 
+            self.move_time(0.06, 0, 0.5)
+
             base_yaw = self.yaw
             direction = 1.0 if self.parking_side == 'right' else -1.0
             entry_yaw = base_yaw + direction * math.radians(90)
@@ -1145,7 +1169,7 @@ class turtlebot():
                 return
 
             if rospy.is_shutdown():
-                self.move(0, 0)
+                # self.move(0, 0)
                 return
             self.move_time(0.06, 0, 0.5)
             if rospy.is_shutdown():
@@ -1388,7 +1412,7 @@ class turtlebot():
         
         elif self.step == 2: # straight find --> turn detect reset for obstacle !!~!~!~
             # self.turn_detect='left'
-            self.straight = self.is_straight(image,170) #6
+            self.straight = self.is_straight(image,180) #6
             if self.straight:
                 self.turn_detect = 'straight'#None
                 self.turn_direction = 'straight'
