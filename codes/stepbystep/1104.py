@@ -169,6 +169,7 @@ class turtlebot():
         self.sign_threshold = 0.70  
         self.sign_left_count = 0
         self.sign_right_count = 0
+        self.left_ready_count = 0
 
 ############## 라인 트랙킹 관련 변수 ##############
         self.prev_error=0.0
@@ -635,7 +636,13 @@ class turtlebot():
         if self.step != 1:
             return False
 
-        left_ready = self.max_val_l >= 0.87 and self.max_val_l > self.max_val_r
+        if self.max_val_l >= 0.8 and self.max_val_l > self.max_val_r:
+            self.left_ready_count += 1
+        else:
+            # self.left_ready_count = 0
+            pass
+
+        left_ready = self.left_ready_count >= 5
 
         if self.turn_detect is None and sign in ('left', 'right'):
             self.turn_detect = sign
@@ -1166,7 +1173,7 @@ class turtlebot():
                 self.move(0, 0)
                 return
 
-            self.move_time(0.06, 0, 1.0) #감지하고 조금 앞으로 직진하는 거
+            self.move_time(0.06, 0, 0.8) #감지하고 조금 앞으로 직진하는 거
 
             base_yaw = self.yaw
             direction = 1.0 if self.parking_side == 'right' else -1.0
@@ -1180,11 +1187,11 @@ class turtlebot():
             if rospy.is_shutdown():
                 # self.move(0, 0)
                 return
-            self.move_time(0.06, 0, 0.9)
+            self.move_time(0.06, 0, 0.7)
             if rospy.is_shutdown():
                 self.move(0, 0)
                 return
-            self.move_time(-0.06, 0, 1.0)
+            self.move_time(-0.06, 0, 0.9)
             if rospy.is_shutdown():
                 self.move(0, 0)
                 return
