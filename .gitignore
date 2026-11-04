@@ -6,3 +6,7 @@ __pycache__/
 nuc_ws/
 deps/
 records/
+
+records/
+*.bag
+*.bag.active
