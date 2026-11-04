@@ -46,7 +46,6 @@ planner:
     - [0.12, -0.1524105, 2.08, 1.7675895]
     - [1.64, 1.5875895, 2.16, 2.0675895]
   minimum_turning_radius: 0.18
-  goal_heading_tolerance: 0.1396263402 # Local rotation tolerance, radians.
   collision_check_step: 0.01
   collision_check_angle: 0.0523598776
 control:
@@ -71,7 +70,6 @@ profiles:
     grid:
       endpoint_clear_guard_radius: 0.0
     planner:
-      goal_heading_tolerance: 0.1745329252 # Local rotation tolerance, radians.
       keep_in_rectangles: # Permitted base-centre regions; body collision is checked separately.
         - [-0.42, -0.2724105, 0.34, 0.2075895]
         - [0.12, -0.1524105, 2.08, 1.7675895]

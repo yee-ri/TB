@@ -249,8 +249,8 @@ class TunnelCostmap:
             )
         return converted
 
-    @classmethod
-    def _flatten_static_data(cls, data, width, height):
+    @staticmethod
+    def _flatten_static_data(data, width, height):
         try:
             outer = list(data)
         except TypeError as error:
@@ -587,10 +587,6 @@ class TunnelCostmap:
 
             has_hit = math.isfinite(distance) and distance <= range_max
             ray_length = distance if has_hit else range_max
-            if not math.isfinite(ray_length):
-                # range_max is validated finite, so this only protects future
-                # changes to the accepted metadata contract.
-                continue
             angle = angle_min + beam_index * angle_increment + sensor_yaw
             if not math.isfinite(angle):
                 continue
@@ -962,12 +958,7 @@ class TunnelCostmap:
     def _clip_segment(self, start_x, start_y, end_x, end_y):
         """Liang-Barsky clip against the grid's half-open world bounds."""
         minimum_x, minimum_y, maximum_x, maximum_y = self.bounds
-        # nextafter makes the closed Liang-Barsky box match OccupancyGrid's
-        # half-open maximum edges and guarantees world_to_cell succeeds.
-        # Python 3.8 in ROS Noetic does not provide ``math.nextafter``. Move
-        # the maximum edges inward by a scale-aware amount far below any map
-        # resolution so the closed clip box matches OccupancyGrid's half-open
-        # bounds on every supported runtime.
+        # Keep maximum edges inside the grid's half-open bounds.
         maximum_x -= max(1.0, abs(maximum_x), abs(minimum_x)) * 1e-12
         maximum_y -= max(1.0, abs(maximum_y), abs(minimum_y)) * 1e-12
         delta_x = end_x - start_x

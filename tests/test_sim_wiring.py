@@ -27,7 +27,7 @@ class SimulationWiringTests(unittest.TestCase):
                    if path.is_file() and path.stat().st_mode & 0o111]
         self.assertEqual(matches, [SIM_PACKAGE / 'scripts/tb_tunnel_controller.py'])
         self.assertTrue(matches[0].is_symlink())
-        self.assertEqual(matches[0].resolve(), ROOT / 'codes/stepbystep/try_maze.py')
+        self.assertEqual(matches[0].resolve(), (ROOT / 'codes/stepbystep/try_maze.py').resolve())
 
     def test_simulation_package_links_to_the_existing_launch_and_config(self):
         self.assertEqual(ET.parse(SIM_PACKAGE / 'package.xml').getroot().findtext('name'),
@@ -63,9 +63,9 @@ class SimulationWiringTests(unittest.TestCase):
 
             rospack = rospkg.RosPack(ros_paths=[str(checkout / 'ros')])
             self.assertEqual(rospack.get_path('tb_tunnel_sim'), str(package))
-            self.assertEqual(roslib.packages.find_node(
-                'tb_tunnel_sim', 'tb_tunnel_controller.py', rospack=rospack),
-                [str(controller)])
+            matches = roslib.packages.find_node(
+                'tb_tunnel_sim', 'tb_tunnel_controller.py', rospack=rospack)
+            self.assertEqual([Path(path).resolve() for path in matches], [controller.resolve()])
             self.assertEqual(archived.read_bytes(), recorded_bytes)
             self.assertEqual(archived.stat().st_mode, recorded_mode)
 
@@ -73,9 +73,10 @@ class SimulationWiringTests(unittest.TestCase):
             duplicate = package / 'duplicate/tb_tunnel_controller.py'
             duplicate.parent.mkdir()
             shutil.copy2(controller, duplicate)
-            self.assertCountEqual(roslib.packages.find_node(
-                'tb_tunnel_sim', 'tb_tunnel_controller.py', rospack=rospack),
-                [str(controller), str(duplicate)])
+            matches = roslib.packages.find_node(
+                'tb_tunnel_sim', 'tb_tunnel_controller.py', rospack=rospack)
+            self.assertCountEqual([Path(path).resolve() for path in matches],
+                                  [controller.resolve(), duplicate.resolve()])
 
     def test_compose_limits_ros_package_discovery_to_ros_directory(self):
         service = yaml.safe_load((ROOT / 'compose.gazebo.yaml').read_text())['services']['gazebo']

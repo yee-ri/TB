@@ -7,6 +7,7 @@ cd /home/sj/TB_tunnel_gazebo
 ```
 
 Gazebo와 `codes/stepbystep/try_maze.py` 제어기를 launch로 함께 실행한다. 기본값은 `normal` 속도·A 배치·STEP 9다.
+`try_maze.py`는 `1102.py`를 가리키며, 같은 폴더의 `current.lut`와 저장소 `images/left.png`, `images/right.png`도 필요하다.
 
 ```bash
 docker compose -f compose.gazebo.yaml up
@@ -48,8 +49,17 @@ docker compose -f compose.gazebo.yaml down
 docker compose -f compose.gazebo.yaml run --rm --no-deps gazebo bash -lc 'source /opt/ros/noetic/setup.bash && source /workspace/devel/setup.bash && python3 -m unittest discover -s tests && python3 tests/ros_smoke.py'
 ```
 
-실차 카메라(노출 `20000µs`·게인 `16`)·LiDAR·OpenCR·장착 TF를 시작한다.
+실차 저장소에서 카메라(수동 노출 `20000µs`·게인 `16`)·LiDAR·OpenCR·장착 TF를 시작한다.
 
 ```bash
 roslaunch launch/sensors.launch enable_depth:=true
+```
+
+실차 영상·LiDAR·주행 상태를 무손실 압축으로 기록한다. 시험 종료 시 기록 터미널에서 `Ctrl+C`로 마친다.
+
+```bash
+mkdir -p ~/tb_logs
+rosbag record --lz4 -o ~/tb_logs/run \
+  /camera/color/image_raw /livox/lidar /odom /tf /tf_static \
+  /cmd_vel /step /rosout /motor_power /sensor_state
 ```
