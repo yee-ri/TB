@@ -1045,7 +1045,7 @@ class turtlebot():
             if self.speed==1: #gate bar 포착되면 속도 늦추는 거임
                 Kp=0.15
                 Kd=0.008
-                linear=6.0
+                linear=4.0
                 max_angular=45.0
 
 
@@ -1091,8 +1091,8 @@ class turtlebot():
                     rospy.loginfo("IMHERE")
                 else:
                     Kp=0.2#0.23 -> 0.17 ->0.10
-                    Kd=0.5#0.008 -> 0.0025 ->0.4
-                    linear=32.0 #22.0 ->30
+                    Kd=1.0#0.008 -> 0.0025 ->0.4
+                    linear=35.0 #22.0 ->30
                     max_angular=85.0 #0.85 ->95 ->85
 
             if self.step in (1, 8) and self.start_time is not None:
@@ -1412,7 +1412,7 @@ class turtlebot():
         
         elif self.step == 2: # straight find --> turn detect reset for obstacle !!~!~!~
             # self.turn_detect='left'
-            self.straight = self.is_straight(image,180) #6
+            self.straight = self.is_straight(image,190) #6
             if self.straight:
                 self.turn_detect = 'straight'#None
                 self.turn_direction = 'straight'
