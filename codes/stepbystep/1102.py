@@ -1036,9 +1036,10 @@ class turtlebot():
                     target_x = 0.8 * target_x + 0.2 * self.prev_target_x
                 elif self.step == 2:
                     target_x = 0.8 * target_x + 0.2 * self.prev_target_x
+                elif is_curve:
+                    target_x = 0.55 * target_x + 0.45 * self.prev_target_x
                 else:
                     target_x = 0.25 * target_x + 0.75 * self.prev_target_x
-
                 self.prev_target_x = target_x
 
             err_x=target_x-center_x
