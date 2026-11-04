@@ -1,7 +1,7 @@
 # 터널 단독 시험
 
-기본 실행 파일은 `codes/stepbystep/try_maze.py`이며, `_start_step:=9`로 터널부터 직접 시작한다.
-이 파일은 최신 전체 주행 코드 `1102.py`를 가리킨다. 완료 후 STEP 11에서는 그 코드의 차선 주행으로 복귀한다.
+기본 실행 파일은 `codes/stepbystep/1104.py`이며, `_start_step:=9`로 터널부터 직접 시작한다.
+입구로 접근하는 STEP 8·8.5까지 함께 시험하려면 [STEP 8 실행](README.md)을 사용한다.
 아래 `cd` 경로는 실제 저장소 위치에 맞춘다.
 
 ## 시작 위치
@@ -32,7 +32,7 @@ roslaunch launch/sensors.launch
 ```bash
 cd /home/sj/ParkCars/TB-tunnel-nuc
 rostopic pub -1 /motor_power std_msgs/Bool 'data: true'
-python3 codes/stepbystep/try_maze.py _start_step:=9
+python3 codes/stepbystep/1104.py _start_step:=9
 ```
 
 ## 직접 실행 종료

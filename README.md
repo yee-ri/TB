@@ -1,8 +1,7 @@
 # 실차 주행 실행
 
-기본 실행 파일은 `codes/stepbystep/try_maze.py`다. 센서를 시작한 뒤 직접 실행한다.
+기본 실행 파일은 `codes/stepbystep/1104.py`다. 센서를 시작한 뒤 직접 실행한다.
 일반 주행과 터널 단독 시험 모두 같은 파일을 사용하며, 터널은 V2로 주행한다.
-`try_maze.py`는 최신 전체 주행 코드 `1102.py`를 가리키는 링크다. 두 명령은 같은 코드를 실행한다.
 색상 인식에는 `codes/stepbystep/current.lut`와 `images/left.png`, `images/right.png`를 사용하므로 저장소 경로를 유지한다.
 
 아래 `cd` 경로는 실제 저장소 위치에 맞춘다.
@@ -47,21 +46,33 @@ rosbag record --lz4 -o ~/tb_logs/run \
 시험마다 `~/tb_logs/run_날짜_시각.bag`로 저장된다. `/cmd_vel`과 `/odom`을 비교하고
 당시 카메라 영상·LiDAR·ROS 로그를 함께 확인할 수 있다. Python 소스와 YAML 파일은 자동 저장되지 않는다.
 
-## 직접 주행 시작 — 터미널 B
+## STEP 8부터 터널 진입 시험 — 터미널 B
+
+차단기 이후 터널로 이어지는 차선이 보이는 위치에 로봇을 놓고 실행한다.
+
+```bash
+cd /home/sj/ParkCars/TB-tunnel-nuc
+rostopic pub -1 /motor_power std_msgs/Bool 'data: true'
+python3 codes/stepbystep/1104.py _start_step:=8
+```
+
+STEP 8 차선 주행 → STEP 8.5 추가 전진 → STEP 9 위치 정합·진입 → STEP 10 경로 주행 → STEP 11 차선 주행으로 이어진다.
+
+## 전체 주행 시작 — 터미널 B
 
 로봇을 출발 위치에 놓고 센서가 준비된 뒤 실행한다.
 
 ```bash
 cd /home/sj/ParkCars/TB-tunnel-nuc
 rostopic pub -1 /motor_power std_msgs/Bool 'data: true'
-python3 codes/stepbystep/try_maze.py
+python3 codes/stepbystep/1104.py
 ```
 
-기본 시작은 최신 전체 주행 코드와 같은 STEP 0(신호등 대기)이다. 모터 토크는 위 명령으로 직접 활성화한다.
+기본 시작은 STEP 0(신호등 대기)이다. 모터 토크는 위 명령으로 직접 활성화한다.
 터널 단독 시험은 [터널 시작 위치](README_TUNNEL_TEST.md)에 배치하고 마지막 명령을 다음으로 바꾼다.
 
 ```bash
-python3 codes/stepbystep/try_maze.py _start_step:=9
+python3 codes/stepbystep/1104.py _start_step:=9
 ```
 
 ## 종료

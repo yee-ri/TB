@@ -6,8 +6,7 @@
 cd /home/sj/TB_tunnel_gazebo
 ```
 
-Gazebo와 `codes/stepbystep/try_maze.py` 제어기를 launch로 함께 실행한다. 기본값은 `normal` 속도·A 배치·STEP 9다.
-`try_maze.py`는 `1102.py`를 가리키며, 같은 폴더의 `current.lut`와 저장소 `images/left.png`, `images/right.png`도 필요하다.
+Gazebo와 launch에 연결된 제어기를 실행한다. 기본값은 `normal` 속도·A 배치·STEP 9다.
 
 ```bash
 docker compose -f compose.gazebo.yaml up
@@ -53,6 +52,19 @@ docker compose -f compose.gazebo.yaml run --rm --no-deps gazebo bash -lc 'source
 
 ```bash
 roslaunch launch/sensors.launch enable_depth:=true
+```
+
+실차에서 STEP 8 차선 주행부터 터널 진입을 시험한다.
+
+```bash
+rostopic pub -1 /motor_power std_msgs/Bool 'data: true'
+python3 codes/stepbystep/1104.py _start_step:=8
+```
+
+실차에서 위치 정합·터널 주행부터 시험한다.
+
+```bash
+python3 codes/stepbystep/1104.py _start_step:=9
 ```
 
 실차 영상·LiDAR·주행 상태를 무손실 압축으로 기록한다. 시험 종료 시 기록 터미널에서 `Ctrl+C`로 마친다.
