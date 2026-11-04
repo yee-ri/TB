@@ -93,7 +93,7 @@ class TunnelMission:
         self.control, self.sensors = config['control'], config['sensors']
         for key in ('period', 'linear_acceleration', 'linear_deceleration',
                     'angular_acceleration', 'safety_linear_deceleration',
-                    'safety_angular_deceleration', 'safety_reaction_time'):
+                    'safety_reaction_time'):
             if not math.isfinite(self.control[key]) or self.control[key] <= 0:
                 raise ValueError('control/%s must be finite and positive' % key)
         entry_acceleration = config['entry'].get('linear_acceleration', self.control['linear_acceleration'])
@@ -163,8 +163,7 @@ class TunnelMission:
         self.entry_maximum_curvature = float(entry_curvature)
         for key, default, maximum in (
                 ('alignment_angular_velocity', .10, self.control['maximum_angular_velocity']),
-                ('alignment_angular_acceleration', .25, self.control['angular_acceleration']),
-                ('alignment_tolerance_deg', .3, 1.)):
+                ('alignment_angular_acceleration', .25, self.control['angular_acceleration'])):
             value = config['entry'].get(key, default)
             if (isinstance(value, (bool, np.bool_))
                     or not isinstance(value, (int, float, np.integer, np.floating))
@@ -240,6 +239,7 @@ class TunnelMission:
             self.entry_start_x = 0.
             self.entry_start_yaw = 0.
             self.entry_phase = 'WAIT_STOP' if self.entry_heading_offset else 'DRIVE'
+            self.entry_turn_angle = 0.
             self.entry_drive_yaw = None
             self.initial_map_updates = 0
 
@@ -674,17 +674,13 @@ class TunnelMission:
         measured_linear, measured_angular = self.odom[3:5]
         stopped = (abs(measured_linear) <= cfg['planning_stopped_linear']
                    and abs(measured_angular) <= cfg['planning_stopped_angular'])
-        error = normalize_angle(self.entry_start_yaw + self.entry_heading_offset - pose.yaw)
         direction = math.copysign(1., self.entry_heading_offset)
-        remaining = direction * error
-        tolerance = math.radians(self.entry_alignment_tolerance_deg)
         if self.entry_phase == 'WAIT_STOP':
             if not stopped:
                 return self._zero('waiting for measured rest before entry heading turn')
             self.entry_phase = 'ALIGN'
-        if remaining <= tolerance:
-            # Latch the reached heading once and start forward acceleration
-            # without waiting for angular rest. Moving entry corrects drift.
+        if self.entry_turn_angle >= abs(self.entry_heading_offset):
+            # Finish from the sent turn, then hold the current heading while driving.
             self.entry_drive_yaw = pose.yaw
             self.entry_phase = 'DRIVE'
             return None
@@ -692,11 +688,7 @@ class TunnelMission:
             return self._zero('waiting for measured rest before entry heading turn')
 
         acceleration = self.entry_alignment_angular_acceleration
-        deceleration = min(acceleration, cfg['safety_angular_deceleration'])
-        reaction = cfg['safety_reaction_time'] + cfg['period']
-        # Slow near the target; reaching or passing it ends the turn above.
-        cap = math.sqrt((deceleration * reaction)**2 + 2. * deceleration * remaining) - deceleration * reaction
-        target = direction * min(self.entry_alignment_angular_velocity, cap)
+        target = direction * self.entry_alignment_angular_velocity
         change = acceleration * min(elapsed, cfg['period'])
         angular = max(self.last_angular-change, min(self.last_angular+change, target))
         return self._command(LimitedCommand(0., angular),
@@ -768,6 +760,9 @@ class TunnelMission:
             now = self.clock()
         elapsed = self.control['period'] if self.last_time is None else max(0., now-self.last_time)
         self.last_time = now
+        if self.state == 'ENTRY' and self.entry_phase == 'ALIGN':
+            # Count the command held since the previous tick, including before a stop.
+            self.entry_turn_angle += math.copysign(1., self.entry_heading_offset) * self.last_angular * elapsed
         if self.route_turn is not None:
             # Integrate the command held since the previous tick, before any
             # stop branch can reset it. This is commanded, not measured, yaw.

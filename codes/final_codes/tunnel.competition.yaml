@@ -36,9 +36,9 @@ grid:
   static_hit_exclusion_radius: 0.1
   static_occupied_threshold: 65
   dynamic_cell_size: 0.005
-  mark_observations: 2 # Consecutive scans, not point count.
+  mark_observations: 2 # Hit scans per subcell; unobserved scans retain evidence.
   clear_observations: 2
-  endpoint_clear_guard_radius: 0.03
+  endpoint_clear_guard_radius: 0.0
   dynamic_inflation_radius: 0.06
   dynamic_inflation_value: 64
 entry:
@@ -60,8 +60,7 @@ control:
   linear_deceleration: 0.4
   angular_acceleration: 0.55
   safety_linear_deceleration: 0.15 # Local command deceleration cap; also used by entry speed control.
-  safety_angular_deceleration: 0.55 # Initial alignment deceleration.
-  safety_reaction_time: 0.1 # Reaction time used by initial entry/alignment only.
+  safety_reaction_time: 0.1 # Reaction time used by straight entry only.
   safety_distance_margin: 0.01 # Initial entry stopping margin, metres.
   planning_stopped_linear: 0.008
   planning_stopped_angular: 0.03
