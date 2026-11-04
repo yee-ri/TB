@@ -15,3 +15,4 @@ local_clearance_distance: 0.04
 local_clearance_weight: 0.40
 local_clearance_samples: 9
 local_rotation_gain: 2.0
+route_change_alignment_angle_deg: 90.0

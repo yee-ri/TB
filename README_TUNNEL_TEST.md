@@ -1,6 +1,7 @@
 # 터널 단독 시험
 
 기본 실행 파일은 `codes/stepbystep/try_maze.py`이며, `_start_step:=9`로 터널부터 직접 시작한다.
+이 파일은 최신 전체 주행 코드 `1102.py`를 가리킨다. 완료 후 STEP 11에서는 그 코드의 차선 주행으로 복귀한다.
 아래 `cd` 경로는 실제 저장소 위치에 맞춘다.
 
 ## 시작 위치
@@ -58,12 +59,12 @@ ls -lt ~/.ros/log
 
 ```bash
 mkdir -p "$HOME/tb_logs"
-rosbag record -o "$HOME/tb_logs/tunnel" \
+rosbag record --lz4 -o "$HOME/tb_logs/tunnel" \
   /camera/color/image_raw /livox/lidar /odom /tf /tf_static \
   /cmd_vel /step /rosout /motor_power /sensor_state
 ```
 
-`~/tb_logs/tunnel_날짜_시각.bag` 형식으로 저장된다.
+`~/tb_logs/tunnel_날짜_시각.bag` 형식으로 원본값을 유지하는 LZ4 압축으로 저장된다.
 제어기를 종료하고 토크를 해제한 뒤 로봇이 멈춘 것을 확인한다.
 기록 터미널에서 `Ctrl+C`를 누르고 `.bag.active`가 `.bag`으로 저장된 뒤 센서를 종료한다.
 
@@ -90,14 +91,3 @@ Python/YAML은 별도 빌드가 필요 없다.
 
 실물 설정의 경로 속도 `0.40m/s`와 진입 속도 `0.30m/s`는 미션 내부 목표값이다.
 선속도 출력은 `odometry.linear_scale`, 각속도 출력은 `odometry.angular_command_scale`로 나눈다.
-
-## 원격 RViz
-
-SSH 연결에서 X11 forwarding을 켜고, 센서가 실행 중인 상태에서 실행한다.
-
-```bash
-cd /home/sj/ParkCars/TB-tunnel-nuc
-rviz -d rviz/tunnel_sensors.rviz
-```
-
-`DISPLAY`가 비어 있으면 X11 forwarding을 켜서 새로 연결한다.

@@ -116,36 +116,6 @@ def _require_livox_tag_layout(cloud, fields):
         raise ValueError('Livox particle filter requires a valid tag layout: ' + str(error)) from error
 
 
-def _require_livox_intensity_layout(cloud, fields):
-    """Require the driver's FLOAT32 intensity at byte 12 and complete rows."""
-    try:
-        intensities = [field for field in fields if field.name == 'intensity']
-        if (len(intensities) != 1 or intensities[0].datatype != 7
-                or intensities[0].count != 1 or intensities[0].offset != 12):
-            raise ValueError('intensity must be FLOAT32 at offset 12 with count 1')
-        dimensions = (cloud.width, cloud.height, cloud.point_step, cloud.row_step)
-        if (any(not isinstance(value, (int, np.integer)) for value in dimensions)
-                or cloud.width < 0 or cloud.height < 0 or cloud.point_step < 16
-                or cloud.row_step != cloud.width * cloud.point_step):
-            raise ValueError('cloud dimensions or strides are invalid')
-        sizes = {1: 1, 2: 1, 3: 2, 4: 2, 5: 4, 6: 4, 7: 4, 8: 8}
-        names, previous_end = set(), 0
-        for field in fields:
-            size = sizes.get(field.datatype)
-            if (field.name in names or size is None
-                    or not isinstance(field.count, (int, np.integer)) or field.count < 1
-                    or not isinstance(field.offset, (int, np.integer))
-                    or field.offset < previous_end
-                    or field.offset + size * field.count > cloud.point_step):
-                raise ValueError('point fields are duplicate, overlapping or out of bounds')
-            names.add(field.name)
-            previous_end = field.offset + size * field.count
-        if memoryview(cloud.data).nbytes != cloud.row_step * cloud.height:
-            raise ValueError('data length does not match complete cloud rows')
-    except (AttributeError, TypeError, ValueError, BufferError) as error:
-        raise ValueError('Minimum intensity requires a valid Livox layout: ' + str(error)) from error
-
-
 def tunnel_cloud_xy(cloud, rotation, translation, settings, read_points, motion_poses=None,
                     wall_height_band=None):
     """Return the existing height/range-filtered XY values, or None for fallback.
@@ -175,16 +145,9 @@ def tunnel_cloud_xy(cloud, rotation, translation, settings, read_points, motion_
     the height-band behavior. Zero selects raw z == 0 exactly (the driver's
     recorded zero-height coordinate), without adding an angular tolerance.
 
-    ``minimum_intensity`` defaults to zero (disabled). A positive threshold
-    retains only finite intensity values between the threshold and 255,
-    inclusive, independently of tag filtering. Invalid intensity metadata
-    rejects the cloud; invalid or weaker values reject only their points,
-    without supplying free-space rays.
-
     ``wall_height_band`` optionally returns (obstacle_xy, wall_xy) from the
     same transform. Wall XY serves initial registration and moving wall tracking:
-    its ground-height band replaces the horizontal slice and includes weak
-    intensity 0/1 returns from black walls. Particle rejection, acquisition
+    its ground-height band replaces the horizontal slice. Particle rejection, acquisition
     transforms, finite coordinates and range checks still apply. It must
     never be passed to the obstacle costmap in place of obstacle_xy.
     """
@@ -198,17 +161,6 @@ def tunnel_cloud_xy(cloud, rotation, translation, settings, read_points, motion_
     motion_compensation = settings.get('livox_motion_compensation', False)
     if not isinstance(motion_compensation, bool):
         raise ValueError('livox_motion_compensation must be a boolean')
-    minimum_intensity = settings.get('minimum_intensity', 0.)
-    if (isinstance(minimum_intensity, (bool, np.bool_))
-            or not isinstance(minimum_intensity, (int, float, np.integer, np.floating))):
-        raise ValueError('minimum_intensity must be a finite number between 0 and 255')
-    try:
-        minimum_intensity = float(minimum_intensity)
-    except (ValueError, OverflowError) as error:
-        raise ValueError('minimum_intensity is out of range') from error
-    if not np.isfinite(minimum_intensity) or not 0. <= minimum_intensity <= 255.:
-        raise ValueError('minimum_intensity must be a finite number between 0 and 255')
-    intensity_filter = minimum_intensity > 0.
     horizontal_slice = 'horizontal_half_angle_deg' in settings
     if horizontal_slice:
         angle = settings['horizontal_half_angle_deg']
@@ -224,7 +176,7 @@ def tunnel_cloud_xy(cloud, rotation, translation, settings, read_points, motion_
         # Include the mathematical angle boundary despite one-ULP rounding
         # in tan (for example, tan(45 degrees) may be just below 1).
         horizontal_slope = 0. if angle == 0. else np.nextafter(np.tan(np.radians(angle)), np.inf)
-    strict = particle_filter or motion_compensation or horizontal_slice or intensity_filter or wall_height_band is not None
+    strict = particle_filter or motion_compensation or horizontal_slice or wall_height_band is not None
     try:
         fields = sorted(cloud.fields, key=lambda field: field.offset)
         supported = (
@@ -256,9 +208,6 @@ def tunnel_cloud_xy(cloud, rotation, translation, settings, read_points, motion_
         header, point_times = _livox_point_times(cloud, fields)
 
     field_names = ('x', 'y', 'z')
-    if intensity_filter:
-        _require_livox_intensity_layout(cloud, fields)
-        field_names += ('intensity',)
     if particle_filter:
         _require_livox_tag_layout(cloud, fields)
         field_names += ('tag',)
@@ -269,11 +218,6 @@ def tunnel_cloud_xy(cloud, rotation, translation, settings, read_points, motion_
     points = rows[:, :3]
     if particle_filter:
         particle_keep = (rows[:, -1].astype(np.uint8) & 0x0C) == 0
-    if intensity_filter:
-        intensity = rows[:, 3]
-        with np.errstate(invalid='ignore'):
-            intensity_keep = (np.isfinite(intensity) & (intensity >= minimum_intensity)
-                              & (intensity <= 255.))
     # Filter nonfinite coordinates after transforming. Raise on overflow so
     # finite obstacles cannot disappear through conversion to infinity.
     with np.errstate(invalid='ignore', over='raise'):
@@ -304,11 +248,6 @@ def tunnel_cloud_xy(cloud, rotation, translation, settings, read_points, motion_
         keep &= particle_keep
         if wall_height_band is not None:
             wall_keep &= particle_keep
-    if intensity_filter:
-        keep &= intensity_keep
-        if wall_height_band is not None:
-            with np.errstate(invalid='ignore'):
-                wall_keep &= np.isfinite(intensity) & (intensity >= 0.) & (intensity <= 255.)
     if wall_height_band is not None:
         return points[keep, :2], points[wall_keep, :2]
     return points[keep, :2]

@@ -77,6 +77,15 @@ class Mission:
         self.update_lane = Mock()
 
 
+class ColorFixture:
+    """Deterministic colors for adapter tests, independent of LUT calibration."""
+    counts = {1: 1, 2: 1, 4: 1}
+
+    def mask(self, image, label):
+        color = {1: (255, 255, 255), 2: (0, 255, 255), 4: (255, 0, 0)}[label]
+        return np.all(image == color, axis=2).astype(np.uint8) * 255
+
+
 def module(name, **members):
     result = types.ModuleType(name)
     result.__dict__.update(members)
@@ -161,17 +170,37 @@ class TunnelWiringTests(unittest.TestCase):
         self.addCleanup(self.module_patch.stop)
         original_path = list(sys.path)
         self.addCleanup(lambda: sys.path.__setitem__(slice(None), original_path))
-        spec = importlib.util.spec_from_file_location("tb_wiring_test_target", SOURCE)
-        self.target = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.target)
+        # Keep unit tests headless even when they exercise a debug branch;
+        # explicit debug tests below inspect their own nested mocks.
+        for name in ('imshow', 'waitKey'):
+            gui = patch.object(cv2, name)
+            gui.start()
+            self.addCleanup(gui.stop)
+        self.target = self.load_controller(SOURCE)
         self.node = self.target.turtlebot()
+
+    def load_controller(self, source):
+        spec = importlib.util.spec_from_file_location("tb_wiring_test_target", source)
+        target = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(target)
+        # Loading and counting a 16 MiB LUT for every mocked controller adds no
+        # adapter coverage. The direct entrypoint test uses the real LUT/assets.
+        if hasattr(target, '_ColorLUTAddition'):
+            color = patch.object(target, '_ColorLUTAddition', return_value=ColorFixture())
+            templates = patch.object(target.turtlebot, 'load_sign_template',
+                                     return_value=np.zeros((100, 100), dtype=np.uint8))
+            color.start()
+            templates.start()
+            self.addCleanup(color.stop)
+            self.addCleanup(templates.stop)
+        return target
 
     def test_controller_constructs_the_driving_mission_directly(self):
         self.assertIs(type(self.node.tunnel), Mission)
         self.assertIs(self.node.tunnel.config, self.config)
         self.assertEqual(self.node.tunnel.clock(), 42.)
-        self.target.rospy.loginfo.assert_any_call(
-            'Tunnel config: %s', self.load_config.call_args.args[0])
+        self.load_config.assert_called_once_with(
+            str(SOURCE.with_name('tunnel.real.yaml')), 'normal')
 
     def test_start_initializes_timer_without_motor_control(self):
         for step in (0, 1, 3, 8, 9, 10, 11):
@@ -200,7 +229,10 @@ class TunnelWiringTests(unittest.TestCase):
             self.assertEqual(dict(os.environ), environment)
             execute.assert_not_called()
             spin.assert_called_once_with()
-        self.assertEqual(loaded['controller'].step, 1)
+        self.assertEqual(loaded['controller'].step, 0)
+        self.assertTrue(loaded['controller']._color_lut.counts[4])
+        self.assertEqual(loaded['controller'].lturn_template.shape, (100, 100))
+        self.assertEqual(loaded['controller'].rturn_template.shape, (100, 100))
         self.assertEqual(self.load_config.call_args.args,
                          (str(SOURCE.with_name('tunnel.real.yaml')), 'normal'))
         self.assertEqual([p.topic for p in self.publishers[before:]], ['/cmd_vel'])
@@ -278,7 +310,8 @@ class TunnelWiringTests(unittest.TestCase):
             header=types.SimpleNamespace(frame_id="base_scan", stamp=Stamp(41.7)))
 
     def test_startup_initializes_before_callbacks_and_uses_one_publisher(self):
-        self.assertEqual(self.node.step, 1)
+        self.assertEqual(self.node.step, 0)
+        self.assertTrue(self.node.show_lane_debug)
         self.assertEqual(self.node.tunnel_linear_scale, 1.)
         self.assertEqual(self.node.tunnel_angular_command_scale, 1.)
         self.assertEqual([p.topic for p in self.publishers], ["/cmd_vel"])
@@ -465,10 +498,12 @@ class TunnelWiringTests(unittest.TestCase):
         self.assertGreater(command.linear.x, 0.)
         self.assertEqual(node.step, 8)
 
-    def test_lane_debug_window_is_explicit_opt_in(self):
-        self.params.update({'~start_step': 8, '~show_lane_debug': True})
+    def test_lut_debug_window_is_explicit_opt_in(self):
+        self.params.update({'~start_step': 8, '~show_lut_debug': True})
         node = self.target.turtlebot()
         node.odom_callback(self.odometry())
+        node._color_lut.rgb_to_label = Mock(return_value=np.zeros((480, 640), dtype=np.uint8))
+        node._color_lut.label_to_rgb = Mock(return_value=self.image().array)
         with patch.object(self.target.cv2, 'imshow') as show, \
                 patch.object(self.target.cv2, 'waitKey') as wait:
             node.img_callback(self.image(True))
@@ -486,26 +521,36 @@ class TunnelWiringTests(unittest.TestCase):
         far_right.array[320:460, 620:630] = (0, 255, 255)
         far_left = self.image()
         far_left.array[320:460, 330:340] = (255, 255, 255)
+        # Observed with untouched incoming 1102.py at dc74536 and these images.
+        # Protect the course's command contract independently of tunnel scales.
+        stage_commands = {
+            1: (.18336, .233975, .06685, 1.4205625),
+            2: (.1146, .0528115, .0501375, .835625),
+            3: (.18336, .233975, .06685, 1.4205625),
+            4: (.13179, .0969325, .046795, .835625),
+            5: (.10314, .12033, .0367675, .835625),
+            6: (.08595, .0245817, .022347, .22347),
+            7: (.13179, .047296375, .046795, .835625),
+            8: (.18336, .233975, .06685, 1.4205625),
+            11: (.18336, .233975, .06685, 1.4205625),
+        }
         for step, speed in ((step, speed) for step in (*range(1, 9), 11)
                             for speed in (0, 1, 2)):
             with self.subTest(step=step, speed=speed):
-                # Preserve HEAD's stage/speed command contract independently
-                # of tunnel calibration. Values are mocked command expectations,
-                # not measured wheel or physical vehicle velocities.
-                if step == 2:
-                    linear, first_turn, steady_turn, turn_limit = .08075, .077552, .074, .629
+                if speed == 1 and step == 6:
+                    linear, first_turn, steady_turn, turn_limit = .02865, .02353884, .022347, .335205
                 elif speed == 1:
-                    linear, first_turn, steady_turn, turn_limit = .06175, .046768, .0444, .333
+                    linear, first_turn, steady_turn, turn_limit = .03438, .0528115, .0501375, .7520625
                 elif step == 3 and speed == 2:
-                    linear, first_turn, steady_turn, turn_limit = .09025, .06216, .0592, .592
+                    linear, first_turn, steady_turn, turn_limit = .081175, .029796, .0268164, .44694
                 else:
-                    linear, first_turn, steady_turn, turn_limit = .1045, .070448, .06808, .629
+                    linear, first_turn, steady_turn, turn_limit = stage_commands[step]
                 node = self.scaled_node()
                 node.step, node.speed = step, speed
                 node.lane_tracking(centered.array)
                 cmd = node.cmd_pub.publish.call_args.args[0]
                 self.assertAlmostEqual(cmd.linear.x, linear)
-                self.assertAlmostEqual(cmd.angular.z, 0.)
+                self.assertAlmostEqual(cmd.angular.z, first_turn)
                 node.prev_target_x = None
                 node.prev_error = 0.
                 node.lane_tracking(shifted.array)
@@ -546,15 +591,20 @@ class TunnelWiringTests(unittest.TestCase):
 
     def test_obstacle_lane_speed_state_resets_after_clearance(self):
         node = self.node
-        node.step, node.obstacle_move_count = 3, 20
-        node.check_obstacle_start = Mock(return_value=False)
-        node.check_obstacle_end = Mock(return_value=False)
-        node.lane_tracking = Mock()
+        node.step = 3
+        node.check_obstacle_start = Mock(return_value=True)
         node.img_callback(self.image(True))
+        self.assertEqual(node.obstacle_stage, 'left')
         self.assertEqual(node.speed, 2)
-        node.check_obstacle_end.return_value = True
+        node.obstacle_stage = 'done'
+        node.straight_count = 139
         node.img_callback(self.image(True))
+        self.assertEqual(node.step, 4)
+        self.assertIsNone(node.obstacle_stage)
+        self.assertIsNone(node.obstacle_turn_start)
         self.assertEqual(node.speed, 0)
+        command = node.cmd_pub.publish.call_args.args[0]
+        self.assertEqual((command.linear.x, command.angular.z), (0., 0.))
 
     def test_wall_alignment_stays_on_step_nine_with_zero_command(self):
         self.node.step = 9
@@ -594,14 +644,14 @@ class TunnelWiringTests(unittest.TestCase):
         command = self.node.cmd_pub.publish.call_args.args[0]
         self.assertEqual((command.linear.x, command.angular.z), (0.0, 0.0))
 
-        # No image means no new lane command; a blank image must not replay
-        # the wheel command stored before entering the tunnel.
+        # No image means no new lane command. A fresh blank frame follows the
+        # incoming course's slow-straight fallback, not the old wheel command.
         self.node.tunnel_tick(None)
         self.node.cmd_pub.publish.assert_called_once()
         for _ in range(4):
             self.node.img_callback(self.image(False))
             command = self.node.cmd_pub.publish.call_args.args[0]
-            self.assertEqual((command.linear.x, command.angular.z), (0.0, 0.0))
+            self.assertEqual((command.linear.x, command.angular.z), (0.06, 0.0))
         self.node.tunnel.update_lane.assert_not_called()
 
     def test_first_single_line_image_drives_after_stopped_tunnel_handoff(self):
@@ -779,32 +829,41 @@ class TunnelWiringTests(unittest.TestCase):
                 self.assertEqual(stamp, header)
         node.cmd_pub.publish.assert_not_called()
 
-    def test_moving_localization_receives_weak_wall_points_in_both_entrypoints(self):
-        self.config['localization'] = {'height_band': [.04, .23], 'tracking_period': .2}
-        self.config['sensors'].update({'minimum_intensity': 2,
-                                        'horizontal_half_angle_deg': .5,
+    def test_wall_height_band_tracks_after_anchor_without_replacing_obstacle_points(self):
+        self.config['sensors'].update({'horizontal_half_angle_deg': .5,
                                         'livox_particle_filter': True})
-        for source in (SOURCE, ROOT/'codes/final_codes/try_maze.py'):
-            with self.subTest(source=source):
-                spec = importlib.util.spec_from_file_location('tracking_adapter_test', source)
-                target = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(target)
-                node = target.turtlebot()
-                node.odom_callback(self.odometry())
-                node.step = 10
-                node.tunnel.anchor = (0., 0., 0.)
-                self.tf_buffer.lookup_transform.return_value = transform(z=.19)
-                point = (.6, .2, 0.)
-                cloud = self.timed_cloud([point], [0.])
-                # The mocked ROS reader returns the requested XYZ/intensity/tag fields.
-                cloud.points = [(*point, 0., 0)]
-                cloud.data = struct.pack('<ffffBBd', *point, 0., 0, 0, 41.7e9)
-                node.scan_callback(cloud)
-                call = node.tunnel.update_cloud.call_args
-                self.assertIsNotNone(call)
-                self.assertEqual(np.asarray(call.args[0]).shape, (0, 2))
-                np.testing.assert_allclose(call.kwargs['localization_points'], [[.6, .2]], atol=1e-7)
-                node.cmd_pub.publish.assert_not_called()
+        points = [(.6, .2, 0.), (.7, .1, -.1), (.8, -.1, .1), (.9, 0., 0.)]
+        tags = [0, 0, 0, 4]
+        for source in (SOURCE, SOURCE.with_name('1102.py')):
+            target = self.load_controller(source)
+            for anchor in (None, (0., 0., 0.)):
+                for tracking_period in (0., .2):
+                    with self.subTest(source=source, anchor=anchor, tracking_period=tracking_period):
+                        self.config['localization'] = {'height_band': [.04, .23],
+                                                       'tracking_period': tracking_period}
+                        node = target.turtlebot()
+                        node.odom_callback(self.odometry())
+                        node.step = 9 if anchor is None else 10
+                        node.tunnel.anchor = anchor
+                        self.tf_buffer.lookup_transform.return_value = transform(z=.19)
+                        cloud = self.timed_cloud(points, [0.] * len(points))
+                        # Current cloud processing requests XYZ/tag, with no
+                        # intensity filter. A zero-intensity horizontal return
+                        # still belongs to both obstacle and wall observations.
+                        cloud.points = [(*point, tag) for point, tag in zip(points, tags)]
+                        cloud.data = b''.join(struct.pack('<ffffBBd', *point, 0., tag, 0, 41.7e9)
+                                              for point, tag in zip(points, tags))
+                        node.scan_callback(cloud)
+                        call = node.tunnel.update_cloud.call_args
+                        self.assertIsNotNone(call)
+                        np.testing.assert_allclose(call.args[0], [[.6, .2]], atol=1e-7)
+                        wall_points = call.kwargs['localization_points']
+                        if anchor is None or tracking_period:
+                            np.testing.assert_allclose(wall_points, [[.6, .2], [.7, .1]], atol=1e-7)
+                        else:
+                            self.assertIsNone(wall_points)
+                        self.assertEqual(call.args[3], 41.7)
+                        node.cmd_pub.publish.assert_not_called()
 
     def test_tunnel_output_linear_and_angular_scales_are_independent(self):
         node = self.scaled_node()
@@ -1025,9 +1084,10 @@ class TunnelWiringTests(unittest.TestCase):
         self.node.step = 3
         self.node.scan_callback(self.cloud([(0.2, 0.0, 0.1), (0.3, 0.0, 0.1),
                                            (0.4, 0.2, 0.1), (0.4, -0.3, 0.1)]))
-        self.assertAlmostEqual(self.node.front_distance, 0.21)
+        self.assertAlmostEqual(self.node.front_distance, 0.2)
         self.assertAlmostEqual(self.node.left_distance, math.hypot(0.4, 0.2))
         self.assertAlmostEqual(self.node.right_distance, 0.5)
+        self.assertEqual(self.node.lidar_update_count, 1)
         self.node.tunnel.update_cloud.assert_not_called()
 
 
