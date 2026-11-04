@@ -531,7 +531,7 @@ class turtlebot():
         # green_mask=cv2.dilate(green_mask,None,iterations=2)
         hsv_frame = cv2.cvtColor(data, cv2.COLOR_BGR2HSV)
         green_mask = cv2.inRange(hsv_frame, np.array([45, 100, 80]), np.array([85, 255, 255]))
-        if cv2.countNonZero(green_mask)>=200:
+        if cv2.countNonZero(green_mask)>=100:
             rospy.loginfo("@@@@@@ GREEN LIGHT @@@@@@")
             # self.stop()
             rospy.sleep(0.5)
