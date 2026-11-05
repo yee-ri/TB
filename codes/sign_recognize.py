@@ -18,17 +18,24 @@ class TemplateMatch:
 
         self.rturn_template=cv2.imread('/home/sj/Desktop/TB/images/right.png',cv2.IMREAD_GRAYSCALE)
         self.rturn_template=cv2.resize(self.rturn_template,(100,100))
+        self.depth_point = None
 
         rospy.Subscriber('/camera/color/image_raw',Image,self.image_callback,queue_size=1,buff_size=2**24)
 
 
-    def depth_callback(self,data):
-        depth_image=self.bridge.imgmsg_to_cv2(data,desired_encoding='passthrough')
-        height,width=depth_image.shape
-        cx=width//2
-        cy=height//2
-        depth=depth_image[cy,cx]
-        # if depth>0: rospy.loginfo("CENTER DEPTH: %.3f m",depth/1000.0)
+    def depth_callback(self, data):
+        depth_image = self.bridge.imgmsg_to_cv2( data, desired_encoding='passthrough')
+        height, width = depth_image.shape[:2] 
+        cx = width // 2 
+        cy = height // 2 -170
+
+        self.depth_point = (cx, cy, width, height)
+
+        depth = float(depth_image[cy, cx])
+        if np.isfinite(depth) and depth > 0:
+
+            depth_m = depth / 1000.0 if data.encoding == '16UC1' else depth
+            rospy.loginfo("CENTER DEPTH: %.3f m", depth_m)
 
     def image_callback(self,msg):
         image=self.bridge.imgmsg_to_cv2(msg,'bgr8')
@@ -55,10 +62,25 @@ class TemplateMatch:
 
         filtered=cv2.bitwise_and(image,image,mask=mask)
 
-        cv2.imshow('COLOR',image)
-        cv2.imshow('COLOR FILTER',filtered)
-        cv2.waitKey(1)
+        display = image.copy()
+        filtered_display = filtered.copy()
 
+        point = self.depth_point
+        if point is not None:
+            cx, cy, depth_width, depth_height = point
+            x = min(width - 1, int(cx * width / depth_width))
+            y = min(height - 1, int(cy * height / depth_height))
+
+            for view in (display, filtered_display):
+                cv2.circle(view, (x, y), 5, (0, 0, 255), -1)
+                cv2.putText(
+                    view, 'DEPTH', (x + 10, y - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1
+                )
+
+        cv2.imshow('COLOR', display)
+        cv2.imshow('COLOR FILTER', filtered_display)
+        cv2.waitKey(1)
         gray=cv2.cvtColor(filtered,cv2.COLOR_BGR2GRAY)
 
         left_result=cv2.matchTemplate(gray,self.lturn_template,cv2.TM_CCOEFF_NORMED)
@@ -72,7 +94,8 @@ class TemplateMatch:
         right_percent=rmax_val*100
 
         # rospy.loginfo("LEFT sign: %.1f%% RIGHT sign: %.1f%%",left_percent,right_percent)
-        rospy.loginfo("GREEN is %.3f",green_area)
+        # rospy.loginfo("GREEN is %.3f",green_area)
+
 
 if __name__=='__main__':
     node=TemplateMatch()
