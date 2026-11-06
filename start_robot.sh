@@ -12,6 +12,9 @@ sleep 2
 rosrun tf static_transform_publisher -0.033073 0 0.1439 0 0 0 base_footprint livox_frame 100 &
 rosrun tf static_transform_publisher 0.057526051 0.009 0.083634463 0 0.2967 0 base_footprint camera_link 100 &
 sleep 2
+
 rosrun dynamic_reconfigure dynparam set /camera/stereo_module enable_auto_exposure false
 rosrun dynamic_reconfigure dynparam set /camera/stereo_module exposure 16000
+
+
 wait
