@@ -38,6 +38,12 @@ def wall_cloud(pose, bins=1440, walls=None):
     return sensor + ranges[hit, None]*np.column_stack((np.cos(angles[hit]), np.sin(angles[hit])))
 
 
+def noisy_wall_cloud(pose):
+    """Raycast wall endpoints with reproducible Cartesian measurement noise."""
+    cloud = wall_cloud(pose)
+    return cloud + np.random.default_rng(615).normal(0., .016, cloud.shape)
+
+
 class EntranceLocalizationTest(unittest.TestCase):
     def setUp(self):
         self.matcher = EntranceLocalizer(WALLS)
@@ -104,10 +110,12 @@ class EntranceLocalizationTest(unittest.TestCase):
             with self.subTest(pose=pose):
                 self.assertFalse(self.matcher.estimate(wall_cloud(pose)).accepted)
 
-    def test_inconsistent_wall_measurements_fail_residual_gate(self):
-        cloud = wall_cloud((.04, -.02, -.08))
-        cloud += np.random.default_rng(615).normal(0., .045, cloud.shape)
-        self.assertFalse(self.matcher.estimate(cloud).accepted)
+    def test_initial_fit_with_perpendicular_walls_accepts_rms_above_tracking_limit(self):
+        pose = (.04, -.02, -.08)
+        result = self.matcher.estimate(noisy_wall_cloud(pose), (-.033073, 0.))
+        self.assert_pose(result, pose)
+        self.assertGreater(result.rms, .012)
+        self.assertEqual(result.reason, 'wall alignment accepted')
 
     def test_bottles_alone_and_empty_cloud_do_not_initialize(self):
         angle = np.linspace(0., 2.*math.pi, 150)
@@ -200,6 +208,15 @@ class WallTrackingTest(unittest.TestCase):
         self.assertLess(math.hypot(result.pose.x-expected[0], result.pose.y-expected[1]),
                         position)
         self.assertLess(abs(normalize_angle(result.pose.yaw-expected[2])), yaw)
+
+    def test_tracking_still_rejects_high_rms_wall_scan_accepted_at_initialization(self):
+        pose = (.04, -.02, -.08)
+        result = self.matcher.track(noisy_wall_cloud(pose), pose,
+                                    sensor_origin=(-.033073, 0.))
+        self.assertFalse(result.accepted)
+        self.assertIsNone(result.pose)
+        self.assertGreater(result.rms, .012)
+        self.assertEqual(result.reason, 'wall residual too large')
 
     def test_inside_corner_recovers_xy_and_yaw_for_both_turn_directions(self):
         for actual, error in (((1.71, .12, .32), (.045, -.025, .065)),

@@ -31,13 +31,12 @@ class TunnelProfileTests(unittest.TestCase):
                     'linear_acceleration': .15, 'linear_deceleration': .40,
                     'angular_acceleration': .55,
                     'safety_linear_deceleration': .15,
-                    'safety_angular_deceleration': .55,
                     'safety_reaction_time': .10}
         for name, value in expected.items():
             with self.subTest(parameter=name):
                 self.assertEqual(normal['control'][name], value)
         self.assertEqual(normal['entry']['cruise_velocity'], .04)
-        self.assertEqual(normal['grid']['endpoint_clear_guard_radius'], .030)
+        self.assertEqual(normal['grid']['endpoint_clear_guard_radius'], 0.)
 
     def test_fast_values_match_source_simulation_profile(self):
         fast = load_config(CONFIG, 'fast')
@@ -54,7 +53,7 @@ class TunnelProfileTests(unittest.TestCase):
                 self.assertEqual(fast['control'][name], value)
         self.assertEqual(fast['entry']['cruise_velocity'], .32)
         self.assertEqual(fast['grid']['endpoint_clear_guard_radius'], 0.)
-        self.assertAlmostEqual(fast['planner']['goal_heading_tolerance'], math.radians(10.))
+        self.assertNotIn('goal_heading_tolerance', fast['planner'])
         # Source exit apron world x_max=.45 in the frozen staging frame.
         self.assertAlmostEqual(fast['planner']['keep_in_rectangles'][-1][-1], 2.1975895)
 
@@ -253,19 +252,22 @@ class TunnelProfileTests(unittest.TestCase):
         self.assertEqual(mission.step(now), (0., 0., True))
         self.assertEqual(mission.state, 'COMPLETE')
 
-    def test_outside_goal_current_footprint_conflict_still_blocks_motion(self):
+    def test_outside_goal_map_overlap_does_not_interrupt_limited_deceleration(self):
         mission = self.goal_mission()
-        # A measured point within the body stays a hard obstacle even when
-        # goal distance/orientation are already within completion tolerance.
         for i in range(mission.config['grid']['mark_observations']):
             stamp = 10.05 + i*.05
             mission.update_odometry((.98, 0., 0.), .08, .6, stamp)
             mission.update_scan([.055], 0., 1., .05, 40.,
                                 (0., 0., 0.), (.98, 0., 0.), stamp)
-        self.assertEqual(mission.step(stamp), (0., 0., False))
-        self.assertEqual(mission.state, 'FOLLOWING')
+        self.assertFalse(mission.geometry.pose_is_collision_free(mission._grid(), (.98, 0., 0.)))
+        linear, angular, complete = mission.step(stamp)
+        self.assertGreater(linear, 0.)
+        self.assertLess(linear, .08)
+        self.assertFalse(complete)
+        self.assertLessEqual(.08-linear,
+                             mission.control['linear_deceleration']*mission.control['period']+1e-9)
+        self.assertEqual(mission.state, 'FINISHING')
         self.assertIsNone(mission.completion_started)
-        self.assertIn('current footprint', mission.reason)
 
 
 

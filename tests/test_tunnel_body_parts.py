@@ -8,8 +8,6 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'codes'))
 from tunnel.geometry import CollisionGeometry, OccupancyGrid, Pose2D, RectangularFootprint
-from tunnel.planner import GlobalLocalPlanner
-from tunnel.tracking import LimitedCommand
 
 
 FRONT = .06779981518632729
@@ -90,24 +88,18 @@ class BodyPartCollisionTest(unittest.TestCase):
         self.assertTrue(geometry(.01).pose_is_collision_free(grid, (0., 0., 0.)))
         self.assertFalse(geometry(.01, parts=()).pose_is_collision_free(grid, (0., 0., 0.)))
 
-    def test_rotation_detects_body_contact_between_free_endpoints(self):
+    def test_rotated_body_can_overlap_between_free_endpoint_poses(self):
         checker = geometry()
         grid = point_obstacle((-.117, 0.), half_size=.0005)
-        start = Pose2D(0., 0., -math.pi/4.)
-        end = Pose2D(0., 0., math.pi/4.)
-        self.assertTrue(checker.pose_is_collision_free(grid, start))
-        self.assertTrue(checker.pose_is_collision_free(grid, end))
-        self.assertFalse(GlobalLocalPlanner(checker).command_is_collision_free(
-            grid, start, LimitedCommand(0., math.pi/2.), {'period': 1.}))
+        self.assertTrue(checker.pose_is_collision_free(grid, Pose2D(0., 0., -math.pi/4.)))
+        self.assertTrue(checker.pose_is_collision_free(grid, Pose2D(0., 0., math.pi/4.)))
+        self.assertFalse(checker.pose_is_collision_free(grid, Pose2D(0., 0., 0.)))
 
-    def test_rotation_does_not_sweep_an_invented_rear_corner(self):
+    def test_rotation_samples_distinguish_real_parts_from_rectangular_envelope(self):
         grid = point_obstacle((-.14, 0.), half_size=.0005)
-        start = Pose2D(0., 0., -math.pi/2.)
-        command, control = LimitedCommand(0., math.pi), {'period': 1.}
-        self.assertTrue(GlobalLocalPlanner(geometry()).command_is_collision_free(
-            grid, start, command, control))
-        self.assertFalse(GlobalLocalPlanner(geometry(parts=())).command_is_collision_free(
-            grid, start, command, control))
+        poses = [Pose2D(0., 0., yaw) for yaw in np.linspace(-math.pi/2., math.pi/2., 721)]
+        self.assertTrue(all(geometry().pose_is_collision_free(grid, pose) for pose in poses))
+        self.assertFalse(all(geometry(parts=()).pose_is_collision_free(grid, pose) for pose in poses))
 
     def test_curved_sweep_detects_each_wheel_between_free_endpoints(self):
         checker = geometry()

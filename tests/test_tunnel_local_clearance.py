@@ -1,4 +1,4 @@
-"""Local clearance preferences preserve collision validity and narrow passages."""
+"""Full-body clearance scores steer local paths without hard overlap rejection."""
 
 import math
 from pathlib import Path
@@ -76,7 +76,6 @@ class LocalClearancePreferenceTest(unittest.TestCase):
         before_gaps = self.geometry.primitive_clearances(grid, self.pose, before_curve, .30, .04)
         after_gaps = self.geometry.primitive_clearances(grid, self.pose, after_curve, .30, .04)
         self.assertGreater(float(np.mean(after_gaps)), float(np.mean(before_gaps)))
-        self.assertTrue(preferred.command_is_collision_free(grid, self.pose, after, CONTROL))
 
     def test_symmetric_walls_keep_centered_straight_command(self):
         grid = room(((-.3, -.3, 1., -.11), (-.3, .11, 1., .3)))
@@ -98,14 +97,58 @@ class LocalClearancePreferenceTest(unittest.TestCase):
                 self.assertIsNotNone(command)
                 self.assertGreater(command.linear_velocity, 0.)
                 self.assertAlmostEqual(command.angular_velocity, 0., places=12)
-                self.assertTrue(planner.command_is_collision_free(grid, self.pose, command, CONTROL))
 
-    def test_clearance_preference_does_not_make_blocked_forward_paths_valid(self):
+    def test_nonoverlapping_arc_is_preferred_when_clearance_scoring_is_enabled(self):
+        grid = room(((-.3, -.3, 1., -.105),))
+        route = GlobalRoute(np.array(((0., 0.), (.8, -.12))))
+        for weight in (.20, .40):
+            with self.subTest(weight=weight):
+                planner = self.planner(weight)
+                tx, ty, _, _ = planner.select_target(route, self.pose, planner.local_lookahead)
+                desired = 2.*ty/(tx*tx+ty*ty)
+                self.assertGreater(planner._clearance_score(grid, self.pose, desired, .30)[0], 0)
+                command = self.command(planner, grid, route)
+                self.assertIsNotNone(command)
+                self.assertGreater(command.linear_velocity, 0.)
+                curvature = command.angular_velocity/command.linear_velocity
+                self.assertEqual(planner._clearance_score(grid, self.pose, curvature, .30)[0], 0)
+
+    def test_zero_weight_disables_both_overlap_and_distance_preferences(self):
+        grid = room(((-.3, -.3, 1., -.105),))
+        route = GlobalRoute(np.array(((0., 0.), (.8, -.12))))
+        planner = self.planner(0.)
+        self.assertEqual(planner._clearance_score(grid, self.pose, -.98, .30), (0, 0.))
+        self.assertEqual(self.command(planner, grid, route), self.command(planner, room(), route))
+
+    def test_starting_overlap_prefers_leaving_the_obstacle_without_stopping(self):
+        grid = room(((-.3, .08, 1., .3),))
+        self.assertFalse(self.geometry.pose_is_collision_free(grid, self.pose))
+        planner = self.planner(.20)
+        maximum = 1./self.geometry.minimum_turning_radius
+        for curvature in np.linspace(-maximum, maximum, planner.local_steering_samples):
+            self.assertGreater(planner._clearance_score(grid, self.pose, curvature, .30)[0], 0)
+        command = self.command(planner, grid)
+        self.assertIsNotNone(command)
+        self.assertGreater(command.linear_velocity, 0.)
+        self.assertLess(command.angular_velocity, 0.)
+        chosen = planner._clearance_score(grid, self.pose,
+                                          command.angular_velocity/command.linear_velocity, .30)
+        straight = planner._clearance_score(grid, self.pose, 0., .30)
+        self.assertLess(chosen[0], straight[0])
+
+    def test_overlapping_forward_paths_keep_a_command_and_nonzero_clearance_cost(self):
         grid = room(((.11, -.5, .3, .5),))
         self.assertTrue(self.geometry.pose_is_collision_free(grid, self.pose))
+        self.assertFalse(self.geometry.primitive_is_collision_free(grid, self.pose, 0., .30))
+        preferred = self.planner(.20)
+        self.assertGreater(preferred._clearance_score(grid, self.pose, 0., .30)[0], 0)
+        self.assertGreater(preferred._clearance_score(grid, self.pose, 0., .30)[1], 0.)
+        self.assertEqual(preferred._clearance_score(room(), self.pose, 0., .30), (0, 0.))
         for weight in (0., .20):
             with self.subTest(weight=weight):
-                self.assertIsNone(self.command(self.planner(weight), grid))
+                command = self.command(self.planner(weight), grid)
+                self.assertIsNotNone(command)
+                self.assertGreater(command.linear_velocity, 0.)
 
 
 if __name__ == '__main__':

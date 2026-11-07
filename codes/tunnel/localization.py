@@ -164,7 +164,7 @@ class EntranceLocalizer:
                 break
         return pose
 
-    def _support(self, points, pose, sensor_origin=(0., 0.)):
+    def _support(self, points, pose, sensor_origin=(0., 0.), check_residual=True):
         mapped = self._transform(points, pose)
         origin = self._transform(np.asarray(sensor_origin), pose)
         squared, indices = self._distances(mapped, origins=origin)
@@ -173,7 +173,7 @@ class EntranceLocalizer:
         rms = float(np.sqrt(np.mean(squared[inliers]))) if count else math.inf
         if count < self.minimum_inliers or count < self.minimum_fraction*len(points):
             return False, 'insufficient wall inliers', rms, count
-        if rms > self.maximum_rms:
+        if check_residual and rms > self.maximum_rms:
             return False, 'wall residual too large', rms, count
         for axis in (0, 1):
             best = False
@@ -347,7 +347,7 @@ class EntranceLocalizer:
                    and abs(pose[2]-other[1][2]) < math.radians(.5) for other in refined):
                 continue
             refined.append((self._score(points, pose, sensor_origin), pose,
-                            self._support(evidence, pose, sensor_origin)))
+                            self._support(evidence, pose, sensor_origin, check_residual=False)))
         if not refined:
             return AlignmentResult(False, reason='wall match outside entrance bounds', total=len(evidence))
         refined.sort(key=lambda item: item[0])

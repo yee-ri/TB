@@ -4,7 +4,6 @@ localization:
   geometry: maps/tunnel_practice_1820.geometry.json
   search_bounds: [-0.35, -0.07, 0.45, 0.07]
   yaw_limit_deg: 20.0
-  confirmation_scans: 3
   observation_window: 1.0
   height_band: [0.04, 0.23]
   tracking_period: 0.20 # Moving wall alignment in a separate worker; 0 disables it.

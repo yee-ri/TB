@@ -673,11 +673,9 @@ class CollisionGeometry:
     def primitive_clearances(self, grid, start, curvature, distance, maximum_clearance, samples=9):
         """Return capped body clearances at the start and arc samples, for scoring.
 
-        Samples are uniformly spaced along the arc, independently of the finer
-        hard-collision sweep. This preference must not replace
-        ``primitive_is_collision_free``.
-        Distances include padded components, exact occupied rectangles and the
-        map exterior. Keep-in constraints remain in the hard collision checker.
+        Samples are uniformly spaced along the arc. Distances include padded
+        components, exact occupied rectangles and the map exterior. Overlap
+        has zero clearance; this score does not reject a path candidate.
         """
         if not isinstance(grid, OccupancyGrid):
             raise TypeError("grid must be an OccupancyGrid")

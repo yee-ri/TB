@@ -171,15 +171,12 @@ class GlobalLocalPlanner:
         """Return a complete 8-connected 2-D route, or None; never a stub.
 
         Position clearance is a routing preference/constraint. The route has
-        no body headings; local full-footprint checks decide executability.
+        no body headings; local control scores the full body's clearance.
         """
         if not isinstance(grid, OccupancyGrid):
             raise TypeError('grid must be an OccupancyGrid')
         start, goal = self._pose(start), self._pose(goal)
         if start is None or goal is None:
-            return None
-        if (not self.geometry.pose_is_collision_free(grid, start)
-                or not self.geometry.pose_is_collision_free(grid, goal)):
             return None
         first, last = grid.world_to_grid(start.x, start.y), grid.world_to_grid(goal.x, goal.y)
         if not grid.contains_cell(*first) or not grid.contains_cell(*last):
@@ -276,27 +273,6 @@ class GlobalLocalPlanner:
         tangent = math.atan2(edges[target_index, 1], edges[target_index, 0])
         return float(target[0]), float(target[1]), float(station[-1]-current), tangent
 
-    def command_is_collision_free(self, grid, pose, command, control):
-        """Check the limited command's swept body over one control period.
-
-        The candidate arc has its own distance check. This check covers the
-        motion changed by command rate limits, without extrapolating a stop.
-        """
-        pose = self._pose(pose)
-        try:
-            linear = float(command.linear_velocity)
-            angular = float(command.angular_velocity)
-            duration = float(control['period'])
-        except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
-            return False
-        if (pose is None or linear < 0. or duration <= 0.
-                or not all(math.isfinite(v) for v in (linear, angular, duration))):
-            return False
-        if linear > 1e-9:
-            return self.geometry.primitive_is_collision_free(
-                grid, pose, angular/linear, linear*duration)
-        return self.rotation_is_collision_free(grid, pose, angular*duration)
-
     def route_heading(self, route, pose):
         """Direction to the local target, ignoring tiny grid-connection headings."""
         pose = self._pose(pose)
@@ -304,26 +280,12 @@ class GlobalLocalPlanner:
         dx, dy = tx-pose.x, ty-pose.y
         return math.atan2(dy, dx) if math.hypot(dx, dy) > 1e-9 else tangent
 
-    def rotation_is_collision_free(self, grid, pose, angle):
-        """Check a stationary body's full angular sweep, including its endpoints."""
-        pose = self._pose(pose)
-        if pose is None or not math.isfinite(angle):
-            return False
-        radius = math.hypot(max(self.geometry.footprint.front, self.geometry.footprint.rear)
-                            + self.geometry.footprint.padding,
-                            self.geometry.footprint.half_width+self.geometry.footprint.padding)
-        step = min(self.geometry.collision_check_angle, .5*grid.collision_resolution/radius)
-        count = max(1, int(math.ceil(abs(angle)/step)))
-        return all(self.geometry.pose_is_collision_free(
-            grid, Pose2D(pose.x, pose.y, pose.yaw+angle*i/count)) for i in range(count+1))
-
     def local_command(self, grid, pose, route, control, last_linear, last_angular,
                       elapsed):
-        """Return a collision-checked forward arc, or None when none is available."""
+        """Choose a forward arc by route error and full-body obstacle clearance."""
         pose = self._pose(pose)
         values = (last_linear, last_angular, elapsed)
-        if (pose is None or not all(math.isfinite(float(v)) for v in values)
-                or not self.geometry.pose_is_collision_free(grid, pose)):
+        if pose is None or not all(math.isfinite(float(v)) for v in values):
             return None
         elapsed = max(0., min(float(elapsed), control['period']))
         tx, ty, remaining, tangent = self.select_target(route, pose, self.local_lookahead)
@@ -333,8 +295,7 @@ class GlobalLocalPlanner:
             return None
         distance = min(self.local_horizon, max(remaining, math.hypot(dx, dy)))
         if distance <= 1e-9:
-            command = LimitedCommand(0., 0., 'at route endpoint')
-            return command if self.command_is_collision_free(grid, pose, command, control) else None
+            return LimitedCommand(0., 0., 'at route endpoint')
         maximum = 1./self.geometry.minimum_turning_radius
         desired = 2.*(-math.sin(pose.yaw)*dx+math.cos(pose.yaw)*dy)/max(dx*dx+dy*dy, 1e-12)
         previous = last_angular/last_linear if last_linear > 1e-6 else 0.
@@ -350,17 +311,16 @@ class GlobalLocalPlanner:
         # Limit the actual command deceleration.
         decel = min(control['linear_deceleration'], control['safety_linear_deceleration'])
         target_speed = control['cruise_velocity']
-        ranked = [(score, magnitude, curvature, False) for score, magnitude, curvature in ranked]
+        ranked = [(0, score, magnitude, curvature, False)
+                  for score, magnitude, curvature in ranked]
         heapq.heapify(ranked)
         while ranked:
-            score, magnitude, curvature, scored = heapq.heappop(ranked)
+            overlaps, score, magnitude, curvature, scored = heapq.heappop(ranked)
             if not scored:
-                # Base scores are lower bounds: evaluate clearance only until
-                # the next fully scored candidate has the smallest total cost.
-                score += self._clearance_cost(grid, pose, curvature, distance)
-                heapq.heappush(ranked, (score, magnitude, curvature, True))
-                continue
-            if not self.geometry.primitive_is_collision_free(grid, pose, curvature, distance):
+                # Prefer fewer overlapping samples before comparing route cost.
+                # A candidate remains selectable even when every arc overlaps.
+                overlaps, clearance_cost = self._clearance_score(grid, pose, curvature, distance)
+                heapq.heappush(ranked, (overlaps, score+clearance_cost, magnitude, curvature, True))
                 continue
             command = limit_tracking_command(
                 target_speed, max(target_speed, 1e-6), target_speed*curvature,
@@ -369,18 +329,18 @@ class GlobalLocalPlanner:
                 control['maximum_lateral_acceleration'])
             if command.linear_velocity <= 1e-9:
                 continue
-            if self.command_is_collision_free(grid, pose, command, control):
-                return replace(command, reason='following current-pose local arc')
+            return replace(command, reason='following current-pose local arc')
         return None
 
-    def _clearance_cost(self, grid, pose, curvature, distance):
-        """Prefer arcs that leave space around every padded body component."""
+    def _clearance_score(self, grid, pose, curvature, distance):
+        """Rank overlap samples first, then clearance around all body parts."""
         if self.local_clearance_weight == 0. or self.local_clearance_distance == 0.:
-            return 0.
+            return 0, 0.
         clearances = self.geometry.primitive_clearances(
             grid, pose, curvature, distance, self.local_clearance_distance,
             samples=self.local_clearance_samples)
         shortfall = 1. - clearances / self.local_clearance_distance
         # Averaging the whole arc rewards moving away even when every
         # candidate starts at the same small clearance.
-        return self.local_clearance_weight * float(np.mean(shortfall * shortfall))
+        return (int(np.count_nonzero(clearances == 0.)),
+                self.local_clearance_weight * float(np.mean(shortfall * shortfall)))

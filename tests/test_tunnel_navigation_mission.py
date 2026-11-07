@@ -89,6 +89,17 @@ class GlobalLocalMissionTest(unittest.TestCase):
         self.assertEqual(local.call_count, 1)
         self.assertIn('no global route', mission.global_report)
 
+    def test_missing_first_global_route_still_waits_without_a_fallback_command(self):
+        mission = self.make_mission()
+        mission.global_path = None
+        mission.pending_route = RouteUpdate(None, 'no global route', .01)
+        self.feed(mission, 10.05)
+        with patch.object(mission.local_planner, 'local_command') as local:
+            self.assertEqual(mission.step(10.05), (0., 0., False))
+        local.assert_not_called()
+        self.assertIsNone(mission.route_turn)
+        self.assertIn('waiting for first global route', mission.reason)
+
     def test_moving_pose_and_new_scan_do_not_discard_global_route_update(self):
         mission = self.make_mission()
         replacement = self.route((.05, 0.), (2.5, 0.))
@@ -106,18 +117,21 @@ class GlobalLocalMissionTest(unittest.TestCase):
         self.assertEqual(local.call_args.args[1], Pose2D(*pose))
         self.assertEqual(local.call_args.args[4:6], (.12, 0.))
 
-    def test_guidance_update_does_not_bypass_latest_candidate_collision_check(self):
+    def test_guidance_update_scores_latest_obstacles_without_rejecting_command(self):
         mission = self.make_mission(velocity=.2)
         replacement = self.route()
         mission.pending_route = RouteUpdate(replacement, '', .01)
         self.feed(mission, 10.05, velocity=.2)
         grid = self.wall_grid(.31)
-        # The body fits now, but the current 30 cm candidates reach this wall.
         self.assertTrue(mission.geometry.pose_is_collision_free(grid, Pose2D(.2, 0., 0.)))
+        self.assertFalse(mission.geometry.primitive_is_collision_free(
+            grid, Pose2D(.2, 0., 0.), 0., mission.local_planner.local_horizon))
         with patch.object(mission, '_grid', return_value=grid), patch.object(
                 mission.local_planner, 'local_command',
                 wraps=mission.local_planner.local_command) as local:
-            self.assertEqual(mission.step(10.05), (0., 0., False))
+            linear, _, complete = mission.step(10.05)
+        self.assertGreater(linear, 0.)
+        self.assertFalse(complete)
         self.assertIs(mission.global_path, replacement)
         self.assertEqual(local.call_count, 1)
         self.assertIs(local.call_args.args[0], grid)
@@ -167,7 +181,7 @@ class GlobalLocalMissionTest(unittest.TestCase):
                     self.assertEqual(mission.step(now), (0., 0., False))
                 local.assert_not_called()
 
-    def test_old_input_preserves_body_and_candidate_collision_stops(self):
+    def test_old_input_map_overlap_does_not_block_existing_guidance(self):
         for collision in ('body', 'candidate'):
             with self.subTest(collision=collision):
                 mission = self.make_mission(velocity=.2)
@@ -180,13 +194,10 @@ class GlobalLocalMissionTest(unittest.TestCase):
                 with patch.object(mission, '_grid', return_value=grid), patch.object(
                         mission.local_planner, 'local_command',
                         wraps=mission.local_planner.local_command) as local:
-                    self.assertEqual(mission.step(now), (0., 0., False))
-                if collision == 'body':
-                    local.assert_not_called()
-                    self.assertIn('footprint overlaps', mission.reason)
-                else:
-                    self.assertEqual(local.call_count, 1)
-                    self.assertIn('no safe local motion', mission.reason)
+                    linear, _, complete = mission.step(now)
+                self.assertGreater(linear, 0., mission.reason)
+                self.assertFalse(complete)
+                local.assert_called_once()
 
     def test_measured_momentum_alone_does_not_reject_a_clear_local_candidate(self):
         commands = []
@@ -206,15 +217,18 @@ class GlobalLocalMissionTest(unittest.TestCase):
                 commands.append(result)
         self.assertEqual(commands[0], commands[1])
 
-    def test_current_body_collision_stops_with_free_centre_cell(self):
+    def test_current_body_overlap_with_free_centre_cell_runs_local_controller(self):
         mission = self.make_mission()
         self.feed(mission, 10.05)
         grid = self.wall_grid(.15)
         self.assertFalse(mission.geometry.pose_is_collision_free(grid, Pose2D(.2, 0., 0.)))
         with patch.object(mission, '_grid', return_value=grid), patch.object(
-                mission.local_planner, 'local_command') as local:
-            self.assertEqual(mission.step(10.05), (0., 0., False))
-        local.assert_not_called()
+                mission.local_planner, 'local_command',
+                wraps=mission.local_planner.local_command) as local:
+            linear, _, complete = mission.step(10.05)
+        self.assertGreater(linear, 0.)
+        self.assertFalse(complete)
+        local.assert_called_once()
 
     def test_worker_uses_current_pose_and_reset_discards_inflight_result(self):
         mission = self.make_mission()
@@ -310,18 +324,16 @@ class GlobalLocalMissionTest(unittest.TestCase):
         self.feed(mission, 10.25, (.6, 0., math.radians(9.)), 0., 0.)
         self.assertEqual(mission.step(10.25), (0., 0., True))
 
-    def test_wait_stop_checks_collision_with_older_lidar_before_completion(self):
+    def test_goal_completion_is_not_blocked_by_older_map_overlap(self):
         mission = self.make_mission(goal=(.6, 0., 0.), velocity=0.)
         self.feed(mission, 10.05, (.6, 0., 0.), 0.)
         mission.step(10.05)
         self.assertEqual(mission.state, 'WAIT_STOP')
         mission.update_odometry((.6, 0., 0.), 0., 0., 11.)
         with patch.object(mission, '_grid', return_value=self.wall_grid(.6)):
-            self.assertEqual(mission.step(11.), (0., 0., False))
-        self.assertIn('footprint overlaps', mission.reason)
-        self.assertEqual(mission.state, 'WAIT_STOP')
+            self.assertEqual(mission.step(11.), (0., 0., True))
+        self.assertEqual(mission.state, 'COMPLETE')
         self.assertEqual(mission.scan[-1], 10.05)
-        self.assertEqual(mission.step(11.05), (0., 0., True))
 
     def test_recorded_exit_miss_finishes_without_turning_back(self):
         # 22:59 trial, rotated into an x-forward exit frame: 6 mm beyond
@@ -364,21 +376,25 @@ class GlobalLocalMissionTest(unittest.TestCase):
         mission.last_linear = .12
         mission.last_angular = .3
         self.feed(mission, 10.05, (.56, .05, math.radians(25.)), .12, .3)
-        with patch.object(mission.local_planner, 'local_command') as local, patch.object(
-                mission.local_planner, 'command_is_collision_free') as check:
+        with patch.object(mission.local_planner, 'local_command') as local:
             self.assertEqual(mission.step(10.05), (0., 0., True))
             local.assert_not_called()
         self.assertEqual(mission.state, 'COMPLETE')
-        check.assert_not_called()
 
     def test_unconfigured_exit_keeps_original_position_trigger(self):
         mission = self.make_mission(goal=(.6, 0., 0.), velocity=0.)
         self.feed(mission, 10.05, (.606, -.035, 0.), 0.)
-        _, angular, complete = mission.step(10.05)
+        linear, angular, complete = mission.step(10.05)
         self.assertFalse(complete)
-        self.assertNotEqual(angular, 0.)
+        self.assertEqual((linear, angular), (0., 0.))
         self.assertEqual(mission.state, 'FOLLOWING')
-        self.assertIn('turning toward route', mission.reason)
+        self.assertFalse(mission.exit_crossed)
+        self.feed(mission, 10.10, (.606, -.035, 0.), 0.)
+        linear, angular, complete = mission.step(10.10)
+        self.assertEqual((linear, angular), (0., 0.))
+        self.assertFalse(complete)
+        self.assertIsNone(mission.route_turn)
+        self.assertIn('no local command', mission.reason)
 
     def test_goal_stop_stays_latched_after_drifting_out_of_radius(self):
         mission = self.make_mission(goal=(.6, 0., 0.), velocity=.12)
@@ -441,27 +457,33 @@ class GlobalLocalMissionTest(unittest.TestCase):
                     self.assertFalse(mission.exit_crossed)
                     self.assertFalse(mission._goal_reached(Pose2D(.54, 0., 0.)))
 
-    def test_finishing_checks_current_collision_even_with_older_lidar(self):
+    def test_finishing_deceleration_continues_despite_map_overlap(self):
         mission = self.make_mission(goal=(.6, 0., 0.), velocity=.12)
         self.feed(mission, 10.05, (.59, 0., 0.), .12)
         mission.step(10.05)
+        previous = mission.last_linear
         mission.update_odometry((.64, 0., 0.), .1, 0., 11.)
         with patch.object(mission, '_grid', return_value=self.wall_grid(.64)):
-            self.assertEqual(mission.step(11.), (0., 0., False))
+            linear, _, complete = mission.step(11.)
+        self.assertGreater(linear, 0.)
+        self.assertLess(linear, previous)
+        self.assertFalse(complete)
         self.assertEqual(mission.state, 'FINISHING')
-        self.assertIn('footprint overlaps', mission.reason)
         self.assertEqual(mission.scan[-1], 10.05)
 
-    def test_generic_finishing_checks_actual_command_collision(self):
-        mission = self.make_mission(goal=(.6, 0., 0.), velocity=.12)
-        self.feed(mission, 10.05, (.59, 0., 0.), .12)
-        with patch.object(mission.local_planner, 'command_is_collision_free',
-                          return_value=False) as check:
-            self.assertEqual(mission.step(10.05), (0., 0., False))
+    def test_generic_goal_turn_ignores_map_overlap_but_keeps_angular_limits(self):
+        mission = self.make_mission(goal=(.6, 0., 0.), velocity=0.)
+        mission.last_angular = .5
+        self.feed(mission, 10.05, (.6, 0., -.3), 0., .5)
+        grid = self.wall_grid(.6)
+        self.assertFalse(mission.geometry.pose_is_collision_free(grid, Pose2D(.6, 0., -.3)))
+        with patch.object(mission, '_grid', return_value=grid):
+            linear, angular, complete = mission.step(10.05)
+        self.assertEqual(linear, 0.)
+        self.assertAlmostEqual(angular, min(mission.control['maximum_angular_velocity'],
+                                           .5+mission.control['angular_acceleration']*.05))
+        self.assertFalse(complete)
         self.assertEqual(mission.state, 'FINISHING')
-        self.assertEqual(mission.reason, 'outside goal command overlaps mapped obstacle')
-        self.assertEqual(len(check.call_args.args), 4)
-        self.assertIs(check.call_args.args[3], mission.control)
 
     def test_generic_goal_turn_uses_angular_limits_without_predictive_braking_cap(self):
         mission = self.make_mission(goal=(.6, 0., 0.), velocity=0.)
@@ -475,21 +497,16 @@ class GlobalLocalMissionTest(unittest.TestCase):
         self.assertFalse(complete)
         self.assertEqual(mission.state, 'FINISHING')
 
-    def test_physical_exit_checks_current_body_with_older_sensor_inputs(self):
+    def test_physical_exit_hands_off_despite_older_map_overlap(self):
         mission = self.make_mission(goal=(.6, 0., 90.), velocity=0.,
                                     exit_crossing=((.4, -.15), (.4, .15)))
         mission._goal_reached(Pose2D(.39, 0., 0.))
         self.feed(mission, 10.05, (.54, 0., .2), .12, .3)
         mission.update_odometry((.55, 0., .2), 0., 0., 11.)
-        with patch.object(mission, '_grid', return_value=self.wall_grid(.55)):
-            self.assertEqual(mission.step(11.), (0., 0., False))
-        self.assertEqual(mission.state, 'FOLLOWING')
-        self.assertIn('footprint overlaps', mission.reason)
-        # Clear geometry permits handoff without a new scan or measured rest.
-        mission.update_odometry((.55, 0., .2), .6, 1.4, 11.10)
-        with patch.object(mission.local_planner, 'local_command') as local:
-            self.assertEqual(mission.step(11.50), (0., 0., True))
-            local.assert_not_called()
+        with patch.object(mission, '_grid', return_value=self.wall_grid(.55)), patch.object(
+                mission.local_planner, 'local_command') as local:
+            self.assertEqual(mission.step(11.), (0., 0., True))
+        local.assert_not_called()
         self.assertEqual(mission.state, 'COMPLETE')
         self.assertEqual(mission.scan[-1], 10.05)
 

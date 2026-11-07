@@ -4,7 +4,7 @@ global_clearance_distance: 0.25
 global_clearance_weight: 1.0
 global_soft_cost_weight: 1.0
 global_maximum_iterations: 20000
-# Local curve candidates checked with the padded rectangular body.
+# Local curve candidates scored by route error and body clearance.
 local_lookahead: 0.30
 local_horizon: 0.30
 local_steering_samples: 15

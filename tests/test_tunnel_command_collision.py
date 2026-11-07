@@ -1,4 +1,4 @@
-"""Body-component checks over the next command tick, without ROS."""
+"""Local command generation keeps rate limits without a map-overlap veto."""
 from pathlib import Path
 import sys
 import unittest
@@ -9,12 +9,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'codes'))
 from tunnel.mission import TunnelMission
 from tunnel.geometry import OccupancyGrid, Pose2D
 from tunnel.planner import GlobalRoute
-from tunnel.tracking import LimitedCommand
 from test_tunnel_body_parts import FRONT, REAR, HALF_WIDTH, PARTS
 from test_tunnel_mission import configuration
 
 
-class LocalCommandGeometryTest(unittest.TestCase):
+class LocalCommandOverlapTest(unittest.TestCase):
     def make_mission(self, components=False):
         config = configuration()
         config['footprint'] = dict(front=.067645, rear=REAR,
@@ -25,50 +24,7 @@ class LocalCommandGeometryTest(unittest.TestCase):
         self.addCleanup(mission.close)
         return mission
 
-    def test_rotating_corner_is_checked_when_linear_speed_is_zero(self):
-        for components in (False, True):
-            with self.subTest(components=components):
-                mission = self.make_mission(components)
-                values = np.zeros((400, 400), dtype=np.int8)
-                if components:
-                    values[281:284, 242:246] = 100  # Outside the left wheel.
-                else:
-                    values[292:296, 258:266] = 100  # Outside the rectangular front-left corner.
-                grid = OccupancyGrid(values, .001, -.2, -.2)
-                pose = Pose2D(0., 0., 0.)
-                self.assertTrue(mission.geometry.pose_is_collision_free(grid, pose))
-                self.assertFalse(mission.geometry.pose_is_collision_free(grid, Pose2D(0., 0., .05)))
-                self.assertFalse(mission.local_planner.command_is_collision_free(
-                    grid, pose, LimitedCommand(0., 1.), mission.control))
-
-    def test_obstacle_beyond_next_tick_does_not_extend_the_command_check(self):
-        mission = self.make_mission()
-        values = np.zeros((200, 400), dtype=np.int8)
-        values[:, 325] = 100  # x=.125m, beyond the body's next-tick front edge.
-        grid = OccupancyGrid(values, .001, -.2, -.1)
-        pose, command = Pose2D(0., 0., 0.), LimitedCommand(.2, 0.)
-        self.assertTrue(mission.geometry.primitive_is_collision_free(
-            grid, pose, 0., command.linear_velocity*mission.control['period']))
-        self.assertTrue(mission.local_planner.command_is_collision_free(
-            grid, pose, command, mission.control))
-        self.assertFalse(mission.geometry.primitive_is_collision_free(
-            grid, pose, 0., mission.local_planner.local_horizon))
-
-    def test_zero_command_checks_current_body_without_extrapolating_motion(self):
-        mission = self.make_mission()
-        values = np.zeros((200, 400), dtype=np.int8)
-        values[:, 325] = 100
-        grid = OccupancyGrid(values, .001, -.2, -.1)
-        pose = Pose2D(0., 0., 0.)
-        self.assertTrue(mission.geometry.pose_is_collision_free(grid, pose))
-        self.assertTrue(mission.local_planner.command_is_collision_free(
-            grid, pose, LimitedCommand(0., 0.), mission.control))
-        values[:, 265] = 100  # x=.065m now intersects the actual front.
-        occupied = OccupancyGrid(values, .001, -.2, -.1)
-        self.assertFalse(mission.local_planner.command_is_collision_free(
-            occupied, pose, LimitedCommand(0., 0.), mission.control))
-
-    def test_rate_limited_command_checks_corner_even_when_candidate_is_straight(self):
+    def test_rate_limited_turn_is_returned_when_its_corner_overlaps_map(self):
         for components in (False, True):
             with self.subTest(components=components):
                 mission = self.make_mission(components)
@@ -81,13 +37,27 @@ class LocalCommandGeometryTest(unittest.TestCase):
                 grid = OccupancyGrid(values, .001, -.2, -.2)
                 pose = Pose2D(0., 0., 0.)
                 route = GlobalRoute(np.array(((0., 0.), (.5, 0.))))
-                # Straight motion clears the cell, but the limited command
-                # retains a turn whose corner reaches it during this tick.
-                self.assertTrue(mission.geometry.primitive_is_collision_free(
-                    grid, pose, 0., mission.local_planner.local_horizon))
+                self.assertTrue(mission.geometry.pose_is_collision_free(grid, pose))
+                self.assertFalse(mission.geometry.pose_is_collision_free(grid, Pose2D(0., 0., .05)))
                 command = mission.local_planner.local_command(
                     grid, pose, route, mission.control, .01, 1., mission.control['period'])
-                self.assertIsNone(command)
+                self.assertIsNotNone(command)
+                self.assertGreater(command.linear_velocity, 0.)
+                self.assertGreaterEqual(command.angular_velocity, 1.-.5*mission.control['period'])
+                self.assertLessEqual(command.angular_velocity, mission.control['maximum_angular_velocity'])
+
+    def test_endpoint_command_remains_zero_even_when_map_overlaps_body(self):
+        mission = self.make_mission(components=True)
+        values = np.zeros((600, 800), dtype=np.int8)
+        values[200, 700] = 100
+        grid = OccupancyGrid(values, .001, -.2, -.2)
+        pose = Pose2D(.5, 0., 0.)
+        route = GlobalRoute(np.array(((0., 0.), (.5, 0.))))
+        self.assertFalse(mission.geometry.pose_is_collision_free(grid, pose))
+        command = mission.local_planner.local_command(
+            grid, pose, route, mission.control, 0., 0., mission.control['period'])
+        self.assertIsNotNone(command)
+        self.assertEqual((command.linear_velocity, command.angular_velocity), (0., 0.))
 
 
 if __name__ == '__main__':

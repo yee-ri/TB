@@ -175,7 +175,7 @@ class WallTrackingMissionTest(unittest.TestCase):
         mission.global_path = object()
         mission.local_planner.local_command = Mock(return_value=None)
         mission.step(10.1)
-        self.assertIn('no safe local motion', mission.reason)
+        self.assertIn('no local command', mission.reason)
         self.assertFalse(release.is_set())
         release.set()
         self.join(mission)

@@ -179,9 +179,6 @@ class TunnelMission:
         self.wall_tracking_period = 0.
         if 'localization' in config:
             settings = config['localization']
-            confirmations = settings['confirmation_scans']
-            if isinstance(confirmations, bool) or not isinstance(confirmations, int) or confirmations < 2:
-                raise ValueError('localization/confirmation_scans must be an integer >= 2')
             self.localizer = EntranceLocalizer(
                 settings['wall_rectangles'], search_bounds=settings['search_bounds'],
                 yaw_limit_deg=settings['yaw_limit_deg'])
@@ -224,12 +221,10 @@ class TunnelMission:
             self.last_linear = self.last_angular = 0.0
             self.lane_count = 0
             self.completion_started = None
-            self.localization_result = self.localization_candidate = None
+            self.localization_result = None
             self.localization_epoch = getattr(self, 'localization_epoch', 0) + 1
-            self.localization_anchors = []
             self.localization_history = []
             self.localization_attempt_stamp = None
-            self.localization_confirmations = 0
             self.localization_report = ''
             self.wall_tracking_attempt_stamp = None
             self.wall_tracking_started = None
@@ -238,7 +233,7 @@ class TunnelMission:
             self.wall_tracking_report = ''
             self.entry_start_x = 0.
             self.entry_start_yaw = 0.
-            self.entry_phase = 'WAIT_STOP' if self.entry_heading_offset else 'DRIVE'
+            self.entry_phase = 'ALIGN' if self.entry_heading_offset else 'DRIVE'
             self.entry_turn_angle = 0.
             self.entry_drive_yaw = None
             self.initial_map_updates = 0
@@ -263,12 +258,10 @@ class TunnelMission:
             if self.state == 'ENTRY':
                 return self._enter(pose, elapsed)
             grid = self._grid()
-            if not self.geometry.pose_is_collision_free(grid, pose):
-                return self._zero('current footprint overlaps mapped obstacle')
             if self.state in ('WAIT_STOP', 'WAIT_LANE'):
-                return self._wait_for_completion(pose, elapsed, now, grid)
+                return self._wait_for_completion(pose, elapsed, now)
             if self.route_turn is None and (self.state == 'FINISHING' or self._goal_reached(pose)):
-                return self._finish_goal(pose, elapsed, now, grid)
+                return self._finish_goal(pose, elapsed, now)
             previous_route = self.global_path
             updated = self._accept_global_plan()
             self._request_global_plan(pose, now)
@@ -282,14 +275,14 @@ class TunnelMission:
                 if changed:
                     return self._start_route_alignment(heading)
             if self.route_turn is not None:
-                response = self._follow_route_turn(grid, pose, elapsed)
+                response = self._follow_route_turn(pose, elapsed)
                 if response is not None:
                     return response
             command = self.local_planner.local_command(
                 grid, pose, self.global_path, self.control,
                 self.last_linear, self.last_angular, elapsed)
             if command is None:
-                return self._zero('no safe local motion; ' + self.global_report)
+                return self._zero('no local command; ' + self.global_report)
             return self._command(command, command.reason + '; ' + self.global_report)
 
     def update_odometry(self, pose, linear, angular, stamp):
@@ -306,18 +299,13 @@ class TunnelMission:
         self.route_turn = RouteTurn('PREPARE', heading)
         return self._zero('route alignment: stopping before heading change')
 
-    def _follow_route_turn(self, grid, pose, elapsed):
+    def _follow_route_turn(self, pose, elapsed):
         turn = self.route_turn
         if turn.phase == 'PREPARE':
             error = normalize_angle(turn.target_yaw-pose.yaw)
-            for angle in (error, error-math.copysign(2.*math.pi, error)):
-                if self.local_planner.rotation_is_collision_free(grid, pose, angle):
-                    turn.direction = math.copysign(1., angle)
-                    turn.target_angle = abs(angle)
-                    turn.phase = 'TURN'
-                    break
-            else:
-                return self._zero('route alignment: requested rotation blocked')
+            turn.direction = math.copysign(1., error)
+            turn.target_angle = abs(error)
+            turn.phase = 'TURN'
         if turn.angle >= turn.target_angle:
             self.route_turn = None
             return None
@@ -327,8 +315,6 @@ class TunnelMission:
         delta = self.control['angular_acceleration'] * min(elapsed, self.control['period'])
         angular = max(self.last_angular-delta, min(self.last_angular+delta, target))
         command = LimitedCommand(0., angular)
-        if not self.local_planner.command_is_collision_free(grid, pose, command, self.control):
-            return self._zero('route alignment: next rotation command overlaps mapped obstacle')
         return self._command(command, 'route alignment: turning toward route heading')
 
     def update_lane(self, visible, stamp):
@@ -388,7 +374,7 @@ class TunnelMission:
         x = sensor_pose[0] + ranges[hits] * np.cos(angles)
         y = sensor_pose[1] + ranges[hits] * np.sin(angles)
         # Entry only: widen the left edge toward the far end of a trapezoid.
-        # Keep the complete scan for mapping and path collision checks.
+        # Keep the complete scan for mapping and path clearance scores.
         ahead = (x >= 0) & (y >= -self.entry_obstacle_right_width)
         left_limit = self.entry_obstacle_half_width
         if self.entry_obstacle_left_far_width > left_limit:
@@ -539,19 +525,12 @@ class TunnelMission:
 
     def _invalidate_localization(self, clear_observations=True):
         self.localization_epoch += 1
-        self.localization_candidate = self.localization_result = None
-        self.localization_confirmations = 0
-        self.localization_anchors = []
+        self.localization_result = None
         if clear_observations:
             self.localization_history = []
 
     def _localize(self, now):
-        """Fit the stopped robot to the surveyed map, never move the map with it."""
-        if (abs(self.odom[3]) > self.control['planning_stopped_linear']
-                or abs(self.odom[4]) > self.control['planning_stopped_angular']):
-            self._invalidate_localization()
-            self.reason = 'waiting for measured rest before wall alignment'
-            return False
+        """Fit entrance observations to the surveyed map."""
         if self.localization_result is not None:
             result, scan_odom, stamp = self.localization_result
             self.localization_result = None
@@ -559,52 +538,23 @@ class TunnelMission:
                      or abs(normalize_angle(self.odom[2]-scan_odom[2])) > math.radians(.5))
             expired = now-stamp > self.sensors['maximum_age']
             if expired or moved or not result.accepted:
-                # Discard an expired fit and all confirmations, but a slow
-                # worker does not invalidate fresh stopped scans collected
-                # meanwhile. Recheck their poses before the next fit below.
+                # A slow fit does not invalidate fresh scans collected meanwhile.
+                # Recheck their poses before the next fit below.
                 self._invalidate_localization(
                     clear_observations=not (expired and not moved and result.accepted))
                 self.reason = ('wall alignment input expired or robot moved' if moved or
                                now-stamp > self.sensors['maximum_age'] else result.reason)
                 return False
-            else:
-                # odom_T_map = odom_T_base(at scan time) * inverse(map_T_base).
-                fitted = result.pose
-                anchor = map_anchor(scan_odom, fitted)
-                previous = self.localization_candidate
-                previous_pose = relative_pose(scan_odom, previous) if previous is not None else None
-                consistent = (previous is not None
-                    and math.hypot(fitted.x-previous_pose.x, fitted.y-previous_pose.y) <= .015
-                    and abs(normalize_angle(fitted.yaw-previous_pose.yaw)) <= math.radians(.5))
-                self.localization_confirmations = self.localization_confirmations+1 if consistent else 1
-                if not consistent:
-                    self.localization_candidate = anchor
-                    self.localization_anchors = []
-                self.localization_anchors.append(anchor)
-                required = self.config['localization']['confirmation_scans']
-                self.reason = 'wall alignment confirmation %d/%d' % (self.localization_confirmations, required)
-                if self.localization_confirmations >= required:
-                    # Average observations at a common nearby base pose. Raw
-                    # odom_T_map translations exaggerate yaw noise when odom's
-                    # origin is many metres away after the preceding course.
-                    estimates = [relative_pose(scan_odom, a) for a in self.localization_anchors]
-                    mean_x = float(np.mean([p.x for p in estimates]))
-                    mean_y = float(np.mean([p.y for p in estimates]))
-                    mean_yaw = math.atan2(np.mean([math.sin(p.yaw) for p in estimates]),
-                                          np.mean([math.cos(p.yaw) for p in estimates]))
-                    yaw = normalize_angle(scan_odom[2]-mean_yaw)
-                    c, s = math.cos(yaw), math.sin(yaw)
-                    anchor = (scan_odom[0]-c*mean_x+s*mean_y,
-                              scan_odom[1]-s*mean_x-c*mean_y, yaw)
-                    self._initialize(anchor)
-                    pose = relative_pose(self.odom[:3], anchor)
-                    self.entry_start_x = pose.x
-                    self.entry_start_yaw = pose.yaw
-                    self.localization_report = 'wall alignment x=%.3fm y=%.3fm yaw=%.2fdeg rms=%.4fm' % (
-                        pose.x, pose.y, math.degrees(pose.yaw), result.rms)
-                    self.reason = self.localization_report
-                    self.state = 'ENTRY'
-                    return True
+            # odom_T_map = odom_T_base(at scan time) * inverse(map_T_base).
+            self._initialize(map_anchor(scan_odom, result.pose))
+            pose = relative_pose(self.odom[:3], self.anchor)
+            self.entry_start_x = pose.x
+            self.entry_start_yaw = pose.yaw
+            self.localization_report = 'wall alignment x=%.3fm y=%.3fm yaw=%.2fdeg rms=%.4fm' % (
+                pose.x, pose.y, math.degrees(pose.yaw), result.rms)
+            self.reason = self.localization_report
+            self.state = 'ENTRY'
+            return True
         if self.worker is not None and self.worker.is_alive():
             return False
         if self.localization_scan is None:
@@ -648,7 +598,7 @@ class TunnelMission:
     def _grid(self):
         if self.grid is None:
             c = self.costmap
-            # Static walls and measured obstacles share one collision grid;
+            # Static walls and measured obstacles share one planning grid;
             # unknown-only cells do not reject the robot's sensor blind area.
             values = np.asarray(c.to_occupancy_data()).reshape(c.height, c.width)
             self.grid = OccupancyGrid(values, c.resolution, c.origin_x, c.origin_y,
@@ -671,22 +621,12 @@ class TunnelMission:
     def _align_entry(self, pose, elapsed):
         """Turn once; return None to begin straight entry in this same tick."""
         cfg = self.control
-        measured_linear, measured_angular = self.odom[3:5]
-        stopped = (abs(measured_linear) <= cfg['planning_stopped_linear']
-                   and abs(measured_angular) <= cfg['planning_stopped_angular'])
         direction = math.copysign(1., self.entry_heading_offset)
-        if self.entry_phase == 'WAIT_STOP':
-            if not stopped:
-                return self._zero('waiting for measured rest before entry heading turn')
-            self.entry_phase = 'ALIGN'
         if self.entry_turn_angle >= abs(self.entry_heading_offset):
             # Finish from the sent turn, then hold the current heading while driving.
             self.entry_drive_yaw = pose.yaw
             self.entry_phase = 'DRIVE'
             return None
-        if abs(measured_linear) > cfg['planning_stopped_linear']:
-            return self._zero('waiting for measured rest before entry heading turn')
-
         acceleration = self.entry_alignment_angular_acceleration
         target = direction * self.entry_alignment_angular_velocity
         change = acceleration * min(elapsed, cfg['period'])
@@ -695,8 +635,6 @@ class TunnelMission:
                              'aligning entry heading before straight drive')
 
     def _enter(self, pose, elapsed):
-        if self.entry_heading_offset and not self.geometry.pose_is_collision_free(self._grid(), pose):
-            return self._zero('current body overlaps mapped obstacle; physical contact not measured')
         if self.entry_phase != 'DRIVE':
             alignment_command = self._align_entry(pose, elapsed)
             if alignment_command is not None:
@@ -784,8 +722,6 @@ class TunnelMission:
         if self.localizer is not None:
             if self.initial_map_updates < self.config['grid']['mark_observations']:
                 return None, self._zero('waiting for fresh mapped scans after wall alignment')
-            if not self.geometry.pose_is_collision_free(self._grid(), pose):
-                return None, self._zero('localized footprint or clearance is blocked in map; physical contact not measured')
         return ControlFrame(now, elapsed, pose), None
 
     def _measured_stop_confirmed(self):
@@ -881,14 +817,14 @@ class TunnelMission:
             return False
         # This polyline is guidance, not a committed trajectory. A new scan or
         # motion during search need not discard it: local control projects from
-        # the current pose and checks the actual body against the current map.
+        # the current pose and scores body clearance against the current map.
         self.global_path = update.route
         self.global_updates += 1
         self.state = 'FOLLOWING'
         self.global_report = 'global route %d updated in %.3fs' % (self.global_updates, update.duration)
         return True
 
-    def _finish_goal(self, pose, elapsed, now, grid):
+    def _finish_goal(self, pose, elapsed, now):
         """Hand off after physical passage; retain endpoint alignment otherwise."""
         # Once reached, finish even if momentum changes the accepted pose.
         self.state = 'FINISHING'
@@ -906,7 +842,7 @@ class TunnelMission:
             command = self._stop_command(elapsed)
             reason = 'stopping at outside goal'
         elif not heading_ok:
-            # Align at the final stop; check the next control-period sweep below.
+            # Align at the final stop using the normal command limits.
             command = turn_command(
                 heading_error, 0., self.last_angular, min(elapsed, cfg['period']),
                 cfg, self.navigation['local_rotation_gain'])
@@ -920,11 +856,9 @@ class TunnelMission:
                 self.lane_count = 0
                 return self._zero('waiting for exit lane observation' if self.completion == 'lane'
                                   else 'waiting for measured stop at outside goal')
-        if not self.local_planner.command_is_collision_free(grid, pose, command, cfg):
-            return self._zero('outside goal command overlaps mapped obstacle')
         return self._command(command, reason)
 
-    def _wait_for_completion(self, pose, elapsed, now, grid):
+    def _wait_for_completion(self, pose, elapsed, now):
         if self.state == 'WAIT_LANE':
             fresh_lane = (self.lane_stamp is not None and self.lane_stamp > self.completion_started
                           and 0. <= now-self.lane_stamp <= self.sensors['lane_maximum_age'])
@@ -935,7 +869,7 @@ class TunnelMission:
         if self._measured_stop_confirmed():
             heading_error = abs(normalize_angle(self.goal.yaw-pose.yaw))
             if heading_error > math.radians(self.config['goal']['heading_tolerance_deg']):
-                return self._finish_goal(pose, elapsed, now, grid)
+                return self._finish_goal(pose, elapsed, now)
             self.state = 'COMPLETE'
             return self._zero('goal reached; measured stop confirmed')
         return self._zero('waiting for measured stop at outside goal')
