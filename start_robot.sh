@@ -16,5 +16,4 @@ sleep 2
 rosrun dynamic_reconfigure dynparam set /camera/stereo_module enable_auto_exposure false
 rosrun dynamic_reconfigure dynparam set /camera/stereo_module exposure 16000
 
-
 wait

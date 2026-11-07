@@ -156,7 +156,7 @@ class turtlebot():
         
 
 ############## 구간별 테스트 설정 ##############
-        self.step=int(rospy.get_param('~start_step',3))
+        self.step=int(rospy.get_param('~start_step',0))
         self.standalone_gate_start=self.step==8
         # Full-course odometry uses its original heading. A fresh step8 run
         # instead captures the approach heading when the lane ends.
@@ -796,7 +796,6 @@ class turtlebot():
         if self.obstacle_stage == 'lane':
             if not self.obstacle_second_ready:
                 if yellow_area >= 4000:
-
                     self.obstacle_yellow_count += 1
                 else:
                     self.obstacle_yellow_count = 0
