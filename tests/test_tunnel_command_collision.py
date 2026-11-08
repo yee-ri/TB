@@ -7,6 +7,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'codes'))
 from tunnel.mission import TunnelMission
+from collision_inspection import inspect_geometry
 from tunnel.geometry import OccupancyGrid, Pose2D
 from tunnel.planner import GlobalRoute
 from test_tunnel_body_parts import FRONT, REAR, HALF_WIDTH, PARTS
@@ -37,8 +38,8 @@ class LocalCommandOverlapTest(unittest.TestCase):
                 grid = OccupancyGrid(values, .001, -.2, -.2)
                 pose = Pose2D(0., 0., 0.)
                 route = GlobalRoute(np.array(((0., 0.), (.5, 0.))))
-                self.assertTrue(mission.geometry.pose_is_collision_free(grid, pose))
-                self.assertFalse(mission.geometry.pose_is_collision_free(grid, Pose2D(0., 0., .05)))
+                self.assertTrue(inspect_geometry(mission.geometry).pose_is_collision_free(grid, pose))
+                self.assertFalse(inspect_geometry(mission.geometry).pose_is_collision_free(grid, Pose2D(0., 0., .05)))
                 command = mission.local_planner.local_command(
                     grid, pose, route, mission.control, .01, 1., mission.control['period'])
                 self.assertIsNotNone(command)
@@ -53,7 +54,7 @@ class LocalCommandOverlapTest(unittest.TestCase):
         grid = OccupancyGrid(values, .001, -.2, -.2)
         pose = Pose2D(.5, 0., 0.)
         route = GlobalRoute(np.array(((0., 0.), (.5, 0.))))
-        self.assertFalse(mission.geometry.pose_is_collision_free(grid, pose))
+        self.assertFalse(inspect_geometry(mission.geometry).pose_is_collision_free(grid, pose))
         command = mission.local_planner.local_command(
             grid, pose, route, mission.control, 0., 0., mission.control['period'])
         self.assertIsNotNone(command)

@@ -48,23 +48,25 @@ docker compose -f compose.gazebo.yaml down
 docker compose -f compose.gazebo.yaml run --rm --no-deps gazebo bash -lc 'source /opt/ros/noetic/setup.bash && source /workspace/devel/setup.bash && python3 -m unittest discover -s tests && python3 tests/ros_smoke.py'
 ```
 
-실차 저장소에서 카메라(수동 노출 `20000µs`·게인 `16`)·LiDAR·OpenCR·장착 TF를 시작한다.
+TB1에서 카메라·LiDAR·OpenCR·장착 TF를 시작한다. 카메라 수동 노출은 `16000µs`다.
 
 ```bash
-roslaunch launch/sensors.launch enable_depth:=true
+cd /home/sj/Desktop/TB
+bash start_robot.sh
 ```
 
 실차에서 STEP 8 차선 주행부터 터널 진입을 시험한다.
 
 ```bash
+cd /home/sj/Desktop/TB
 rostopic pub -1 /motor_power std_msgs/Bool 'data: true'
-python3 codes/stepbystep/1104.py _start_step:=8
+python3 codes/stepbystep/1105_lut.py _start_step:=8
 ```
 
 실차에서 위치 정합·터널 주행부터 시험한다.
 
 ```bash
-python3 codes/stepbystep/1104.py _start_step:=9
+python3 codes/stepbystep/1105_lut.py _start_step:=9
 ```
 
 실차 영상·LiDAR·주행 상태를 무손실 압축으로 기록한다. 시험 종료 시 기록 터미널에서 `Ctrl+C`로 마친다.

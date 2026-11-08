@@ -1,6 +1,6 @@
 # 터널 단독 시험
 
-기본 실행 파일은 `codes/stepbystep/1104.py`이며, `_start_step:=9`로 터널부터 직접 시작한다.
+기본 실행 파일은 `codes/stepbystep/1105_lut.py`이며, `_start_step:=9`로 터널부터 직접 시작한다.
 입구로 접근하는 STEP 8·8.5까지 함께 시험하려면 [STEP 8 실행](README.md)을 사용한다.
 아래 `cd` 경로는 실제 저장소 위치에 맞춘다.
 
@@ -10,8 +10,6 @@
 전체 주행의 STEP 8.5 추가 전진이 끝난 위치·방향에 놓고 STEP 9로 시작한다.
 이미 입구 안쪽에 들어온 위치에서도 시작할 수 있다.
 
-위치 정합 후보 범위는 바퀴축 중앙 기준 입구 바깥 약 49cm부터 안쪽 약 31cm까지,
-입구 중앙선 좌우 7cm, 방향 ±20°다. 벽 관측으로 자세가 확정될 때까지 정지한다.
 입구 밖 140mm는 지도 기준점이며 고정된 필수 출발점은 아니다.
 
 STEP 9 위치 정합·진입 → STEP 10 경로 주행 → 차체 전체 출구 통과 후 STEP 11 차선 주행으로 이어진다.
@@ -20,19 +18,18 @@ STEP 9 위치 정합·진입 → STEP 10 경로 주행 → 차체 전체 출구 
 ## 직접 실행 — 기본
 
 터미널 A: 카메라·LiDAR·OpenCR·장착 TF를 시작한다. 기존 센서 실행이 있으면 먼저 종료한다.
-터널 단독 시험에는 depth가 필요 없다.
 
 ```bash
-cd /home/sj/ParkCars/TB-tunnel-nuc
-roslaunch launch/sensors.launch
+cd /home/sj/Desktop/TB
+bash start_robot.sh
 ```
 
 터미널 B: 시작 위치에 로봇을 놓고 센서가 준비된 뒤 STEP 9부터 주행한다.
 
 ```bash
-cd /home/sj/ParkCars/TB-tunnel-nuc
+cd /home/sj/Desktop/TB
 rostopic pub -1 /motor_power std_msgs/Bool 'data: true'
-python3 codes/stepbystep/1104.py _start_step:=9
+python3 codes/stepbystep/1105_lut.py _start_step:=9
 ```
 
 ## 직접 실행 종료
@@ -75,7 +72,7 @@ rosbag record --lz4 -o "$HOME/tb_logs/tunnel" \
 | [tunnel.real.yaml](codes/stepbystep/tunnel.real.yaml) | 실차 지도·차체·센서·진입·속도·출구 |
 | [navigation.yaml](codes/tunnel/navigation.yaml) | 전역 갱신 간격, 지역 목표 거리·후보 경로 |
 | [tunnel.yaml](codes/stepbystep/tunnel.yaml) | Gazebo `normal`·`fast` 설정 |
-| [sensors.launch](launch/sensors.launch) | 실차 센서·장착 TF |
+| [start_robot.sh](start_robot.sh) | 실차 센서 시작·카메라 노출·장착 TF |
 
 실물 YAML의 `navigation:` 항목은 `navigation.yaml`의 같은 설정을 덮어쓴다.
 주행을 종료하고 파일을 수정한 뒤 다시 실행한다. 기록 중이었다면 기록도 종료하고 새로 시작한다.

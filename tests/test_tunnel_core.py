@@ -10,7 +10,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "codes"))
 
 from tunnel.costmap import TunnelCostmap
-from tunnel.geometry import CollisionGeometry, OccupancyGrid, RectangularFootprint
+from collision_inspection import CollisionInspector
+from tunnel.geometry import OccupancyGrid, RectangularFootprint
 from tunnel.tracking import limit_tracking_command
 
 
@@ -26,7 +27,7 @@ def grid_with(rectangles=()):
 
 class CollisionGeometryTest(unittest.TestCase):
     def setUp(self):
-        self.planner = CollisionGeometry(
+        self.planner = CollisionInspector(
             RectangularFootprint(.08, .12, .04, .01),
             minimum_turning_radius=.20, collision_check_step=.01,
         )

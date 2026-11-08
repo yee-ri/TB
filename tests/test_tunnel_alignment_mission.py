@@ -17,6 +17,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'codes'))
 
 from tunnel.localization import AlignmentResult
+from collision_inspection import inspect_geometry
 from tunnel.mission import load_config, relative_pose
 from tunnel.mission import TunnelMission
 from tunnel.geometry import Pose2D
@@ -71,7 +72,7 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
         # deliberately supply the initial fit, independently of raw geometry.
         config['localization']['tracking_period'] = 0.
         mission = TunnelMission(config)
-        mission.localizer.estimate = Mock(return_value=AlignmentResult(
+        mission.entrance_localizer.estimate = Mock(return_value=AlignmentResult(
             True, Pose2D(*fitted), 'fixture fit', .001, 120, 140))
         self.addCleanup(mission.close)
         return mission
@@ -85,22 +86,30 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
                              SENSOR, odom, now)
 
     def join(self, mission):
-        worker = mission.worker
-        if worker is not None:
+        for worker in (mission.localization_worker, mission.worker):
+            if worker is None:
+                continue
             # The fixture advances ideal simulated time only after the
             # asynchronous wall fit or global route worker has finished.
             worker.join(timeout=10.)
             self.assertFalse(worker.is_alive(), 'offline wall fit/planning worker did not finish')
+
+    def assert_entry_motion(self, mission, now):
+        linear, angular, complete = mission.step(now)
+        self.assertEqual(mission.state, 'ENTRY')
+        self.assertGreater(abs(linear)+abs(angular), 0.)
+        self.assertFalse(complete)
 
     def initialize_from_first_fit(self, mission, pose=(.04, 0., 0.),
                                   frame=(0., 0., 0.), now=10., latest=None):
         self.feed(mission, now, pose, frame, latest=latest)
         self.assertEqual(mission.step(now), (0., 0., False))
         self.join(mission)
-        self.assertEqual(mission.step(now), (0., 0., False))
+        now += .01  # Advance the control clock so acceleration has a nonzero interval.
+        self.assert_entry_motion(mission, now)
         self.assertIsNotNone(mission.anchor)
         self.assertEqual(mission.state, 'ENTRY')
-        mission.localizer.estimate.assert_called_once()
+        mission.entrance_localizer.estimate.assert_called_once()
         return now
 
     def test_reference_140mm_and_100mm_share_the_same_fixed_map(self):
@@ -129,7 +138,7 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
         for frame in ((0., 0., 0.), (120., -87., 3.139)):
             with self.subTest(frame=frame):
                 mission = self.mission(actual)
-                mission.localizer.estimate.side_effect = [
+                mission.entrance_localizer.estimate.side_effect = [
                     AlignmentResult(True, Pose2D(*p), 'fixture fit', .001, 120, 140)
                     for p in observations]
                 self.initialize_from_first_fit(mission, actual, frame)
@@ -141,9 +150,9 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
         mission = self.mission(observation_window=1.)
         frame = (15., -8., .8)
         measured_world = np.array(((.7, .1), (1.1, .3), (1.5, .5)))
-        for index in range(10):
+        for index in range(11):
             now = 10. + .1*index
-            pose = (.04 + .0001*index, -.01, .0002*index)
+            pose = (.04 + .002*index, -.01, .002*index)
             c, s = math.cos(pose[2]), math.sin(pose[2])
             measured_base = (measured_world - pose[:2]) @ np.array(((c, -s), (s, c)))
             odom = compose(pose, frame)
@@ -151,58 +160,53 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
             mission.update_cloud(((1., 0.),), SENSOR, odom, now,
                                  localization_points=measured_base)
             self.assertEqual(mission.step(now), (0., 0., False))
-            if index < 9:
-                mission.localizer.estimate.assert_not_called()
+            if index < 10:
+                mission.entrance_localizer.estimate.assert_not_called()
         self.join(mission)
-        mission.localizer.estimate.assert_called_once()
-        self.assertEqual(mission.localizer.estimate.call_args.args[1], SENSOR[:2])
-        merged = mission.localizer.estimate.call_args.args[0]
-        self.assertEqual(merged.shape, (30, 2))
+        mission.entrance_localizer.estimate.assert_called_once()
+        self.assertEqual(mission.entrance_localizer.estimate.call_args.args[1], SENSOR[:2])
+        merged = mission.entrance_localizer.estimate.call_args.args[0]
+        self.assertEqual(merged.shape, (33, 2))
         # Every scan saw these same physical points. After transforming each
-        # acquisition, all ten copies agree in the final base frame.
-        np.testing.assert_allclose(merged, np.tile(measured_base, (10, 1)), atol=1e-12)
+        # acquisition, all eleven copies agree in the final base frame.
+        np.testing.assert_allclose(merged, np.tile(measured_base, (11, 1)), atol=1e-12)
 
-    def test_observation_window_restarts_after_motion_or_future_input(self):
-        for interruption in ('translation', 'rotation', 'future'):
-            with self.subTest(interruption=interruption):
-                mission = self.mission(observation_window=1.)
-                for index in range(8):
-                    now = 10. + .1*index
-                    self.feed(mission, now)
-                    self.assertEqual(mission.step(now), (0., 0., False))
-                mission.localizer.estimate.assert_not_called()
-                if interruption != 'future':
-                    moved = ((.046, 0., 0.) if interruption == 'translation'
-                             else (.04, 0., math.radians(1.)))
-                    for now in (10.8, 10.9):
-                        self.feed(mission, now, pose=moved)
-                        self.assertEqual(mission.step(now), (0., 0., False))
-                    self.assertIn('robot moved during wall observation', mission.reason)
-                    self.assertEqual(mission.localization_history, [])
-                else:
-                    self.assertEqual(mission.step(10.6), (0., 0., False))
-                for index in range(10):
-                    now = 11.2 + .1*index
-                    self.feed(mission, now)
-                    self.assertEqual(mission.step(now), (0., 0., False))
-                    if index < 9:
-                        mission.localizer.estimate.assert_not_called()
-                self.join(mission)
-                mission.localizer.estimate.assert_called_once()
-                self.assertIsNone(mission.anchor)
+    def test_observation_window_uses_control_time_with_irregular_scan_arrival(self):
+        mission = self.mission(observation_window=1.)
+        for now in (10., 10.12, 10.41, 10.97):
+            self.feed(mission, now)
+            self.assertEqual(mission.step(now), (0., 0., False))
+            mission.entrance_localizer.estimate.assert_not_called()
+        # No scan arrives exactly at the observation deadline.
+        self.assertEqual(mission.step(11.), (0., 0., False))
+        self.join(mission)
+        mission.entrance_localizer.estimate.assert_called_once()
+        self.assert_entry_motion(mission, 11.01)
+
+    def test_one_unchanged_scan_cannot_restart_the_observation_window(self):
+        mission = self.mission(observation_window=1.)
+        self.feed(mission, 10.)
+        for now in (10., 10.2, 10.8):
+            self.assertEqual(mission.step(now), (0., 0., False))
+        self.assert_entry_motion(mission, 11.)
+        mission.entrance_localizer.estimate.assert_not_called()
+        self.assertEqual(mission.state, 'ENTRY')
+        self.assertIn('observations expired', mission.localization_report)
+        self.assertIsNotNone(mission.anchor)
 
     def test_window_fit_rejection_reason_remains_visible(self):
         mission = self.mission(observation_window=1.)
-        mission.localizer.estimate.return_value = AlignmentResult(
-            False, reason='no extended perpendicular wall support')
-        for index in range(10):
+        mission.entrance_localizer.estimate.return_value = AlignmentResult(
+            False, reason='right wall returns missing')
+        for index in range(11):
             now = 10. + .1*index
             self.feed(mission, now)
             self.assertEqual(mission.step(now), (0., 0., False))
         self.join(mission)
-        self.assertEqual(mission.step(now), (0., 0., False))
-        self.assertIn('no extended perpendicular wall support', mission.reason)
-        self.assertIsNone(mission.anchor)
+        self.assert_entry_motion(mission, now+.01)
+        self.assertIn('right wall returns missing', mission.localization_report)
+        self.assertIsNotNone(mission.anchor)
+        self.assertEqual(mission.state, 'ENTRY')
 
     def test_localization_only_points_do_not_change_the_collision_scan(self):
         mission = self.mission()
@@ -214,7 +218,7 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
                              localization_points=wall_points)
         self.assertEqual(mission.step(now), (0., 0., False))
         self.join(mission)
-        np.testing.assert_allclose(mission.localizer.estimate.call_args.args[0], wall_points)
+        np.testing.assert_allclose(mission.entrance_localizer.estimate.call_args.args[0], wall_points)
         self.assertEqual(np.count_nonzero(np.isfinite(mission.scan[0])), 1)
         # The additional close wall-only point must neither trigger entry
         # stopping nor become a projected obstacle in the collision map.
@@ -237,36 +241,36 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
 
     def test_reusing_one_scan_does_not_refit_the_accepted_initial_pose(self):
         mission = self.mission()
-        self.initialize_from_first_fit(mission)
+        now = self.initialize_from_first_fit(mission)
         anchor = mission.anchor
-        for _ in range(12):
-            self.assertEqual(mission.step(10.), (0., 0., False))
+        for index in range(12):
+            self.assert_entry_motion(mission, now+.01*(index+1))
         self.assertEqual(mission.anchor, anchor)
         self.assertEqual(mission.state, 'ENTRY')
-        self.assertIn('mapped scans', mission.reason)
-        self.assertEqual(mission.localizer.estimate.call_count, 1)
+        self.assertEqual(mission.mapped_stamp, 10.)
+        self.assertEqual(mission.entrance_localizer.estimate.call_count, 1)
 
-    def test_rejected_fit_waits_but_the_next_valid_fit_initializes_immediately(self):
+    def test_rejected_fit_uses_prior_once_and_allows_entry_motion(self):
         mission = self.mission()
-        accepted = mission.localizer.estimate.return_value
-        mission.localizer.estimate.side_effect = [
-            AlignmentResult(False, reason='ambiguous wall alignment'), accepted]
-        for index in range(2):
-            now = 10. + .1*index
-            self.feed(mission, now)
-            self.assertEqual(mission.step(now), (0., 0., False))
-            self.join(mission)
-            self.assertEqual(mission.step(now), (0., 0., False))
-            if index == 0:
-                self.assertIsNone(mission.anchor)
-                self.assertEqual(mission.state, 'LOCALIZING')
-                self.assertIn('ambiguous wall alignment', mission.reason)
+        mission.entrance_localizer.estimate.return_value = AlignmentResult(
+            False, reason='right wall direction is undetermined')
+        self.feed(mission, 10.)
+        self.assertEqual(mission.step(10.), (0., 0., False))
+        self.join(mission)
+        self.assert_entry_motion(mission, 10.01)
         self.assertIsNotNone(mission.anchor)
         self.assertEqual(mission.state, 'ENTRY')
-        self.assertEqual(mission.localizer.estimate.call_count, 2)
+        self.assertIn('right wall direction is undetermined', mission.localization_report)
+        pose = relative_pose(mission.odom[:3], mission.anchor)
+        np.testing.assert_allclose((pose.x, pose.y, pose.yaw), mission.entrance_localizer.prior)
+        self.feed(mission, 10.1)
+        linear, angular, finished = mission.step(10.1)
+        self.assertGreater(abs(linear)+abs(angular), 0.)
+        self.assertFalse(finished)
+        mission.entrance_localizer.estimate.assert_called_once()
 
     def test_nonzero_reported_velocity_allows_first_real_wall_fit_after_observation_window(self):
-        pose = (.04, -.02, -.08)
+        pose = (.226, -.016, math.radians(1.68))
         frame = (2., -1., .7)
         for velocity in ((.03, 0.), (0., .1), (.03, -.1)):
             with self.subTest(velocity=velocity):
@@ -278,90 +282,136 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
                 # The scan and acquired poses stay fixed; only reported twist
                 # is nonzero. The first real fit must initialize the map.
                 results = []
-                for index in range(10):
+                for index in range(11):
                     now = 10. + .1*index
                     self.feed(mission, now, pose, frame, velocity=velocity)
                     self.assertEqual(mission.step(now), (0., 0., False))
                     self.join(mission)
-                    if index < 9:
-                        self.assertIsNone(mission.worker)
+                    if index < 10:
+                        self.assertIsNone(mission.localization_worker)
                         self.assertIsNone(mission.anchor)
                     else:
                         self.assertIsNotNone(mission.localization_result, mission.reason)
                         results.append(mission.localization_result[0])
                         self.assertTrue(results[-1].accepted)
-                    self.assertEqual(mission.step(now), (0., 0., False))
-                    if index < 9:
+                    if index < 10:
+                        self.assertEqual(mission.step(now), (0., 0., False))
                         self.assertEqual(mission.state, 'LOCALIZING')
+                    else:
+                        self.assert_entry_motion(mission, now+.01)
                 self.assertEqual(len(results), 1)
                 self.assertEqual(mission.state, 'ENTRY')
                 self.assertIsNotNone(mission.anchor)
                 localized = relative_pose(mission.odom[:3], mission.anchor)
                 np.testing.assert_allclose((localized.x, localized.y, localized.yaw),
                                            pose, atol=.003)
-                self.assertEqual(mission.initial_map_updates, 1)
+                self.assertEqual(mission.mapped_stamp, now)
 
     def test_future_inputs_cannot_start_alignment(self):
         mission = self.mission()
         self.feed(mission, 10.)
         self.assertEqual(mission.step(9.9), (0., 0., False))
         self.assertIn('future', mission.reason)
-        mission.localizer.estimate.assert_not_called()
+        mission.entrance_localizer.estimate.assert_not_called()
 
-    def test_worker_result_expiring_before_acceptance_is_rejected(self):
+    def test_worker_result_expiring_before_acceptance_uses_prior(self):
         mission = self.mission()
         self.feed(mission, 10.)
         mission.step(10.)
         self.join(mission)
         self.feed(mission, 10.4)
-        self.assertEqual(mission.step(10.4), (0., 0., False))
-        self.assertIsNone(mission.anchor)
-        self.assertEqual(mission.state, 'LOCALIZING')
-        self.assertIn('expired', mission.reason)
-        self.join(mission)
-
-    def test_expired_fit_reuses_fresh_window_and_initializes_on_first_replacement(self):
-        mission = self.mission(observation_window=1.)
-        for index in range(14):
-            self.feed(mission, 10.+index*.1)
-        # A slow worker finishes an earlier scan while fresh scans continue.
-        mission.localization_result = (mission.localizer.estimate.return_value,
-                                       (.04, 0., 0.), 10.9)
-        mission.localization_attempt_stamp = 10.9
-        history_stamps = [row[2] for row in mission.localization_history]
-        self.assertEqual(mission.step(11.3), (0., 0., False))
-        self.assertIsNone(mission.anchor)
-        self.assertEqual(mission.state, 'LOCALIZING')
-        self.assertEqual([row[2] for row in mission.localization_history], history_stamps)
-        mission.localizer.estimate.assert_not_called()
-
-        # Refit on the next tick, without another second of collection.
-        self.assertEqual(mission.step(11.35), (0., 0., False))
-        self.join(mission)
-        mission.localizer.estimate.assert_called_once()
-        self.assertEqual(mission.localization_attempt_stamp, 11.3)
-        self.assertEqual(mission.step(11.35), (0., 0., False))
+        self.assert_entry_motion(mission, 10.4)
         self.assertIsNotNone(mission.anchor)
         self.assertEqual(mission.state, 'ENTRY')
-        mission.localizer.estimate.assert_called_once()
+        self.assertIn('expired', mission.localization_report)
+        pose = relative_pose(mission.odom[:3], mission.anchor)
+        np.testing.assert_allclose((pose.x, pose.y, pose.yaw), mission.entrance_localizer.prior)
+        mission.entrance_localizer.estimate.assert_called_once()
 
-    def test_expired_fit_still_clears_window_on_motion_or_rejected_geometry(self):
-        for failure in ('motion', 'rejected_geometry'):
+    def test_prior_preserves_motion_since_activation_in_rotated_odom_frame(self):
+        first = (.04, .02, .03)
+        frame = (120., -87., 2.7)
+        for failure in ('rejected', 'expired'):
             with self.subTest(failure=failure):
                 mission = self.mission(observation_window=1.)
-                for index in range(14):
-                    self.feed(mission, 10.+index*.1)
-                scan_pose = (.034, 0., 0.) if failure == 'motion' else (.04, 0., 0.)
-                result = (mission.localizer.estimate.return_value if failure == 'motion'
-                          else AlignmentResult(False, reason='ambiguous wall alignment'))
-                mission.localization_result = (result, scan_pose, 10.9)
-                self.assertTrue(mission.localization_history)
-                self.assertEqual(mission.step(11.3), (0., 0., False))
-                self.assertEqual(mission.localization_history, [])
-                self.assertEqual(mission.state, 'LOCALIZING')
-                self.assertIsNone(mission.anchor)
+                if failure == 'rejected':
+                    mission.entrance_localizer.estimate.return_value = AlignmentResult(
+                        False, reason='right wall returns missing')
+                # The configured prior belongs to activation, not an older scan.
+                activation = (.045, .021, .04)
+                self.feed(mission, 10., first, frame, latest=activation)
+                mission.step(10.)
+                latest = (.07, .025, .09)
+                self.feed(mission, 11., (.06, .024, .06), frame, latest=latest)
+                mission.step(11.)
+                self.join(mission)
+                now = 11. if failure == 'rejected' else 11.4
+                mission.update_odometry(compose(latest, frame), 0., 0., now)
+                mission.step(now)
+                self.assertEqual(mission.state, 'ENTRY')
+                relative = relative_pose(latest, activation)
+                expected = compose((relative.x, relative.y, relative.yaw),
+                                   mission.entrance_localizer.prior)
+                localized = relative_pose(mission.odom[:3], mission.anchor)
+                np.testing.assert_allclose((localized.x, localized.y, localized.yaw),
+                                           expected, atol=1e-12)
+                self.assertAlmostEqual(mission.entry_start_x, expected[0])
+                self.assertAlmostEqual(mission.entry_start_yaw, expected[2])
+                mission.entrance_localizer.estimate.assert_called_once()
 
-    def test_movement_since_acquisition_rejects_an_otherwise_good_result(self):
+    def test_slow_fit_cannot_block_entry_or_global_planning_or_overwrite_the_map(self):
+        mission = self.mission()
+        started, release = threading.Event(), threading.Event()
+        def delayed(_points, _sensor_origin):
+            started.set()
+            if not release.wait(timeout=3.):
+                raise RuntimeError('test wall fit was never released')
+            return AlignmentResult(True, Pose2D(.9, .4, .8), 'late fit', .001, 120, 140)
+        mission.entrance_localizer.estimate.side_effect = delayed
+        self.feed(mission, 10.)
+        mission.step(10.)
+        self.assertTrue(started.wait(timeout=1.))
+        worker = mission.localization_worker
+        try:
+            deadline = 10.+mission.sensors['maximum_age']+.001
+            self.feed(mission, deadline, pose=(.06, 0., .02))
+            self.assert_entry_motion(mission, deadline)
+            self.assertIn('exceeded', mission.localization_report)
+            self.assertTrue(worker.is_alive())
+            anchor, costmap, mapped_stamp = mission.anchor, mission.costmap, mission.mapped_stamp
+            occupancy = list(costmap.to_occupancy_data())
+            mission.local_planner.global_route = Mock(return_value=None)
+            pose = relative_pose(mission.odom[:3], mission.anchor)
+            mission._request_global_plan(pose, deadline)
+            self.assertIsNotNone(mission.worker)
+            self.assertIsNot(mission.worker, worker)
+            mission.worker.join(timeout=3.)
+            self.assertFalse(mission.worker.is_alive())
+            mission.local_planner.global_route.assert_called_once()
+            self.assertIsNotNone(mission.pending_route)
+        finally:
+            release.set()
+            worker.join(timeout=3.)
+            self.assertFalse(worker.is_alive())
+        self.assertIsNone(mission.localization_result)
+        self.assertEqual(mission.anchor, anchor)
+        self.assertIs(mission.costmap, costmap)
+        self.assertEqual(mission.mapped_stamp, mapped_stamp)
+        self.assertEqual(list(mission.costmap.to_occupancy_data()), occupancy)
+        self.assert_entry_motion(mission, deadline)
+        mission.entrance_localizer.estimate.assert_called_once()
+
+    def test_missing_initial_observations_use_prior_after_the_existing_window(self):
+        mission = self.mission(observation_window=1.)
+        self.feed(mission, 10.)
+        mission.localization_scan = None
+        self.assertEqual(mission.step(10.), (0., 0., False))
+        self.assertIsNone(mission.anchor)
+        self.assert_entry_motion(mission, 11.)
+        self.assertIn('observations missing', mission.localization_report)
+        mission.entrance_localizer.estimate.assert_not_called()
+
+    def test_movement_since_acquisition_is_propagated_from_an_accepted_fit(self):
         for pose in ((.05, 0., 0.), (.04, 0., math.radians(1.))):
             with self.subTest(latest_pose=pose):
                 mission = self.mission()
@@ -369,31 +419,35 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
                 mission.step(10.)
                 self.join(mission)
                 mission.update_odometry(pose, 0., 0., 10.05)
-                self.assertEqual(mission.step(10.05), (0., 0., False))
-                self.assertIsNone(mission.anchor)
-                self.assertEqual(mission.state, 'LOCALIZING')
-                self.assertIn('moved', mission.reason)
+                self.assert_entry_motion(mission, 10.05)
+                self.assertIsNotNone(mission.anchor)
+                self.assertEqual(mission.state, 'ENTRY')
+                localized = relative_pose(mission.odom[:3], mission.anchor)
+                np.testing.assert_allclose((localized.x, localized.y, localized.yaw), pose,
+                                           atol=1e-12)
 
     def test_reset_discards_a_worker_from_the_previous_activation(self):
         mission = self.mission()
         started, release = threading.Event(), threading.Event()
-        accepted = mission.localizer.estimate.return_value
+        accepted = mission.entrance_localizer.estimate.return_value
         def delayed(_points, _sensor_origin):
             started.set()
             if not release.wait(timeout=3.):
                 raise RuntimeError('test wall fit was never released')
             return accepted
-        mission.localizer.estimate.side_effect = delayed
+        mission.entrance_localizer.estimate.side_effect = delayed
         self.feed(mission, 10.)
         mission.step(10.)
         self.assertTrue(started.wait(timeout=1.))
+        worker = mission.localization_worker
         try:
             # A running fit cannot hold the mission lock and block callbacks.
             self.assertTrue(mission.update_odometry((.04, 0., 0.), 0., 0., 10.01))
             mission.reset()
         finally:
             release.set()
-            self.join(mission)
+            worker.join(timeout=3.)
+            self.assertFalse(worker.is_alive())
         self.assertEqual(mission.state, 'LOCALIZING')
         self.assertIsNone(mission.anchor)
         self.assertIsNone(mission.localization_result)
@@ -401,13 +455,13 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
     def test_reported_velocity_during_a_fit_does_not_discard_fixed_pose_result(self):
         mission = self.mission()
         started, release = threading.Event(), threading.Event()
-        accepted = mission.localizer.estimate.return_value
+        accepted = mission.entrance_localizer.estimate.return_value
         def delayed(_points, _sensor_origin):
             started.set()
             if not release.wait(timeout=3.):
                 raise RuntimeError('test wall fit was never released')
             return accepted
-        mission.localizer.estimate.side_effect = delayed
+        mission.entrance_localizer.estimate.side_effect = delayed
         self.feed(mission, 10.)
         mission.step(10.)
         self.assertTrue(started.wait(timeout=1.))
@@ -415,41 +469,39 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
         try:
             mission.update_odometry((.04, 0., 0.), .02, .1, 10.01)
             self.assertEqual(mission.step(10.01), (0., 0., False))
+            self.assertEqual(mission.localization_epoch, epoch)
             mission.update_odometry((.04, 0., 0.), 0., 0., 10.02)
         finally:
             release.set()
             self.join(mission)
-        self.assertEqual(mission.step(10.02), (0., 0., False))
+        self.assert_entry_motion(mission, 10.02)
         self.assertIsNotNone(mission.anchor)
         self.assertIsNone(mission.localization_result)
         self.assertEqual(mission.state, 'ENTRY')
-        self.assertEqual(mission.localization_epoch, epoch)
-        mission.localizer.estimate.assert_called_once()
+        self.assertGreater(mission.localization_epoch, epoch)
+        mission.entrance_localizer.estimate.assert_called_once()
 
-    def test_fit_exception_is_reported_without_motion_and_new_scan_can_retry(self):
-        mission = self.mission()
-        accepted = mission.localizer.estimate.return_value
-        mission.localizer.estimate.side_effect = [ValueError('invalid fit fixture'), accepted]
-        self.feed(mission, 10.)
-        mission.step(10.)
-        self.join(mission)
-        self.assertEqual(mission.step(10.), (0., 0., False))
-        self.assertIn('wall alignment failed', mission.reason)
-        self.assertIsNone(mission.anchor)
-        self.feed(mission, 10.1)
-        mission.step(10.1)
-        self.join(mission)
-        self.assertEqual(mission.step(10.1), (0., 0., False))
-        self.assertIsNotNone(mission.anchor)
-        self.assertEqual(mission.state, 'ENTRY')
-        self.assertEqual(mission.localizer.estimate.call_count, 2)
+    def test_expected_fit_exceptions_are_reported_and_allow_entry_without_retry(self):
+        for error in (ValueError, RuntimeError, np.linalg.LinAlgError):
+            with self.subTest(error=error.__name__):
+                mission = self.mission()
+                mission.entrance_localizer.estimate.side_effect = error('invalid fit fixture')
+                self.feed(mission, 10.)
+                mission.step(10.)
+                self.join(mission)
+                self.assert_entry_motion(mission, 10.01)
+                self.assertIn('wall alignment failed', mission.localization_report)
+                self.assertIsNotNone(mission.anchor)
+                self.feed(mission, 10.1)
+                self.assert_entry_motion(mission, 10.1)
+                mission.entrance_localizer.estimate.assert_called_once()
 
-    def test_alignment_requires_new_mapped_scans_before_motion(self):
+    def test_alignment_allows_entry_before_second_mapped_scan(self):
         mission = self.mission()
         now = self.initialize_from_first_fit(mission)
-        self.assertEqual(mission.initial_map_updates, 1)
-        self.assertEqual(mission.step(now), (0., 0., False))
-        self.assertIn('mapped scans', mission.reason)
+        self.assertEqual(mission.mapped_stamp, now-.01)
+        self.assertEqual(mission.config['grid']['mark_observations'], 2)
+        self.assert_entry_motion(mission, now)
         self.feed(mission, now+.1)
         linear, angular, finished = mission.step(now+.1)
         self.assertEqual(linear, 0.)
@@ -461,7 +513,7 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
         mission = self.mission(pose)
         now = self.initialize_from_first_fit(mission, pose)
         self.feed(mission, now+.1, pose)
-        self.assertFalse(mission.geometry.pose_is_collision_free(mission._grid(), Pose2D(*pose)))
+        self.assertFalse(inspect_geometry(mission.geometry).pose_is_collision_free(mission._grid(), Pose2D(*pose)))
         linear, angular, complete = mission.step(now+.1)
         self.assertEqual(linear, 0.)
         self.assertGreater(angular, 0.)
@@ -474,7 +526,7 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
         now = self.initialize_from_first_fit(mission, pose)
         self.feed(mission, now + .1, pose)
         grid = mission._grid()
-        self.assertTrue(mission.geometry.pose_is_collision_free(grid, Pose2D(*pose)))
+        self.assertTrue(inspect_geometry(mission.geometry).pose_is_collision_free(grid, Pose2D(*pose)))
         self.assertEqual(mission.footprint.padding, 0.)
         linear, angular, _ = mission.step(now + .1)
         self.assertGreater(abs(linear) + abs(angular), 0.)
@@ -484,7 +536,7 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
         envelope_gap = (tight[1] - mission.footprint.rear * math.sin(tight[2])
                         - mission.footprint.half_width * math.cos(tight[2]) + .150)
         self.assertLess(envelope_gap, 0.)
-        self.assertTrue(mission.geometry.pose_is_collision_free(grid, Pose2D(*tight)))
+        self.assertTrue(inspect_geometry(mission.geometry).pose_is_collision_free(grid, Pose2D(*tight)))
         self.feed(mission, now + .2, tight)
         linear, angular, _ = mission.step(now + .2)
         self.assertGreater(abs(linear) + abs(angular), 0.)
@@ -495,7 +547,7 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
                           for x0, y0, x1, y1 in mission.footprint.parts
                           for x in (x0, x1) for y in (y0, y1))
         overlapping = (pose[0], wall_y - lowest_part - .001, pose[2])
-        self.assertFalse(mission.geometry.pose_is_collision_free(grid, Pose2D(*overlapping)))
+        self.assertFalse(inspect_geometry(mission.geometry).pose_is_collision_free(grid, Pose2D(*overlapping)))
         self.feed(mission, now + .3, overlapping)
         linear, angular, _ = mission.step(now + .3)
         self.assertGreater(abs(linear) + abs(angular), 0.)
@@ -526,7 +578,7 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
                     # no ROS transport or physical actuator timing model.
                     self.join(mission)
                     localized = relative_pose(pose, mission.anchor)
-                    self.assertTrue(mission.geometry.pose_is_collision_free(mission._grid(), localized),
+                    self.assertTrue(inspect_geometry(mission.geometry).pose_is_collision_free(mission._grid(), localized),
                                     (pose, mission.state, mission.reason))
                     if finished:
                         self.assertEqual((linear, angular), (0., 0.))

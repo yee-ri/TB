@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'codes'))
 
 from tunnel.mission import TunnelMission, load_config
+from collision_inspection import inspect_geometry
 from tunnel.planner import GlobalRoute
 
 
@@ -259,7 +260,7 @@ class TunnelProfileTests(unittest.TestCase):
             mission.update_odometry((.98, 0., 0.), .08, .6, stamp)
             mission.update_scan([.055], 0., 1., .05, 40.,
                                 (0., 0., 0.), (.98, 0., 0.), stamp)
-        self.assertFalse(mission.geometry.pose_is_collision_free(mission._grid(), (.98, 0., 0.)))
+        self.assertFalse(inspect_geometry(mission.geometry).pose_is_collision_free(mission._grid(), (.98, 0., 0.)))
         linear, angular, complete = mission.step(stamp)
         self.assertGreater(linear, 0.)
         self.assertLess(linear, .08)

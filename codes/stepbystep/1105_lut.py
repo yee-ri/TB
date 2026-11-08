@@ -177,7 +177,7 @@ class turtlebot():
         self.turn_direction=None # 회전명령 @@@@@@
         self.max_val_l=0
         self.max_val_r=0
-        self.sign_threshold = 0.70  
+        self.sign_threshold = 0.55
         self.sign_left_count = 0
         self.sign_right_count = 0
         self.left_ready_count = 0
@@ -542,17 +542,16 @@ class turtlebot():
         labels = self._color_lut.rgb_to_label(data, bgr=True)
         red_mask = (labels == 8).astype(np.uint8) * 255
         green_mask = (labels == 16).astype(np.uint8) * 255
+        red_area = cv2.countNonZero(red_mask)
+        rospy.loginfo("RED is : %f",red_area)
         #초록색의 작은 잡음을 제거하고 검출 영역을 보강합니다.
         green_mask=cv2.erode(green_mask,None,iterations=1)
         green_mask=cv2.dilate(green_mask,None,iterations=2)
         green_area = cv2.countNonZero(green_mask)
         rospy.loginfo(green_area)
+        rospy.loginfo("GREED.: %f",green_area)
         #빨간색이 200픽셀 이상이면 정지를 유지합니다. 동시 검출 시 빨간색 우선입니다.
-        if cv2.countNonZero(red_mask)>=200:
-            self.stop()
-            return False
-        #LUT ADD
-        if cv2.countNonZero(green_mask)>=60:
+        if green_area>=200:
             rospy.loginfo("@@@@@@ GREEN LIGHT @@@@@@")
             # self.stop()
             rospy.sleep(0.5)
@@ -563,19 +562,25 @@ class turtlebot():
             # self.step=1
             rospy.loginfo("@@@@@@ STEP 1 @@@@@@")
             return True
+        if red_area>=10:
+            self.stop()
+            rospy.loginfo("HELLO")
+            return False
+        #LUT ADD
+
 
         self.stop()
         return False
 
     def sign_blue_mask(self, image):
-        mask = self._color_lut.mask(image, 4)
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, np.array([97, 180, 15]), np.array([117, 255, 90]))
         return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
 
     def sign_arrow_mask(self, image):
         image = cv2.resize(image, (100, 100))
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv,np.array([0, 0, 80]),np.array([179, 100, 255]))
-
+        mask = cv2.inRange(hsv, np.array([0, 0, 30]), np.array([179, 100, 255]))
         inner = np.zeros((100, 100), dtype=np.uint8)
         cv2.circle(inner, (50, 50), 40, 255, -1)
         return cv2.bitwise_and(mask, inner)
@@ -588,6 +593,8 @@ class turtlebot():
         if not contours:
             raise ValueError('No LUT Blue region in sign template: ' + str(path))
         x, y, w, h = cv2.boundingRect(max(contours, key=cv2.contourArea))
+        # template = self.sign_arrow_mask(image[y:y+h, x:x+w])
+        # template = self.sign_arrow_mask(image[y:y+h, x:x+w], template=True)
         template = self.sign_arrow_mask(image[y:y+h, x:x+w])
         if cv2.countNonZero(template) in (0, template.size):
             raise ValueError('No usable white arrow in sign template: ' + str(path))
@@ -657,7 +664,7 @@ class turtlebot():
         if self.step != 1:
             return False
 
-        if self.max_val_l >= 0.8 and self.max_val_l > self.max_val_r:
+        if self.max_val_l >= 0.5 and self.max_val_l > self.max_val_r:
             self.left_ready_count += 1
         else:
             # self.left_ready_count = 0
@@ -669,7 +676,7 @@ class turtlebot():
             self.turn_detect = sign
             rospy.loginfo("@@@@@@ %s SIGN SAVED @@@@@@", sign.upper())
 
-        right_ready = self.turn_detect == 'right' and math.isfinite(self.front_distance) and 0 < self.front_distance <= 0.45
+        right_ready = self.turn_detect == 'right' and math.isfinite(self.front_distance) and 0 < self.front_distance <= 0.5
 
         if left_ready or right_ready:
             self.turn_direction = 'left' if left_ready else 'right'
@@ -788,7 +795,7 @@ class turtlebot():
         # 2. 노란선 확인 후 두 번째 장애물 거리 판단
         if self.obstacle_stage == 'lane':
             if not self.obstacle_second_ready:
-                if yellow_area >= 5000:
+                if yellow_area >= 4000:
                     self.obstacle_yellow_count += 1
                 else:
                     self.obstacle_yellow_count = 0
@@ -1606,7 +1613,7 @@ class turtlebot():
             self.turn_direction=None
 
             if self.gate_state == 0:
-                if self.red_area >= 120:
+                if self.red_area >= 300:
                     self.red_speed_count += 1
                 else:
                     pass
@@ -1631,7 +1638,7 @@ class turtlebot():
             elif self.gate_state == 1:
                 self.stop()
 
-                if  self.red_area<=200:
+                if  self.red_area<=1500:
                     self.gate_open_count += 1
                     rospy.loginfo("GATE OPEN COUNT: %d / 10",self.gate_open_count)
                 else:

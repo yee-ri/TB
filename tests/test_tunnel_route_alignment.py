@@ -109,6 +109,45 @@ class RouteAlignmentTest(unittest.TestCase):
         self.finish_sent_turn(mission)
         self.assertEqual(mission.odom, odometry)
 
+    def test_sent_turn_resumes_real_local_control_even_if_odometry_heading_did_not_change(self):
+        for first_route in (False, True):
+            with self.subTest(first_route=first_route):
+                mission = self.make_mission()
+                if first_route:
+                    mission.global_path = None
+                self.begin_turn(mission)
+                odometry = mission.odom
+                target = mission.route_turn.target_angle
+                sent_angle = mission.route_turn.angle
+                stamp = 10.10
+                with patch.object(mission.local_planner, 'local_command',
+                                  wraps=mission.local_planner.local_command) as local:
+                    for _ in range(200):
+                        previous_angular = mission.last_angular
+                        sent_angle += abs(previous_angular)*.05
+                        stamp += .05
+                        linear, angular, complete = mission.step(stamp)
+                        self.assertFalse(complete)
+                        if mission.route_turn is None:
+                            self.assertGreaterEqual(sent_angle+1e-9, target)
+                            self.assertGreater(linear, 0., mission.reason)
+                            self.assertLessEqual(abs(angular-previous_angular),
+                                                 mission.control['angular_acceleration']*.05+1e-9)
+                            local.assert_called_once()
+                            break
+                        self.assertEqual(linear, 0.)
+                        local.assert_not_called()
+                    else:
+                        self.fail('sent rotation did not hand off to the real local planner')
+                    # The same route refresh must not restart the completed pivot.
+                    mission.pending_route = RouteUpdate(self.route(math.radians(137.)), '', .01)
+                    linear, _, complete = mission.step(stamp+.05)
+                    self.assertGreater(linear, 0., mission.reason)
+                    self.assertFalse(complete)
+                    self.assertIsNone(mission.route_turn)
+                    self.assertEqual(local.call_count, 2)
+                self.assertEqual(mission.odom, odometry)
+
     def test_requested_turn_handles_both_directions_across_pi_wrap(self):
         for sign in (1., -1.):
             with self.subTest(direction=sign):
@@ -372,17 +411,24 @@ class RouteAlignmentTest(unittest.TestCase):
         self.assertEqual(linear, 0.)
         self.assertGreater(angular, 0.)
 
-    def test_behind_targets_without_route_change_do_not_request_rotation(self):
-        for degrees in (120., 180.):
-            with self.subTest(degrees=degrees):
-                mission = self.make_mission()
-                mission.global_path = self.route(math.radians(degrees))
-                with patch.object(mission.local_planner, 'local_command',
-                                  wraps=mission.local_planner.local_command) as local:
-                    self.assertEqual(mission.step(10.05), (0., 0., False))
-                local.assert_called_once()
-                self.assertIsNone(mission.route_turn)
-                self.assertIn('no local command', mission.reason)
+    def test_behind_targets_keep_driving_with_no_update_or_an_identical_route_update(self):
+        for degrees in (100., 120., 180.):
+            for refresh in (False, True):
+                with self.subTest(degrees=degrees, refresh=refresh):
+                    mission = self.make_mission(yaw=0.)
+                    mission.global_path = self.route(math.radians(degrees))
+                    if refresh:
+                        mission.pending_route = RouteUpdate(self.route(math.radians(degrees)), '', .01)
+                    with patch.object(mission.local_planner, 'local_command',
+                                      wraps=mission.local_planner.local_command) as local:
+                        linear, angular, complete = mission.step(10.05)
+                    local.assert_called_once()
+                    self.assertGreater(linear, 0., mission.reason)
+                    self.assertLessEqual(abs(angular), mission.control['angular_acceleration']*.05+1e-9)
+                    self.assertFalse(complete)
+                    self.assertIsNone(mission.route_turn)
+                    self.assertEqual(mission.global_updates, int(refresh))
+                    self.assertIn('following current-pose local arc', mission.reason)
 
     def test_same_route_recalculation_does_not_interrupt_a_forward_curve(self):
         mission = self.make_mission(yaw=math.radians(-20.))

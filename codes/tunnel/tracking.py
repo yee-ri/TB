@@ -24,7 +24,6 @@ def turn_command(error, linear_velocity, previous_angular_velocity, elapsed,
     """Limit a turn by angular ramp and lateral acceleration.
 
     The caller supplies its already-limited linear speed.
-    Collision checking stays with the geometry-aware caller.
     """
     angular_limit = control['maximum_angular_velocity']
     if linear_velocity > 1e-9:

@@ -46,8 +46,6 @@ entry:
 planner:
   keep_in_rectangles: null # Permitted base-centre regions; body collision is checked separately.
   minimum_turning_radius: 0.18
-  collision_check_step: 0.01
-  collision_check_angle: 0.0523598776
 control:
   period: 0.05
   cruise_velocity: 0.075

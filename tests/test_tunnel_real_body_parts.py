@@ -12,7 +12,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'codes'))
 
-from tunnel.geometry import CollisionGeometry, Pose2D, RectangularFootprint
+from tunnel.geometry import Pose2D, RectangularFootprint
+from collision_inspection import CollisionInspector
 from tunnel.mission import TunnelMission, load_config
 from tunnel.planner import load_navigation_settings
 from test_tunnel_body_parts import point_obstacle, world_point
@@ -27,7 +28,7 @@ CONFIGS = tuple(
 
 def configured_geometry(path):
     config = yaml.safe_load(path.read_text(encoding='utf-8'))
-    return CollisionGeometry(RectangularFootprint(**config['footprint']))
+    return CollisionInspector(RectangularFootprint(**config['footprint']))
 
 
 class RealBodyPartsTest(unittest.TestCase):
@@ -61,7 +62,7 @@ class RealBodyPartsTest(unittest.TestCase):
     def test_empty_rear_corners_are_not_treated_as_body_material(self):
         for path in CONFIGS:
             checker = configured_geometry(path)
-            envelope = CollisionGeometry(replace(checker.footprint, parts=()))
+            envelope = CollisionInspector(replace(checker.footprint, parts=()))
             for yaw in (0., .61, math.pi / 2., -math.pi / 2.):
                 pose = Pose2D(.2, -.2, yaw)
                 for side in (-1., 1.):
@@ -107,7 +108,7 @@ class RealBodyPartsTest(unittest.TestCase):
                                for offset in np.linspace(0., angle, 221)]
                     self.assertTrue(all(checker.pose_is_collision_free(grid, sample)
                                         for sample in samples))
-                    envelope = CollisionGeometry(replace(checker.footprint, parts=()))
+                    envelope = CollisionInspector(replace(checker.footprint, parts=()))
                     self.assertFalse(all(envelope.pose_is_collision_free(grid, sample)
                                          for sample in samples))
         finally:

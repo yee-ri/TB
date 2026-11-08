@@ -8,7 +8,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'codes'))
 from tunnel.costmap import TunnelCostmap
-from tunnel.geometry import CollisionGeometry, OccupancyGrid, RectangularFootprint
+from collision_inspection import CollisionInspector
+from tunnel.geometry import OccupancyGrid, RectangularFootprint
 
 
 class PointSubcellTest(unittest.TestCase):
@@ -35,7 +36,7 @@ class PointSubcellTest(unittest.TestCase):
         values = np.array(grid.to_occupancy_data()).reshape(100, 100)
         snapshot = OccupancyGrid(values, .02, -1., -1.,
                                  dynamic_cell_rectangles=grid.refined_dynamic_cells())
-        geometry = CollisionGeometry(RectangularFootprint(.067645, .118073, .0903, .01))
+        geometry = CollisionInspector(RectangularFootprint(.067645, .118073, .0903, .01))
         return geometry.pose_is_collision_free(snapshot, pose)
 
     def test_hit_requires_two_observations_then_blocks_measured_point(self):

@@ -12,6 +12,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'codes'))
 from tunnel.geometry import CollisionGeometry, OccupancyGrid, Pose2D, RectangularFootprint
+from collision_inspection import inspect_geometry
 from tunnel.mission import load_config
 from tunnel.mission import TunnelMission
 
@@ -289,16 +290,13 @@ class TunnelEntryHeadingTest(unittest.TestCase):
     def test_initial_rotation_does_not_predict_rear_corner_overlap(self):
         mission = self.make_mission()
         grid = self.box_grid((-.11405, -.0654, -.11365, -.0650))
-        self.assertTrue(mission.geometry.pose_is_collision_free(grid, (0., 0., 0.)))
-        self.assertFalse(mission.geometry.pose_is_collision_free(grid, (0., 0., math.radians(2.5))))
+        self.assertTrue(inspect_geometry(mission.geometry).pose_is_collision_free(grid, (0., 0., 0.)))
+        self.assertFalse(inspect_geometry(mission.geometry).pose_is_collision_free(grid, (0., 0., math.radians(2.5))))
         self.feed(mission, (0., 0., 0.), 10.)
-        with patch.object(mission, '_grid', return_value=grid), \
-                patch.object(mission.geometry, 'primitive_is_collision_free',
-                             side_effect=AssertionError('entry predicted a moving sweep')) as moving:
+        with patch.object(mission, '_grid', return_value=grid):
             linear, angular, _ = mission.step(10.)
         self.assertEqual(linear, 0.)
         self.assertGreater(angular, 0.)
-        moving.assert_not_called()
         self.assertEqual(mission.state, 'ENTRY')
 
     def test_physical_profile_keeps_unpadded_body_and_right_width_with_left_preview(self):
@@ -310,11 +308,11 @@ class TunnelEntryHeadingTest(unittest.TestCase):
         self.assertEqual(mission.entry_obstacle_left_far_width, .30)
         self.assertEqual(mission.entry_obstacle_check_distance, .80)
         grid = self.box_grid((-.11, -.067, -.10, -.065))
-        self.assertTrue(mission.geometry.pose_is_collision_free(grid, (0., 0., 0.)))
+        self.assertTrue(inspect_geometry(mission.geometry).pose_is_collision_free(grid, (0., 0., 0.)))
         previous_padding = CollisionGeometry(RectangularFootprint(
             mission.footprint.front, mission.footprint.rear, mission.footprint.half_width, .01,
             parts=mission.footprint.parts))
-        self.assertFalse(previous_padding.pose_is_collision_free(grid, (0., 0., 0.)))
+        self.assertFalse(inspect_geometry(previous_padding).pose_is_collision_free(grid, (0., 0., 0.)))
         self.feed(mission, (0., 0., 0.), 10.)
         with patch.object(mission, '_grid', return_value=grid):
             linear, angular, _ = mission.step(10.)
@@ -327,7 +325,7 @@ class TunnelEntryHeadingTest(unittest.TestCase):
                 mission = self.make_mission()
                 mission.entry_phase, mission.entry_drive_yaw = phase, 0.
                 grid = self.box_grid((-.11, -.0605, -.105, -.0565))
-                self.assertFalse(mission.geometry.pose_is_collision_free(grid, (0., 0., 0.)))
+                self.assertFalse(inspect_geometry(mission.geometry).pose_is_collision_free(grid, (0., 0., 0.)))
                 self.feed(mission, (0., 0., 0.), 10.)
                 self.assertTrue(math.isinf(mission.front_clearance))
                 with patch.object(mission, '_grid', return_value=grid):
@@ -344,15 +342,12 @@ class TunnelEntryHeadingTest(unittest.TestCase):
                 self.feed(mission, (pose.x, pose.y, pose.yaw), 10., .15)
                 mission.last_linear = .15
                 grid = self.box_grid((.275, -.01, .277, .01))
-                self.assertTrue(mission.geometry.pose_is_collision_free(grid, pose))
-                self.assertFalse(mission.geometry.pose_is_collision_free(grid, (.21, 0., 0.)))
+                self.assertTrue(inspect_geometry(mission.geometry).pose_is_collision_free(grid, pose))
+                self.assertFalse(inspect_geometry(mission.geometry).pose_is_collision_free(grid, (.21, 0., 0.)))
                 if braking:
                     mission.front_clearance = mission.config['entry']['obstacle_clearance'] + .005
-                with patch.object(mission, '_grid', return_value=grid), \
-                        patch.object(mission.geometry, 'primitive_is_collision_free',
-                                     side_effect=AssertionError('entry predicted a moving sweep')) as sweep:
+                with patch.object(mission, '_grid', return_value=grid):
                     linear, angular, _ = mission._enter(pose, .05)
-                sweep.assert_not_called()
                 self.assertGreater(linear, 0.)
                 self.assertAlmostEqual(linear, .13 if braking else
                                        .15 + mission.entry_linear_acceleration * .05)

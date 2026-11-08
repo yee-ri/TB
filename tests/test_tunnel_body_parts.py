@@ -7,7 +7,8 @@ import unittest
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'codes'))
-from tunnel.geometry import CollisionGeometry, OccupancyGrid, Pose2D, RectangularFootprint
+from tunnel.geometry import OccupancyGrid, Pose2D, RectangularFootprint
+from collision_inspection import CollisionInspector
 
 
 FRONT = .06779981518632729
@@ -53,7 +54,7 @@ def world_point(pose, local):
 
 
 def geometry(padding=0., parts=PARTS):
-    return CollisionGeometry(
+    return CollisionInspector(
         RectangularFootprint(FRONT, REAR, HALF_WIDTH, padding, parts=parts),
         collision_check_step=.02)
 

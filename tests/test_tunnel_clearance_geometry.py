@@ -9,6 +9,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'codes'))
 from tunnel.geometry import CollisionGeometry, OccupancyGrid, Pose2D, RectangularFootprint
+from collision_inspection import CollisionInspector, inspect_geometry
 
 
 PARTS = ((-.118073, -.0611, .067645, .0611),
@@ -72,7 +73,7 @@ class ClearanceGeometryTest(unittest.TestCase):
     def checker(self, padding=.01):
         return CollisionGeometry(
             RectangularFootprint(.0677998152, .118073, .0903, padding, PARTS),
-            collision_check_step=.04, collision_check_angle=.09)
+        )
 
     def test_empty_map_returns_cap_including_start_and_endpoint(self):
         checker = self.checker()
@@ -82,7 +83,7 @@ class ClearanceGeometryTest(unittest.TestCase):
         self.assertEqual(len(checker.primitive_clearances(exact_grid(), (0., 0., 0.), 0., 0., .2)), 1)
 
     def test_straight_samples_measure_body_edge_not_base_center(self):
-        checker = CollisionGeometry(RectangularFootprint(.1, .1, .05), collision_check_step=.02)
+        checker = CollisionGeometry(RectangularFootprint(.1, .1, .05))
         grid = exact_grid(((.30, -.04, .31, .04),))
         np.testing.assert_allclose(
             checker.primitive_clearances(grid, (0., 0., 0.), 0., .1, .3),
@@ -147,7 +148,7 @@ class ClearanceGeometryTest(unittest.TestCase):
                                     keep_in_rectangles=[(-.2, -.2, .2, .2)])
         np.testing.assert_allclose(checker.primitive_clearances(grid, (.83, 0., 0.), 0., 0., .2), [.07], atol=1e-12)
         np.testing.assert_allclose(checker.primitive_clearances(grid, (1.2, 0., 0.), 0., 0., .2), [0.])
-        self.assertFalse(checker.pose_is_collision_free(grid, (.83, 0., 0.)))
+        self.assertFalse(inspect_geometry(checker).pose_is_collision_free(grid, (.83, 0., 0.)))
 
     def test_unknown_policy_and_soft_cost_are_preserved(self):
         values = np.zeros((20, 20), dtype=np.int8)
@@ -174,16 +175,16 @@ class ClearanceGeometryTest(unittest.TestCase):
                 checker.primitive_clearances(grid, (0., 0., 0.), 0., .1, .2, samples=samples)
 
     def test_soft_sample_count_does_not_relax_hard_sweep(self):
-        checker = CollisionGeometry(RectangularFootprint(.01, .01, .01),
-                                    collision_check_step=.01, collision_check_angle=.05)
+        checker = CollisionInspector(RectangularFootprint(.01, .01, .01),
+                                     collision_check_step=.01, collision_check_angle=.05)
         grid = exact_grid(((.095, -.002, .105, .002),))
         start = Pose2D(0., 0., 0.)
         hard_samples = list(checker._motion_samples(start, 0., .2, checker.collision_check_step))
-        self.assertFalse(checker.primitive_is_collision_free(grid, start, 0., .2))
+        self.assertFalse(inspect_geometry(checker).primitive_is_collision_free(grid, start, 0., .2))
         for samples in (2, 7, 9, 17):
             result = checker.primitive_clearances(grid, start, 0., .2, .2, samples=samples)
             self.assertEqual(len(result), samples)
-            self.assertFalse(checker.primitive_is_collision_free(grid, start, 0., .2))
+            self.assertFalse(inspect_geometry(checker).primitive_is_collision_free(grid, start, 0., .2))
             self.assertEqual(list(checker._motion_samples(start, 0., .2, checker.collision_check_step)), hard_samples)
         self.assertTrue(np.all(checker.primitive_clearances(grid, start, 0., .2, .2, samples=2) > 0.))
         self.assertEqual(len(checker.primitive_clearances(grid, start, 0., 0., .2, samples=17)), 1)

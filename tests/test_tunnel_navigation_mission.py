@@ -14,6 +14,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'codes'))
 from tunnel.mission import TunnelMission, RouteUpdate
+from collision_inspection import inspect_geometry
 from tunnel.geometry import OccupancyGrid, Pose2D
 from tunnel.planner import GlobalRoute
 from test_tunnel_mission import configuration, integrate, wall_returns
@@ -123,8 +124,8 @@ class GlobalLocalMissionTest(unittest.TestCase):
         mission.pending_route = RouteUpdate(replacement, '', .01)
         self.feed(mission, 10.05, velocity=.2)
         grid = self.wall_grid(.31)
-        self.assertTrue(mission.geometry.pose_is_collision_free(grid, Pose2D(.2, 0., 0.)))
-        self.assertFalse(mission.geometry.primitive_is_collision_free(
+        self.assertTrue(inspect_geometry(mission.geometry).pose_is_collision_free(grid, Pose2D(.2, 0., 0.)))
+        self.assertFalse(inspect_geometry(mission.geometry).primitive_is_collision_free(
             grid, Pose2D(.2, 0., 0.), 0., mission.local_planner.local_horizon))
         with patch.object(mission, '_grid', return_value=grid), patch.object(
                 mission.local_planner, 'local_command',
@@ -189,7 +190,7 @@ class GlobalLocalMissionTest(unittest.TestCase):
                 pose = Pose2D(.2, 0., 0.)
                 mission.update_odometry((pose.x, pose.y, pose.yaw), .2, 0., now)
                 grid = self.wall_grid(.15 if collision == 'body' else .31)
-                self.assertEqual(mission.geometry.pose_is_collision_free(grid, pose),
+                self.assertEqual(inspect_geometry(mission.geometry).pose_is_collision_free(grid, pose),
                                  collision == 'candidate')
                 with patch.object(mission, '_grid', return_value=grid), patch.object(
                         mission.local_planner, 'local_command',
@@ -208,7 +209,7 @@ class GlobalLocalMissionTest(unittest.TestCase):
                 grid = self.wall_grid(.65)
                 # A 30 cm forward candidate fits before this wall, while the
                 # previous .6 m/s stopping extrapolation reached beyond it.
-                self.assertTrue(mission.geometry.primitive_is_collision_free(
+                self.assertTrue(inspect_geometry(mission.geometry).primitive_is_collision_free(
                     grid, Pose2D(.2, 0., 0.), 0., mission.local_planner.local_horizon))
                 with patch.object(mission, '_grid', return_value=grid):
                     result = mission.step(10.05)
@@ -221,7 +222,7 @@ class GlobalLocalMissionTest(unittest.TestCase):
         mission = self.make_mission()
         self.feed(mission, 10.05)
         grid = self.wall_grid(.15)
-        self.assertFalse(mission.geometry.pose_is_collision_free(grid, Pose2D(.2, 0., 0.)))
+        self.assertFalse(inspect_geometry(mission.geometry).pose_is_collision_free(grid, Pose2D(.2, 0., 0.)))
         with patch.object(mission, '_grid', return_value=grid), patch.object(
                 mission.local_planner, 'local_command',
                 wraps=mission.local_planner.local_command) as local:
@@ -381,20 +382,23 @@ class GlobalLocalMissionTest(unittest.TestCase):
             local.assert_not_called()
         self.assertEqual(mission.state, 'COMPLETE')
 
-    def test_unconfigured_exit_keeps_original_position_trigger(self):
+    def test_unconfigured_exit_keeps_position_trigger_and_drives_toward_behind_goal(self):
         mission = self.make_mission(goal=(.6, 0., 0.), velocity=0.)
         self.feed(mission, 10.05, (.606, -.035, 0.), 0.)
-        linear, angular, complete = mission.step(10.05)
+        with patch.object(mission.local_planner, 'local_command',
+                          wraps=mission.local_planner.local_command) as local:
+            linear, angular, complete = mission.step(10.05)
+        local.assert_called_once()
         self.assertFalse(complete)
-        self.assertEqual((linear, angular), (0., 0.))
+        self.assertGreater(linear, 0., mission.reason)
         self.assertEqual(mission.state, 'FOLLOWING')
         self.assertFalse(mission.exit_crossed)
         self.feed(mission, 10.10, (.606, -.035, 0.), 0.)
         linear, angular, complete = mission.step(10.10)
-        self.assertEqual((linear, angular), (0., 0.))
+        self.assertGreater(linear, 0., mission.reason)
         self.assertFalse(complete)
         self.assertIsNone(mission.route_turn)
-        self.assertIn('no local command', mission.reason)
+        self.assertIn('following current-pose local arc', mission.reason)
 
     def test_goal_stop_stays_latched_after_drifting_out_of_radius(self):
         mission = self.make_mission(goal=(.6, 0., 0.), velocity=.12)
@@ -476,7 +480,7 @@ class GlobalLocalMissionTest(unittest.TestCase):
         mission.last_angular = .5
         self.feed(mission, 10.05, (.6, 0., -.3), 0., .5)
         grid = self.wall_grid(.6)
-        self.assertFalse(mission.geometry.pose_is_collision_free(grid, Pose2D(.6, 0., -.3)))
+        self.assertFalse(inspect_geometry(mission.geometry).pose_is_collision_free(grid, Pose2D(.6, 0., -.3)))
         with patch.object(mission, '_grid', return_value=grid):
             linear, angular, complete = mission.step(10.05)
         self.assertEqual(linear, 0.)

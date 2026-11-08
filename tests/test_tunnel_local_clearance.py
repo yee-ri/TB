@@ -9,6 +9,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'codes'))
 from tunnel.geometry import CollisionGeometry, OccupancyGrid, Pose2D, RectangularFootprint
+from collision_inspection import inspect_geometry
 from tunnel.planner import GlobalLocalPlanner, GlobalRoute
 
 
@@ -39,7 +40,7 @@ class LocalClearancePreferenceTest(unittest.TestCase):
         self.geometry = CollisionGeometry(
             RectangularFootprint(.06779981518632729, .118073, .0903,
                                  padding=.01, parts=PARTS),
-            minimum_turning_radius=.18, collision_check_step=.01)
+            minimum_turning_radius=.18)
         self.pose = Pose2D(0., 0., 0.)
         self.straight = GlobalRoute(np.array(((0., 0.), (.8, 0.))))
 
@@ -89,7 +90,7 @@ class LocalClearancePreferenceTest(unittest.TestCase):
         gaps = self.geometry.primitive_clearances(grid, self.pose, 0., .30, .04)
         self.assertGreater(float(np.min(gaps)), 0.)
         self.assertLess(float(np.max(gaps)), .01)
-        self.assertTrue(self.geometry.primitive_is_collision_free(grid, self.pose, 0., .30))
+        self.assertTrue(inspect_geometry(self.geometry).primitive_is_collision_free(grid, self.pose, 0., .30))
         for weight in (.20, 2.):
             with self.subTest(weight=weight):
                 planner = self.planner(weight)
@@ -122,7 +123,7 @@ class LocalClearancePreferenceTest(unittest.TestCase):
 
     def test_starting_overlap_prefers_leaving_the_obstacle_without_stopping(self):
         grid = room(((-.3, .08, 1., .3),))
-        self.assertFalse(self.geometry.pose_is_collision_free(grid, self.pose))
+        self.assertFalse(inspect_geometry(self.geometry).pose_is_collision_free(grid, self.pose))
         planner = self.planner(.20)
         maximum = 1./self.geometry.minimum_turning_radius
         for curvature in np.linspace(-maximum, maximum, planner.local_steering_samples):
@@ -138,8 +139,8 @@ class LocalClearancePreferenceTest(unittest.TestCase):
 
     def test_overlapping_forward_paths_keep_a_command_and_nonzero_clearance_cost(self):
         grid = room(((.11, -.5, .3, .5),))
-        self.assertTrue(self.geometry.pose_is_collision_free(grid, self.pose))
-        self.assertFalse(self.geometry.primitive_is_collision_free(grid, self.pose, 0., .30))
+        self.assertTrue(inspect_geometry(self.geometry).pose_is_collision_free(grid, self.pose))
+        self.assertFalse(inspect_geometry(self.geometry).primitive_is_collision_free(grid, self.pose, 0., .30))
         preferred = self.planner(.20)
         self.assertGreater(preferred._clearance_score(grid, self.pose, 0., .30)[0], 0)
         self.assertGreater(preferred._clearance_score(grid, self.pose, 0., .30)[1], 0.)

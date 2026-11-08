@@ -25,8 +25,7 @@ def cloud(points):
 
 
 def read_points(message, field_names, skip_nans):
-    assert field_names in (('x', 'y', 'z'), ('x', 'y', 'z', 'tag'),
-                           ('x', 'y', 'z', 'intensity'), ('x', 'y', 'z', 'intensity', 'tag'))
+    assert field_names in (('x', 'y', 'z'), ('x', 'y', 'z', 'tag'))
     assert not skip_nans
     # Match the ROS reader's per-record field-offset traversal, including
     # organized clouds and the Livox padding between XYZ and tag.
@@ -453,69 +452,85 @@ class TunnelCloudTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     tunnel_cloud_xy(message, np.eye(3), np.zeros(3), settings, forbidden)
 
-    def test_minimum_intensity_defaults_disabled_without_requiring_or_filtering_intensity(self):
+    def test_intensity_is_not_required_or_read_for_obstacle_points(self):
         points = [[.2, 0., .1], [.3, 0., .1], [.4, 0., .1], [.5, 0., .1]]
         expected = self.transform(cloud(points))
         for message in (cloud(points), tagged_cloud(points, [0, 4, 0, 0],
                                                    intensities=[0., 1., np.nan, 256.])):
-            np.testing.assert_array_equal(self.transform(message), expected)
-            np.testing.assert_array_equal(self.transform(message, settings=dict(
-                SETTINGS, minimum_intensity=0)), expected)
+            reads = []
+            def reader(*args, **kwargs):
+                reads.append(kwargs['field_names'])
+                return read_points(*args, **kwargs)
+            result = tunnel_cloud_xy(message, np.eye(3), np.zeros(3), SETTINGS, reader)
+            np.testing.assert_array_equal(result, expected)
+            self.assertEqual(reads, [('x', 'y', 'z')])
 
-    def test_minimum_intensity_includes_threshold_and_255_but_discards_invalid_values(self):
+    def test_intensity_values_do_not_discard_finite_coordinates(self):
         intensities = [0., 1., 1.99, 2., 255., 256., -1., np.nan, np.inf, -np.inf]
         points = [[.1 * (index + 1), 0., .1] for index in range(len(intensities))]
         message = tagged_cloud(points, [0] * len(points), intensities=intensities)
-        result = self.transform(message, settings=dict(SETTINGS, minimum_intensity=2))
-        np.testing.assert_array_equal(result, self.transform(cloud(points[3:5])))
-        result = self.transform(message, settings=dict(SETTINGS, minimum_intensity=255.))
-        np.testing.assert_array_equal(result, self.transform(cloud(points[4:5])))
+        expected = self.transform(cloud(points))
+        for settings in (SETTINGS, dict(SETTINGS, minimum_intensity=2),
+                         dict(SETTINGS, minimum_intensity=255.)):
+            with self.subTest(settings=settings):
+                np.testing.assert_array_equal(self.transform(message, settings=settings), expected)
 
-    def test_minimum_intensity_rejects_nonnumeric_nonfinite_and_out_of_range_settings(self):
+    def test_removed_minimum_intensity_setting_does_not_restore_filtering(self):
+        message = tagged_cloud([[1., 0., .1]], [0], intensities=[0.])
+        expected = self.transform(cloud([[1., 0., .1]]))
         for value in (True, False, np.bool_(True), None, '2', np.nan, np.inf, -np.inf,
                       -.001, 255.001, complex(2., 0.)):
-            with self.subTest(value=value), self.assertRaises(ValueError):
-                self.transform(cloud([[1., 0., .1]]),
-                               settings=dict(SETTINGS, minimum_intensity=value))
+            with self.subTest(value=value):
+                result = self.transform(message, settings=dict(SETTINGS, minimum_intensity=value))
+                np.testing.assert_array_equal(result, expected)
 
-    def test_minimum_intensity_rejects_missing_or_malformed_layout_without_fallback(self):
+    def test_unused_intensity_metadata_does_not_replace_xyz_layout_checks(self):
         settings = dict(SETTINGS, minimum_intensity=2)
         def intensity(message):
             return next(field for field in message.fields if field.name == 'intensity')
-        changes = [lambda m: m.fields.remove(intensity(m)),
-                   lambda m: m.fields.append(intensity(m)),
-                   lambda m: setattr(intensity(m), 'datatype', 2),
-                   lambda m: setattr(intensity(m), 'count', 2),
-                   lambda m: setattr(intensity(m), 'offset', 13),
-                   lambda m: setattr(intensity(m), 'offset', 12.5),
-                   lambda m: setattr(m.fields[-1], 'offset', 15),
-                   lambda m: setattr(m, 'point_step', 15),
-                   lambda m: setattr(m, 'row_step', m.row_step + 1),
-                   lambda m: setattr(m, 'width', 1.5),
-                   lambda m: setattr(m, 'data', m.data[:-1]),
-                   lambda m: setattr(m, 'data', m.data + b'\0'),
-                   lambda m: setattr(m, 'is_bigendian', True),
-                   lambda m: setattr(m.fields[0], 'datatype', 8)]
+        ignored_changes = [lambda m: m.fields.remove(intensity(m)),
+                           lambda m: m.fields.append(intensity(m)),
+                           lambda m: setattr(intensity(m), 'datatype', 2),
+                           lambda m: setattr(intensity(m), 'count', 2),
+                           lambda m: setattr(intensity(m), 'offset', 13),
+                           lambda m: setattr(intensity(m), 'offset', 12.5),
+                           lambda m: setattr(m.fields[-1], 'offset', 15)]
+        expected = self.transform(cloud([[1., 0., .1]]))
+        for index, change in enumerate(ignored_changes):
+            with self.subTest(unused_metadata=index):
+                message = tagged_cloud([[1., 0., .1]], [0])
+                change(message)
+                np.testing.assert_array_equal(self.transform(message, settings=settings), expected)
+
+        # Enabled horizontal slicing still requires valid XYZ and complete rows.
+        strict = dict(settings, horizontal_half_angle_deg=45.)
+        invalid_changes = [lambda m: setattr(m, 'point_step', 15),
+                           lambda m: setattr(m, 'row_step', m.row_step + 1),
+                           lambda m: setattr(m, 'width', 1.5),
+                           lambda m: setattr(m, 'data', m.data[:-1]),
+                           lambda m: setattr(m, 'data', m.data + b'\0'),
+                           lambda m: setattr(m, 'is_bigendian', True),
+                           lambda m: setattr(m.fields[0], 'datatype', 8)]
         def forbidden(*args, **kwargs):
-            self.fail('invalid intensity metadata must fail before reading points')
-        for index, change in enumerate(changes):
-            with self.subTest(case=index):
+            self.fail('invalid XYZ or row metadata must fail before reading points')
+        for index, change in enumerate(invalid_changes):
+            with self.subTest(invalid_xyz=index):
                 message = tagged_cloud([[1., 0., .1]], [0])
                 change(message)
                 with self.assertRaises(ValueError):
-                    tunnel_cloud_xy(message, np.eye(3), np.zeros(3), settings, forbidden)
+                    tunnel_cloud_xy(message, np.eye(3), np.zeros(3), strict, forbidden)
         with self.assertRaises(ValueError):
             tunnel_cloud_xy(tagged_cloud([[1., 0., .1]], [0]), np.eye(3), np.zeros(3),
-                            settings, lambda *args, **kwargs: iter(()))
+                            strict, lambda *args, **kwargs: iter(()))
 
-    def test_minimum_intensity_keeps_tag_elevation_and_unordered_motion_rows_aligned(self):
+    def test_intensity_independent_tag_height_and_motion_rows_stay_aligned(self):
         message = timed_cloud([[.5, 0., 0.], [.6, 0., 0.], [.7, 0., 0.],
                                [.8, 0., 0.], [np.nan, 0., 0.], [1., 0., .1]],
                               [42.08, 42.01, 42.1, 42.03, 42.05, 42.02],
                               tags=[0, 4, 0, 0x10, 0, 0], height=2,
                               intensities=[2., 2., 1., 3., 4., 255.])
         message.fields.reverse()
-        settings = dict(SETTINGS, minimum_intensity=2, horizontal_half_angle_deg=.5,
+        settings = dict(SETTINGS, horizontal_half_angle_deg=.5,
                         livox_particle_filter=True, livox_motion_compensation=True)
         calls, queried = [], []
         def reader(*args, **kwargs):
@@ -525,13 +540,12 @@ class TunnelCloudTests(unittest.TestCase):
             queried.append(stamps.copy())
             return np.column_stack((stamps - 42., np.zeros(len(stamps)), np.zeros(len(stamps))))
         result = tunnel_cloud_xy(message, np.eye(3), np.zeros(3), settings, reader, motion)
-        np.testing.assert_allclose(result, [[.58, 0.], [.83, 0.]], atol=1e-7)
-        self.assertEqual(calls, [('x', 'y', 'z', 'intensity', 'tag')])
+        np.testing.assert_allclose(result, [[.58, 0.], [.8, 0.], [.83, 0.]], atol=1e-7)
+        self.assertEqual(calls, [('x', 'y', 'z', 'tag')])
         self.assertEqual(len(queried), 1)
-        # The weakest point at the final timestamp remains in the TF envelope.
         self.assertAlmostEqual(queried[0][-1], 42.1)
 
-    def test_minimum_intensity_empty_or_all_rejected_input_does_not_refresh_mission_scan(self):
+    def test_empty_input_stays_stale_but_valid_low_intensity_points_refresh_scan(self):
         from tunnel.mission import TunnelMission
         from tunnel.mission import load_config
         config_path = Path(__file__).resolve().parents[1] / 'codes/stepbystep/tunnel.yaml'
@@ -539,15 +553,18 @@ class TunnelCloudTests(unittest.TestCase):
         self.addCleanup(mission.close)
         sensor, odom = (-.033073, 0., 0.), (0., 0., 0.)
         self.assertTrue(mission.update_cloud([[.5, 0.]], sensor, odom, 10.))
-        settings = dict(SETTINGS, minimum_intensity=2)
-        cases = (tagged_cloud([], []),
-                 tagged_cloud([[.5, 0., .1], [.6, 0., .1]], [0, 0], intensities=[0., 1.]),
+        points = self.transform(tagged_cloud([], []))
+        self.assertEqual(points.shape, (0, 2))
+        self.assertFalse(mission.update_cloud(points, sensor, odom, 10.1))
+        self.assertEqual(mission.scan[-1], 10.)
+        cases = (tagged_cloud([[.5, 0., .1], [.6, 0., .1]], [0, 0], intensities=[0., 1.]),
                  tagged_cloud([[.5, 0., .1]], [0], intensities=[np.nan]))
         for index, message in enumerate(cases):
-            points = self.transform(message, settings=settings)
-            self.assertEqual(points.shape, (0, 2))
-            self.assertFalse(mission.update_cloud(points, sensor, odom, 10.1 + index * .1))
-            self.assertEqual(mission.scan[-1], 10.)
+            points = self.transform(message)
+            stamp = 10.2 + index * .1
+            self.assertEqual(points.shape, (message.width, 2))
+            self.assertTrue(mission.update_cloud(points, sensor, odom, stamp))
+            self.assertEqual(mission.scan[-1], stamp)
 
     def test_wall_output_preserves_obstacle_xy_and_shares_point_read_and_acquisition_tf(self):
         rng = np.random.RandomState(12026)
@@ -563,11 +580,11 @@ class TunnelCloudTests(unittest.TestCase):
         for horizontal in (False, True):
             with self.subTest(horizontal=horizontal):
                 settings = dict(SETTINGS, livox_particle_filter=True,
-                                livox_motion_compensation=True, minimum_intensity=2.)
+                                livox_motion_compensation=True)
                 if horizontal:
                     settings['horizontal_half_angle_deg'] = .5
                 expected = self.transform(message, matrix, mount, settings, motion)
-                wall_settings = dict(settings, z_min=.04, z_max=.23, minimum_intensity=0.)
+                wall_settings = dict(settings, z_min=.04, z_max=.23)
                 wall_settings.pop('horizontal_half_angle_deg', None)
                 expected_wall = self.transform(message, matrix, mount, wall_settings, motion)
                 reads, queries = [], []
@@ -584,7 +601,7 @@ class TunnelCloudTests(unittest.TestCase):
                 self.assertEqual(len(reads), 1)
                 self.assertEqual(len(queries), 1)
 
-    def test_weak_wall_returns_do_not_become_obstacles_or_refresh_obstacle_scan(self):
+    def test_low_intensity_wall_points_also_refresh_obstacle_scan_when_in_slice(self):
         from tunnel.mission import TunnelMission
         from tunnel.mission import load_config
         config_path = Path(__file__).resolve().parents[1] / 'codes/stepbystep/tunnel.yaml'
@@ -593,17 +610,17 @@ class TunnelCloudTests(unittest.TestCase):
         sensor, odom = (-.033073, 0., 0.), (0., 0., 0.)
         self.assertTrue(mission.update_cloud([[.5, 0.]], sensor, odom, 10.))
         message = tagged_cloud([[.5, 0., 0.], [.6, 0., 0.]], [0, 0], intensities=[0., 1.])
-        settings = dict(SETTINGS, horizontal_half_angle_deg=.5, minimum_intensity=2.,
+        settings = dict(SETTINGS, horizontal_half_angle_deg=.5,
                         livox_particle_filter=True)
         obstacle, wall = self.transform(message, translation=np.array([-.033073, 0., .19165]),
                                         settings=settings, wall_height_band=(.04, .23))
-        self.assertEqual(obstacle.shape, (0, 2))
-        self.assertEqual(wall.shape, (2, 2))
-        self.assertFalse(mission.update_cloud(obstacle, sensor, odom, 10.1))
-        self.assertEqual(mission.scan[-1], 10.)
+        self.assertEqual(obstacle.shape, (2, 2))
+        np.testing.assert_array_equal(wall, obstacle)
+        self.assertTrue(mission.update_cloud(obstacle, sensor, odom, 10.1))
+        self.assertEqual(mission.scan[-1], 10.1)
 
-    def test_wall_output_keeps_quality_range_height_and_invalid_intensity_checks(self):
-        # x uniquely identifies each accepted input after FLOAT32 wire rounding.
+    def test_wall_output_keeps_tag_range_height_and_finite_xyz_checks_without_intensity(self):
+        # Unique x coordinates expose any misalignment between independent filters.
         points = [[.5, 0., 0.], [.6, 0., 0.], [.7, 0., -.10], [.8, 0., .08],
                   [.9, 0., 0.], [1., 0., 0.], [1.1, 0., 0.], [1.2, 0., 0.],
                   [1.3, 0., 0.], [4., 0., 0.], [np.nan, 0., 0.]]
@@ -611,17 +628,20 @@ class TunnelCloudTests(unittest.TestCase):
         intensities = [0., 1., 2., 2., 0., np.nan, -1., 256., np.inf, 2., 2.]
         message = tagged_cloud(points, tags, intensities=intensities)
         mount = np.array([0., 0., .19165])
-        settings = dict(SETTINGS, horizontal_half_angle_deg=.5, minimum_intensity=2.,
+        settings = dict(SETTINGS, horizontal_half_angle_deg=.5,
                         livox_particle_filter=True)
         obstacle, wall = self.transform(message, translation=mount, settings=settings,
                                         wall_height_band=(.04, .23))
-        np.testing.assert_array_equal(obstacle, np.empty((0, 2)))
-        expected = self.transform(cloud(points[:3]), translation=mount,
-                                  settings=dict(SETTINGS, z_min=.04, z_max=.23))
-        np.testing.assert_array_equal(wall, expected)
+        expected_obstacle = self.transform(cloud([points[i] for i in (0, 1, 5, 6, 7, 8)]),
+                                           translation=mount)
+        expected_wall = self.transform(cloud([points[i] for i in (0, 1, 2, 5, 6, 7, 8)]),
+                                       translation=mount,
+                                       settings=dict(SETTINGS, z_min=.04, z_max=.23))
+        np.testing.assert_array_equal(obstacle, expected_obstacle)
+        np.testing.assert_array_equal(wall, expected_wall)
 
     def test_wall_output_rejects_timestamp_and_motion_failures_without_partial_result(self):
-        settings = dict(SETTINGS, horizontal_half_angle_deg=.5, minimum_intensity=2.,
+        settings = dict(SETTINGS, horizontal_half_angle_deg=.5,
                         livox_particle_filter=True, livox_motion_compensation=True)
         def missing(stamps):
             raise RuntimeError('missing acquisition TF')

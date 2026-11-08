@@ -68,8 +68,6 @@ planner:
     - [0.142, -0.15, 1.958, 1.666]
     - [1.658, 1.488, 1.958, 2.068]
   minimum_turning_radius: 0.18
-  collision_check_step: 0.01
-  collision_check_angle: 0.0523598776
 control:
   period: 0.05
   cruise_velocity: 0.32

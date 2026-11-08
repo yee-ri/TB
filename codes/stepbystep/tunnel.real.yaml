@@ -2,8 +2,15 @@
 # Map origin: nominal axle centre 0.140 m outside the entrance, facing inward.
 localization:
   geometry: maps/tunnel_practice_1820.geometry.json
-  search_bounds: [-0.35, -0.07, 0.45, 0.07]
-  yaw_limit_deg: 20.0
+  entrance:
+    prior_pose: [0.213, -0.022, 0.0] # Entry pose [x, y, yaw_rad]: feature search and fallback if the fit is unusable.
+    cluster_distance: 0.02
+    sampling_resolution: 0.002
+    maximum_direction_error_deg: 45.0
+    fit_distance: 0.025
+    minimum_points: 6
+    spatial_bin_size: 0.02
+    robust_distance: 0.006
   observation_window: 1.0
   height_band: [0.04, 0.23]
   tracking_period: 0.20 # Moving wall alignment in a separate worker; 0 disables it.
@@ -78,8 +85,6 @@ planner:
     - [0.142, -0.15, 1.958, 1.666]
     - [1.658, 1.488, 1.958, 2.068]
   minimum_turning_radius: 0.18
-  collision_check_step: 0.01
-  collision_check_angle: 0.0523598776
 control:
   period: 0.05
   cruise_velocity: 0.4

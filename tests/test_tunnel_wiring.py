@@ -15,7 +15,7 @@ import cv2  # Load native bindings before per-test sys.modules restoration.
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "codes/stepbystep/try_maze.py"
+SOURCE = ROOT / "codes/stepbystep/1105_lut.py"
 
 
 class Stamp:
@@ -79,11 +79,19 @@ class Mission:
 
 class ColorFixture:
     """Deterministic colors for adapter tests, independent of LUT calibration."""
-    counts = {1: 1, 2: 1, 4: 1}
+    counts = {1: 1, 2: 1, 4: 1, 8: 1, 16: 1}
+    colors = {1: (255, 255, 255), 2: (0, 255, 255), 4: (255, 0, 0),
+              8: (0, 0, 150), 16: (0, 255, 0)}
+
+    def rgb_to_label(self, image, bgr=False):
+        bgr_image = image if bgr else image[:, :, ::-1]
+        labels = np.zeros(image.shape[:2], dtype=np.uint8)
+        for label, color in self.colors.items():
+            labels[np.all(bgr_image == color, axis=2)] = label
+        return labels
 
     def mask(self, image, label):
-        color = {1: (255, 255, 255), 2: (0, 255, 255), 4: (255, 0, 0)}[label]
-        return np.all(image == color, axis=2).astype(np.uint8) * 255
+        return (self.rgb_to_label(image, bgr=True) == label).astype(np.uint8) * 255
 
 
 def module(name, **members):
@@ -224,13 +232,22 @@ class TunnelWiringTests(unittest.TestCase):
         with patch.dict(os.environ, environment, clear=True), \
                 patch.object(sys, 'argv', [str(SOURCE)]), \
                 patch.object(os, 'execv', side_effect=AssertionError('unexpected re-exec')) as execute, \
-                patch.object(self.target.rospy, 'spin', create=True) as spin:
+                patch.object(self.target.rospy, 'spin', create=True) as spin, \
+                patch.object(self.target.rospy, 'is_shutdown', return_value=True, create=True), \
+                patch.object(cv2, 'namedWindow') as window, \
+                patch.object(cv2, 'resizeWindow'), \
+                patch.object(cv2, 'destroyAllWindows') as destroy:
             loaded = runpy.run_path(str(SOURCE), run_name='__main__')
             self.assertEqual(dict(os.environ), environment)
             execute.assert_not_called()
-            spin.assert_called_once_with()
+            window.assert_called_once_with(
+                'Driving | 1 Camera  2 LUT  3 Both  F Fullscreen',
+                cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+            destroy.assert_called_once_with()
+            spin.assert_not_called()
         self.assertEqual(loaded['controller'].step, 0)
-        self.assertTrue(loaded['controller']._color_lut.counts[4])
+        for label in (1, 2, 4, 8, 16):
+            self.assertTrue(loaded['controller']._color_lut.counts[label])
         self.assertEqual(loaded['controller'].lturn_template.shape, (100, 100))
         self.assertEqual(loaded['controller'].rturn_template.shape, (100, 100))
         self.assertEqual(self.load_config.call_args.args,
@@ -498,7 +515,7 @@ class TunnelWiringTests(unittest.TestCase):
         self.assertGreater(command.linear.x, 0.)
         self.assertEqual(node.step, 8)
 
-    def test_lut_debug_window_is_explicit_opt_in(self):
+    def test_lut_preview_queues_images_without_gui_work_in_drive_callback(self):
         self.params.update({'~start_step': 8, '~show_lut_debug': True})
         node = self.target.turtlebot()
         node.odom_callback(self.odometry())
@@ -506,9 +523,21 @@ class TunnelWiringTests(unittest.TestCase):
         node._color_lut.label_to_rgb = Mock(return_value=self.image().array)
         with patch.object(self.target.cv2, 'imshow') as show, \
                 patch.object(self.target.cv2, 'waitKey') as wait:
-            node.img_callback(self.image(True))
-        show.assert_called_once()
-        wait.assert_called_once_with(1)
+            image = self.image(True)
+            node.img_callback(image)
+        self.assertIs(node._preview_latest, image.array)
+        show.assert_not_called()
+        wait.assert_not_called()
+
+    def test_preview_disabled_uses_ros_loop_without_display_or_motion(self):
+        self.params['~show_lut_debug'] = False
+        node = self.target.turtlebot()
+        with patch.object(self.target.rospy, 'spin', create=True) as spin, \
+                patch.object(cv2, 'namedWindow') as window:
+            node.run_driving_preview()
+        spin.assert_called_once_with()
+        window.assert_not_called()
+        node.cmd_pub.publish.assert_not_called()
 
     def test_current_lane_commands_keep_stage_and_speed_selection(self):
         centered = self.image()
@@ -521,26 +550,26 @@ class TunnelWiringTests(unittest.TestCase):
         far_right.array[320:460, 620:630] = (0, 255, 255)
         far_left = self.image()
         far_left.array[320:460, 330:340] = (255, 255, 255)
-        # Observed with untouched incoming 1102.py at dc74536 and these images.
+        # Fixed outputs for the documented 1105_lut.py entrypoint and these images.
         # Protect the course's command contract independently of tunnel scales.
         stage_commands = {
-            1: (.18336, .233975, .06685, 1.4205625),
+            1: (.25785, .73535, .06685, 1.4205625),
             2: (.1146, .0528115, .0501375, .835625),
-            3: (.18336, .233975, .06685, 1.4205625),
-            4: (.13179, .0969325, .046795, .835625),
-            5: (.10314, .12033, .0367675, .835625),
-            6: (.08595, .0245817, .022347, .22347),
-            7: (.13179, .047296375, .046795, .835625),
-            8: (.18336, .233975, .06685, 1.4205625),
-            11: (.18336, .233975, .06685, 1.4205625),
+            3: (.25785, .73535, .06685, 1.4205625),
+            4: (.16044, .581595, .046795, .835625),
+            5: (.12606, .1637825, .0367675, .835625),
+            6: (.090725, .059592, .022347, .22347),
+            7: (.14898, .21392, .046795, .835625),
+            8: (.25785, .73535, .06685, 1.4205625),
+            11: (.25785, .73535, .06685, 1.4205625),
         }
         for step, speed in ((step, speed) for step in (*range(1, 9), 11)
                             for speed in (0, 1, 2)):
             with self.subTest(step=step, speed=speed):
                 if speed == 1 and step == 6:
-                    linear, first_turn, steady_turn, turn_limit = .02865, .02353884, .022347, .335205
+                    linear, first_turn, steady_turn, turn_limit = .0573, .052143, .022347, .335205
                 elif speed == 1:
-                    linear, first_turn, steady_turn, turn_limit = .03438, .0528115, .0501375, .7520625
+                    linear, first_turn, steady_turn, turn_limit = .06876, .1169875, .0501375, .7520625
                 elif step == 3 and speed == 2:
                     linear, first_turn, steady_turn, turn_limit = .081175, .029796, .0268164, .44694
                 else:
@@ -578,9 +607,12 @@ class TunnelWiringTests(unittest.TestCase):
         node.lane_tracking = Mock()
         image = self.image()
         image.array[0:20, 0:50] = (0, 0, 150)
+        for _ in range(2):
+            node.img_callback(image)
+            self.assertEqual(node.speed, 0)
         node.img_callback(image)
         self.assertEqual(node.speed, 1)
-        node.gate_state, node.gate_open_count = 1, 19
+        node.gate_state, node.gate_open_count = 1, 9
         with patch.object(self.target.rospy, 'sleep', Mock(), create=True):
             node.img_callback(self.image())
         self.assertEqual(node.step, 8)
@@ -593,13 +625,33 @@ class TunnelWiringTests(unittest.TestCase):
         node = self.node
         node.step = 3
         node.check_obstacle_start = Mock(return_value=True)
+        image = self.image(True)
+        # The first 100 frames only follow the lane. Detection starts on 101.
+        for frame in range(1, 101):
+            node.img_callback(image)
+            self.assertEqual(node.step, 3)
+            self.assertIsNone(node.obstacle_stage)
+            self.assertEqual(node.speed, 0)
+            self.assertEqual(node.obstacle_start_ready, frame == 100)
+            self.assertEqual(node.just_count_frames, frame % 100)
+            node.check_obstacle_start.assert_not_called()
+            command = node.cmd_pub.publish.call_args.args[0]
+            self.assertGreater(command.linear.x, 0.)
         node.img_callback(self.image(True))
+        node.check_obstacle_start.assert_called_once_with()
         self.assertEqual(node.obstacle_stage, 'left')
         self.assertEqual(node.speed, 2)
         node.obstacle_stage = 'done'
-        node.straight_count = 139
+        # Clearance retains STEP3 for 99 frames, then resets on frame 100.
+        for frame in range(1, 100):
+            node.img_callback(image)
+            self.assertEqual(node.step, 3)
+            self.assertEqual(node.obstacle_stage, 'done')
+            self.assertEqual(node.speed, 2)
+            self.assertEqual(node.just_count_frames, frame)
         node.img_callback(self.image(True))
         self.assertEqual(node.step, 4)
+        self.assertEqual(node.just_count_frames, 0)
         self.assertIsNone(node.obstacle_stage)
         self.assertIsNone(node.obstacle_turn_start)
         self.assertEqual(node.speed, 0)

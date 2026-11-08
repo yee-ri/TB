@@ -1,9 +1,6 @@
-"""Bounded scan registration against measured, fixed tunnel walls.
+"""Correct an existing pose against measured, fixed tunnel walls.
 
-Initial registration searches the entrance; tracking searches only near an
-existing pose.  A single wall, short objects or competing poses cannot supply
-a pose correction. Inputs are already filtered LiDAR hits in the
-acquisition-time base frame; no ROS is imported.
+Inputs are filtered LiDAR hits in the acquisition-time base frame.
 """
 
 from dataclasses import dataclass
@@ -24,17 +21,10 @@ class AlignmentResult:
     total: int = 0
 
 
-class EntranceLocalizer:
-    """Match an entrance-facing scan within an explicitly bounded region.
+class WallLocalizer:
+    """Match nearby poses using extended support from perpendicular walls."""
 
-    The bounds describe the robot axle in the fixed map, in metres; yaw is
-    within ``yaw_limit_deg`` of map +X.  Extended support from perpendicular
-    walls is required.  Returns outside the forward half-plane are ignored,
-    since they normally describe the room outside the tunnel.
-    """
-
-    def __init__(self, wall_rectangles, search_bounds=(-.35, -.07, .45, .07),
-                 yaw_limit_deg=20., minimum_inliers=60,
+    def __init__(self, wall_rectangles, minimum_inliers=60,
                  minimum_inlier_fraction=.20, maximum_rms=.012,
                  inlier_distance=.025, minimum_wall_span=.25,
                  minimum_axis_inliers=8):
@@ -45,21 +35,12 @@ class EntranceLocalizer:
                 or not np.isfinite(rectangles).all()
                 or np.any(rectangles[:, 2:] <= rectangles[:, :2])):
             raise ValueError('localization walls must be finite positive rectangles')
-        self.bounds = np.asarray(search_bounds, dtype=float)
-        if (self.bounds.shape != (4,) or not np.isfinite(self.bounds).all()
-                or np.any(self.bounds[2:] <= self.bounds[:2])
-                or not 0 < yaw_limit_deg < 90):
-            raise ValueError('localization requires finite entrance pose bounds')
         if (not 3 <= minimum_inliers or not 0 < minimum_inlier_fraction <= 1
                 or not 0 < maximum_rms < inlier_distance
                 or minimum_wall_span <= 0 or minimum_axis_inliers < 3):
             raise ValueError('invalid localization acceptance thresholds')
-        self.yaw_limit = math.radians(yaw_limit_deg)
         self.minimum_inliers = int(minimum_inliers)
-        # Most forward hits can belong to bottles or the surrounding room.
-        # Their count must not replace the independent two-wall extent,
-        # residual and competing-pose checks below.  Require 60 actual spatial
-        # samples as well as a 20% fraction; no missing ray becomes evidence.
+        # Inlier count and fraction complement the independent wall-extent checks.
         self.minimum_fraction = float(minimum_inlier_fraction)
         self.maximum_rms = float(maximum_rms)
         self.inlier_distance = float(inlier_distance)
@@ -164,7 +145,7 @@ class EntranceLocalizer:
                 break
         return pose
 
-    def _support(self, points, pose, sensor_origin=(0., 0.), check_residual=True):
+    def _support(self, points, pose, sensor_origin=(0., 0.)):
         mapped = self._transform(points, pose)
         origin = self._transform(np.asarray(sensor_origin), pose)
         squared, indices = self._distances(mapped, origins=origin)
@@ -173,7 +154,7 @@ class EntranceLocalizer:
         rms = float(np.sqrt(np.mean(squared[inliers]))) if count else math.inf
         if count < self.minimum_inliers or count < self.minimum_fraction*len(points):
             return False, 'insufficient wall inliers', rms, count
-        if check_residual and rms > self.maximum_rms:
+        if rms > self.maximum_rms:
             return False, 'wall residual too large', rms, count
         for axis in (0, 1):
             best = False
@@ -208,13 +189,10 @@ class EntranceLocalizer:
               max_yaw=math.radians(6), sensor_origin=(0., 0.)):
         """Measure a small correction to an acquisition-time map pose.
 
-        Unlike entrance registration, all scan directions are useful inside
-        the tunnel. Translation is bounded by Euclidean distance in metres;
-        ``max_yaw`` is in radians. A fixed local grid, at most eight refinement
-        starts and 500 spatial samples bound the matching work independently
-        of the initial entrance search region. The caller decides when/how to
-        apply a returned absolute pose; this method has no mutable pose state.
-        ``sensor_origin`` is the LiDAR XY position in the acquisition base frame.
+        Translation is bounded in metres and ``max_yaw`` in radians. Up to
+        eight starts and 500 spatial samples bound the fitting work. All scan
+        directions are used; ``sensor_origin`` is LiDAR XY in the base frame.
+        The caller decides how to apply the returned absolute map pose.
         """
         prior = np.asarray((prior_pose.x, prior_pose.y, prior_pose.yaw)
                            if isinstance(prior_pose, Pose2D) else prior_pose,
@@ -290,74 +268,3 @@ class EntranceLocalizer:
         measured = (Pose2D(float(pose[0]), float(pose[1]), normalize_angle(pose[2]))
                     if accepted else None)
         return AlignmentResult(accepted, measured, reason, rms, count, len(points))
-
-    def estimate(self, points, sensor_origin=(0., 0.)):
-        """Fit base-frame hits; sensor_origin is the LiDAR XY in that frame."""
-        points = np.asarray(points, dtype=float)
-        if points.ndim != 2 or points.shape[1] != 2:
-            raise ValueError('localization points must be N by 2 base-frame XY')
-        points = points[np.isfinite(points).all(axis=1)]
-        points = points[points[:, 0] >= 0.]
-        # Spatial thinning prevents a dense bottle or a single close wall
-        # from dominating confidence.  Every retained hit is still measured.
-        if len(points):
-            _, selected = np.unique(np.floor(points/.015).astype(np.int64),
-                                    axis=0, return_index=True)
-            points = points[np.sort(selected)]
-        if len(points) < self.minimum_inliers:
-            return AlignmentResult(False, reason='insufficient forward wall points', total=len(points))
-        evidence = points
-        # Bound computation without depending on LiDAR angular density.
-        if len(points) > 500:
-            points = points[np.linspace(0, len(points)-1, 500, dtype=int)]
-        coarse = (points[np.linspace(0, len(points)-1, 200, dtype=int)]
-                  if len(points) > 200 else points)
-        xs = np.linspace(self.bounds[0], self.bounds[2],
-                         int(math.ceil((self.bounds[2]-self.bounds[0])/.04))+1)
-        ys = np.linspace(self.bounds[1], self.bounds[3],
-                         int(math.ceil((self.bounds[3]-self.bounds[1])/.035))+1)
-        yaws = np.linspace(-self.yaw_limit, self.yaw_limit,
-                           int(math.ceil(2*self.yaw_limit/math.radians(2)))+1)
-        translations = np.array([(x, y) for x in xs for y in ys])
-        seeds = []
-        for yaw in yaws:
-            rotated = self._transform(coarse, (0., 0., yaw))
-            origin = self._transform(np.asarray(sensor_origin), (0., 0., yaw))
-            squared = self._distances(rotated[None, :, :]+translations[:, None, :],
-                                      nearest=False, origins=translations+origin)
-            scores = np.mean(np.minimum(squared, self.cap*self.cap), axis=1)
-            for index in np.argsort(scores)[:6]:
-                seeds.append((float(scores[index]), (*translations[index], yaw)))
-        # Preserve geographically distinct hypotheses before refining them.
-        candidates = []
-        for _, seed in sorted(seeds, key=lambda item: item[0]):
-            if any(np.linalg.norm(np.asarray(seed[:2])-other[:2]) < .035
-                   and abs(seed[2]-other[2]) < math.radians(3) for other in candidates):
-                continue
-            candidates.append(np.asarray(seed))
-            if len(candidates) == 12:
-                break
-        refined = []
-        for seed in candidates:
-            pose = self._refine(points, seed, sensor_origin=sensor_origin)
-            if (np.any(pose[:2] < self.bounds[:2]) or np.any(pose[:2] > self.bounds[2:])
-                    or abs(pose[2]) > self.yaw_limit):
-                continue
-            if any(np.linalg.norm(pose[:2]-other[1][:2]) < .012
-                   and abs(pose[2]-other[1][2]) < math.radians(.5) for other in refined):
-                continue
-            refined.append((self._score(points, pose, sensor_origin), pose,
-                            self._support(evidence, pose, sensor_origin, check_residual=False)))
-        if not refined:
-            return AlignmentResult(False, reason='wall match outside entrance bounds', total=len(evidence))
-        refined.sort(key=lambda item: item[0])
-        best_score, pose, (accepted, reason, rms, count) = refined[0]
-        if accepted:
-            for score, other, support in refined[1:]:
-                if (support[0] and score <= best_score + self.inlier_distance**2*.08
-                        and (np.linalg.norm(pose[:2]-other[:2]) > .03
-                             or abs(pose[2]-other[2]) > math.radians(2.))):
-                    accepted, reason = False, 'ambiguous wall alignment'
-                    break
-        measured = Pose2D(*map(float, pose)) if accepted else None
-        return AlignmentResult(accepted, measured, reason, rms, count, len(evidence))

@@ -106,18 +106,22 @@ class GlobalLocalPlanner:
                 if self.global_clearance_distance > 0.:
                     penalty = max(0., 1. - distance/self.global_clearance_distance)
                     np.maximum(proximity, occupied*penalty, out=proximity)
-        if self.geometry.keep_in_rectangles:
-            xs = grid.origin_x + (np.arange(grid.width) + .5)*grid.resolution
-            ys = grid.origin_y + (np.arange(grid.height) + .5)*grid.resolution
-            inside = np.zeros(grid.data.shape, dtype=bool)
-            for x0, y0, x1, y1 in self.geometry.keep_in_rectangles:
-                inside |= ((ys[:, None] >= y0) & (ys[:, None] <= y1)
-                           & (xs[None, :] >= x0) & (xs[None, :] <= x1))
-            blocked |= ~inside
+        blocked |= self._outside_keep_in(grid)
         costs = (1. + self.global_clearance_weight*proximity
                  + self.global_soft_cost_weight*grid._soft_cost_values
                  / max(1., grid.occupied_threshold))
         return blocked, costs
+
+    def _outside_keep_in(self, grid):
+        if not self.geometry.keep_in_rectangles:
+            return np.zeros(grid.data.shape, dtype=bool)
+        xs = grid.origin_x + (np.arange(grid.width) + .5)*grid.resolution
+        ys = grid.origin_y + (np.arange(grid.height) + .5)*grid.resolution
+        outside = np.ones(grid.data.shape, dtype=bool)
+        for x0, y0, x1, y1 in self.geometry.keep_in_rectangles:
+            outside &= ~((ys[:, None] >= y0) & (ys[:, None] <= y1)
+                         & (xs[None, :] >= x0) & (xs[None, :] <= x1))
+        return outside
 
     def _line_clear(self, grid, blocked, first, last):
         distance = float(np.linalg.norm(np.asarray(last)-first))
@@ -181,19 +185,33 @@ class GlobalLocalPlanner:
         first, last = grid.world_to_grid(start.x, start.y), grid.world_to_grid(goal.x, goal.y)
         if not grid.contains_cell(*first) or not grid.contains_cell(*last):
             return None
-        blocked, traversal = self._route_costs(grid)
-        if blocked[first[1], first[0]] or blocked[last[1], last[0]]:
-            return None
         if first == last:
             return GlobalRoute(np.array(((start.x, start.y), (goal.x, goal.y))))
-        points = self._search_cells(grid, blocked, traversal, first, last)
+        blocked, traversal = self._route_costs(grid)
+        if blocked[last[1], last[0]]:
+            return None
+        escape_blocked = None
+        if blocked[first[1], first[0]]:
+            # Accept the measured start; leave its inflation through unoccupied cells.
+            escape_blocked = grid._occupied | self._outside_keep_in(grid)
+            escape_blocked[first[1], first[0]] = False
+        points = self._search_cells(grid, blocked, traversal, first, last, escape_blocked)
         if points is None:
             return None
-        points[0], points[-1] = (start.x, start.y), (goal.x, goal.y)
-        points = self._simplify_route(grid, blocked, traversal, points)
-        return None if points is None else GlobalRoute(points)
+        points[-1] = (goal.x, goal.y)
+        if escape_blocked is None:
+            points[0] = (start.x, start.y)
+            points = self._simplify_route(grid, blocked, traversal, points)
+            return None if points is None else GlobalRoute(points)
+        exit_index = next(i for i, point in enumerate(points)
+                          if not blocked[grid.world_to_grid(*point)[::-1]])
+        # Keep the escape chain: a shortcut could re-enter inflation after leaving it.
+        suffix = self._simplify_route(grid, blocked, traversal, points[exit_index:])
+        if suffix is None:
+            return None
+        return GlobalRoute(np.vstack(((start.x, start.y), points[:exit_index], suffix)))
 
-    def _search_cells(self, grid, blocked, traversal, first, last):
+    def _search_cells(self, grid, blocked, traversal, first, last, escape_blocked=None):
         """A* visits only XY cells; return the complete parent chain."""
         width = grid.width
         start_id, goal_id = first[1]*width+first[0], last[1]*width+last[0]
@@ -217,10 +235,12 @@ class GlobalLocalPlanner:
                     current = int(parents[current])
                 return np.asarray(chain[::-1])
             x, y = current % width, current // width
+            obstacles = (escape_blocked if escape_blocked is not None and blocked[y, x]
+                         else blocked)
             for dx, dy, length in neighbours:
                 nx, ny = x+dx, y+dy
-                if (not 0 <= nx < width or not 0 <= ny < grid.height or blocked[ny, nx]
-                        or (dx and dy and (blocked[y, nx] or blocked[ny, x]))):
+                if (not 0 <= nx < width or not 0 <= ny < grid.height or obstacles[ny, nx]
+                        or (dx and dy and (obstacles[y, nx] or obstacles[ny, x]))):
                     continue
                 next_id = ny*width+nx
                 candidate = cost + length*.5*(traversal[y, x]+traversal[ny, nx])
@@ -290,9 +310,6 @@ class GlobalLocalPlanner:
         elapsed = max(0., min(float(elapsed), control['period']))
         tx, ty, remaining, tangent = self.select_target(route, pose, self.local_lookahead)
         dx, dy = tx-pose.x, ty-pose.y
-        bearing_error = normalize_angle(math.atan2(dy, dx)-pose.yaw)
-        if abs(bearing_error) >= math.pi/2.:
-            return None
         distance = min(self.local_horizon, max(remaining, math.hypot(dx, dy)))
         if distance <= 1e-9:
             return LimitedCommand(0., 0., 'at route endpoint')

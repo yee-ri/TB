@@ -11,7 +11,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'codes'))
 from tunnel.geometry import Pose2D, normalize_angle
-from tunnel.localization import EntranceLocalizer
+from tunnel.localization import WallLocalizer
 
 
 WALLS = json.loads((ROOT / 'codes/stepbystep/maps/tunnel_practice_1820.geometry.json')
@@ -44,9 +44,9 @@ def noisy_wall_cloud(pose):
     return cloud + np.random.default_rng(615).normal(0., .016, cloud.shape)
 
 
-class EntranceLocalizationTest(unittest.TestCase):
+class WallGeometryTest(unittest.TestCase):
     def setUp(self):
-        self.matcher = EntranceLocalizer(WALLS)
+        self.matcher = WallLocalizer(WALLS)
 
     def assert_pose(self, result, expected, position=.006, yaw=.004):
         self.assertTrue(result.accepted, result)
@@ -54,92 +54,29 @@ class EntranceLocalizationTest(unittest.TestCase):
         self.assertLess(abs(result.pose.yaw-expected[2]), yaw)
 
     def test_wall_visibility_uses_sensor_origin_when_base_passes_wall_end(self):
-        matcher = EntranceLocalizer([[.15, .2, .2, 1.2], [.15, 1.2, 1.5, 1.25]])
+        matcher = WallLocalizer([[.15, .2, .2, 1.2], [.15, 1.2, 1.5, 1.25]])
         pose = np.array((.17, 0., 0.))
         points = np.column_stack((np.full(40, -.02), np.linspace(.25, 1.1, 40)))
         self.assertGreater(matcher._score(points, pose), .001)
         self.assertLess(matcher._score(points, pose, (-.033073, 0.)), 1e-15)
 
-        rotated = EntranceLocalizer([[.2, .15, 1.2, .2], [1.2, .15, 1.25, 1.5]])
+        rotated = WallLocalizer([[.2, .15, 1.2, .2], [1.2, .15, 1.25, 1.5]])
         rotated_points = points * (1., -1.)
         self.assertLess(rotated._score(rotated_points, (0., .17, math.pi/2),
                                        (-.033073, 0.)), 1e-15)
 
-    def test_different_longitudinal_lateral_and_heading_starts(self):
-        for pose in ((0., 0., 0.), (.04, 0., 0.), (-.2, .035, .17),
-                     (.30, -.035, -.2), (.08, -.03, .3)):
-            with self.subTest(pose=pose):
-                self.assert_pose(self.matcher.estimate(wall_cloud(pose)), pose)
-
-    def test_noise_and_unmapped_obstacles(self):
-        rng = np.random.default_rng(20261012)
-        pose = (.04, -.02, -.08)
-        cloud = wall_cloud(pose)
-        cloud += rng.normal(0., .003, cloud.shape)
-        obstacles = rng.uniform((.35, -.08), (1.6, 1.4), (60, 2))
-        self.assert_pose(self.matcher.estimate(np.vstack((cloud, obstacles))), pose,
-                         position=.008, yaw=.006)
-
-    def test_one_wall_has_no_lateral_observability(self):
-        far = np.column_stack((np.full(120, 1.958), np.linspace(-.1, 1.3, 120)))
-        result = self.matcher.estimate(far)
-        self.assertFalse(result.accepted)
-        self.assertIsNone(result.pose)
-
-    def test_far_wall_and_short_bottle_are_not_perpendicular_walls(self):
-        far = np.column_stack((np.full(100, 1.958), np.linspace(-.05, 1.3, 100)))
-        angles = np.linspace(0., 2.*math.pi, 200)
-        bottle = np.column_stack((1.4+.025*np.cos(angles), -.125+.025*np.sin(angles)))
-        result = self.matcher.estimate(np.vstack((far, bottle)))
-        self.assertFalse(result.accepted)
-        self.assertIsNone(result.pose)
-
-    def test_separated_row_of_bottles_does_not_supply_wall_extent(self):
-        far = np.column_stack((np.full(100, 1.958), np.linspace(-.05, 1.3, 100)))
-        angle = np.linspace(0., 2.*math.pi, 200)
-        bottles = np.vstack([np.column_stack((x+.025*np.cos(angle),
-                                               -.125+.025*np.sin(angle)))
-                             for x in (.6, .9, 1.2, 1.5)])
-        self.assertFalse(self.matcher.estimate(np.vstack((far, bottles))).accepted)
-
-    def test_room_walls_and_starts_outside_entrance_search_are_rejected(self):
+    def test_room_walls_do_not_supply_a_valid_tunnel_match(self):
         room = np.vstack((np.column_stack((np.full(150, 2.3), np.linspace(.4, 1.5, 150))),
                           np.column_stack((np.linspace(.5, 2.3, 150), np.full(150, .4)))))
-        self.assertFalse(self.matcher.estimate(room).accepted)
-        for pose in ((.8, 0., 0.), (-.6, 0., 0.), (.04, .17, 0.)):
-            with self.subTest(pose=pose):
-                self.assertFalse(self.matcher.estimate(wall_cloud(pose)).accepted)
-
-    def test_initial_fit_with_perpendicular_walls_accepts_rms_above_tracking_limit(self):
-        pose = (.04, -.02, -.08)
-        result = self.matcher.estimate(noisy_wall_cloud(pose), (-.033073, 0.))
-        self.assert_pose(result, pose)
-        self.assertGreater(result.rms, .012)
-        self.assertEqual(result.reason, 'wall alignment accepted')
-
-    def test_bottles_alone_and_empty_cloud_do_not_initialize(self):
-        angle = np.linspace(0., 2.*math.pi, 150)
-        cloud = np.vstack([np.column_stack((x+.03*np.cos(angle), y+.03*np.sin(angle)))
-                           for x, y in ((.4, .3), (.9, .4), (1.3, -.1))])
-        for points in (cloud, np.empty((0, 2)), np.full((100, 2), np.nan)):
-            with self.subTest(points=len(points)):
-                self.assertFalse(self.matcher.estimate(points).accepted)
-
-    def test_ambiguous_two_equal_maps_do_not_initialize(self):
-        points = np.vstack((wall_cloud((-.12, 0., 0.)), wall_cloud((.12, 0., 0.))))
-        # Even if two hypotheses individually contain enough inliers, they
-        # must not choose one arbitrarily. Shared horizontal walls are real.
-        matcher = EntranceLocalizer(WALLS, minimum_inlier_fraction=.35)
-        result = matcher.estimate(points)
-        self.assertFalse(result.accepted, result)
+        self.assertFalse(self.matcher.track(room, (0., 0., 0.)).accepted)
 
     def test_invalid_geometry_and_input(self):
         with self.assertRaises(ValueError):
-            EntranceLocalizer([[0., 0., 0., 1.]])
+            WallLocalizer([[0., 0., 0., 1.]])
         with self.assertRaises(ValueError):
-            EntranceLocalizer(WALLS, search_bounds=(1., 0., 0., 1.))
+            WallLocalizer([[0., 0., .05, 2.]])
         with self.assertRaises(ValueError):
-            self.matcher.estimate(np.zeros((10, 3)))
+            self.matcher.track(np.zeros((10, 3)), (0., 0., 0.))
 
     def test_coarse_distances_match_finite_segment_projection(self):
         # Independently project onto the actual finite line segments.  Include
@@ -147,7 +84,7 @@ class EntranceLocalizationTest(unittest.TestCase):
         # endpoints, exterior points and batched coarse-search queries.
         rng = np.random.default_rng(20261026)
         for walls in (WALLS, [[0., 0., .5, 2.], [.5, 2., 2.5, 2.5]]):
-            matcher = EntranceLocalizer(walls)
+            matcher = WallLocalizer(walls)
             points = rng.uniform(-1., 3., (7, 19, 2))
             expected = np.full(points.shape[:-1], np.inf)
             for axis, normal, low, high in matcher.segments:
@@ -170,23 +107,25 @@ class EntranceLocalizationTest(unittest.TestCase):
                                               matcher._distances(query)[0])
 
     def test_nearest_segment_ties_keep_first_face(self):
-        matcher = EntranceLocalizer([[0., 0., .5, 2.], [.5, 2., 2.5, 2.5]])
+        matcher = WallLocalizer([[0., 0., .5, 2.], [.5, 2., 2.5, 2.5]])
         points = np.array(((.25, 1.), (-.25, -.5), (0., 0.)))
         square, indices = matcher._distances(points)
         np.testing.assert_array_equal(indices, (0, 0, 0))
         np.testing.assert_array_equal(square, (.0625, .3125, 0.))
         np.testing.assert_array_equal(matcher._distances(points, nearest=False), square)
 
-    def test_thick_gazebo_walls_initialize_over_the_original_entrance_range(self):
+    def test_thick_gazebo_walls_correct_near_entrance_poses(self):
         walls = json.loads((ROOT / 'tests/fixtures/autorace_gazebo.geometry.json')
                            .read_text())['wall_rectangles']
-        matcher = EntranceLocalizer(walls)
+        matcher = WallLocalizer(walls)
         for pose in ((0., 0., 0.), (-.2, .035, .17), (.3, -.035, -.2)):
             with self.subTest(pose=pose):
-                self.assert_pose(matcher.estimate(wall_cloud(pose, bins=720, walls=walls)), pose)
+                prior = np.add(pose, (.02, -.015, .025))
+                self.assert_pose(matcher.track(wall_cloud(pose, bins=720, walls=walls), prior,
+                                               sensor_origin=(-.033073, 0.)), pose)
 
     def test_opposite_face_is_not_visible_through_a_solid_wall(self):
-        matcher = EntranceLocalizer([[0., 0., .05, 2.], [.05, 2., 2., 2.05]])
+        matcher = WallLocalizer([[0., 0., .05, 2.], [.05, 2., 2., 2.05]])
         point = np.array([[.051, 1.]])
         # The east face is closest but invisible from the west side.
         squared, segment = matcher._distances(point, origins=np.array([-.2, 1.]))
@@ -201,7 +140,7 @@ class EntranceLocalizationTest(unittest.TestCase):
 
 class WallTrackingTest(unittest.TestCase):
     def setUp(self):
-        self.matcher = EntranceLocalizer(WALLS)
+        self.matcher = WallLocalizer(WALLS)
 
     def assert_pose(self, result, expected, position=.006, yaw=.004):
         self.assertTrue(result.accepted, result)
@@ -209,7 +148,7 @@ class WallTrackingTest(unittest.TestCase):
                         position)
         self.assertLess(abs(normalize_angle(result.pose.yaw-expected[2])), yaw)
 
-    def test_tracking_still_rejects_high_rms_wall_scan_accepted_at_initialization(self):
+    def test_tracking_rejects_high_rms_wall_scan(self):
         pose = (.04, -.02, -.08)
         result = self.matcher.track(noisy_wall_cloud(pose), pose,
                                     sensor_origin=(-.033073, 0.))

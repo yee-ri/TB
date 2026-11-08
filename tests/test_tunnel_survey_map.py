@@ -13,6 +13,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'codes'))
 from tunnel.mission import load_config
+from collision_inspection import inspect_geometry
 from tunnel.geometry import Pose2D
 from tunnel.static_geometry import refined_static_cells
 
@@ -94,8 +95,8 @@ class SurveyMapTests(unittest.TestCase):
         grid = mission._grid()
         self.assertLess(grid.width, self.data.shape[1])
         self.assertTrue(mission.static_cell_rectangles)
-        self.assertTrue(mission.geometry.pose_is_collision_free(grid, Pose2D(.5, 0., 0.)))
-        self.assertFalse(mission.geometry.pose_is_collision_free(grid, Pose2D(.5, -.061, 0.)))
+        self.assertTrue(inspect_geometry(mission.geometry).pose_is_collision_free(grid, Pose2D(.5, 0., 0.)))
+        self.assertFalse(inspect_geometry(mission.geometry).pose_is_collision_free(grid, Pose2D(.5, -.061, 0.)))
         for rectangles in mission.static_cell_rectangles.values():
             for xmin, ymin, xmax, ymax in rectangles:
                 self.assertAlmostEqual(ymin, -.152)

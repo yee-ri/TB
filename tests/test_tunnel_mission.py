@@ -13,6 +13,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "codes"))
 
 from tunnel.mission import TunnelMission, load_config, relative_pose
+from collision_inspection import collision_resolution, inspect_geometry
 from tunnel.planner import GlobalRoute
 from tunnel.geometry import OccupancyGrid, Pose2D
 
@@ -318,7 +319,7 @@ class TunnelInputAndEntryTest(unittest.TestCase):
         with patch('tunnel.mission.OccupancyGrid', wraps=OccupancyGrid) as constructor:
             grid = mission._grid()
         self.assertEqual(constructor.call_args.kwargs['dynamic_cell_rectangles'], expected)
-        self.assertAlmostEqual(grid.collision_resolution, .005)
+        self.assertAlmostEqual(collision_resolution(grid), .005)
         self.assertEqual(grid.resolution, .02)
 
     def test_refined_surface_permits_unused_cell_area_but_blocks_actual_face(self):
@@ -329,21 +330,21 @@ class TunnelInputAndEntryTest(unittest.TestCase):
         # Place the actual front inside the coarse cell, then on the measured face.
         empty_side = (.308-mission.footprint.front, 0., 0.)
         touching_face = (.318-mission.footprint.front, 0., 0.)
-        self.assertFalse(mission.geometry.pose_is_collision_free(coarse, empty_side))
-        self.assertTrue(mission.geometry.pose_is_collision_free(grid, empty_side))
-        self.assertFalse(mission.geometry.pose_is_collision_free(grid, touching_face))
-        self.assertTrue(mission.geometry.primitive_is_collision_free(grid, (0., 0., 0.), 0., empty_side[0]))
-        self.assertFalse(mission.geometry.primitive_is_collision_free(grid, (0., 0., 0.), 0., touching_face[0]))
+        self.assertFalse(inspect_geometry(mission.geometry).pose_is_collision_free(coarse, empty_side))
+        self.assertTrue(inspect_geometry(mission.geometry).pose_is_collision_free(grid, empty_side))
+        self.assertFalse(inspect_geometry(mission.geometry).pose_is_collision_free(grid, touching_face))
+        self.assertTrue(inspect_geometry(mission.geometry).primitive_is_collision_free(grid, (0., 0., 0.), 0., empty_side[0]))
+        self.assertFalse(inspect_geometry(mission.geometry).primitive_is_collision_free(grid, (0., 0., 0.), 0., touching_face[0]))
 
     def test_isolated_lidar_hit_uses_configured_collision_resolution(self):
         mission = self.measured_surface(isolated=True)
         grid = mission._grid()
         self.assertTrue(mission.costmap.refined_dynamic_cells())
-        self.assertAlmostEqual(grid.collision_resolution, .005)
-        self.assertTrue(mission.geometry.pose_is_collision_free(grid, (.231, 0., 0.)))
-        self.assertFalse(mission.geometry.pose_is_collision_free(grid, (.250, 0., 0.)))
-        self.assertTrue(mission.geometry.primitive_is_collision_free(grid, (0., 0., 0.), 0., .231))
-        self.assertFalse(mission.geometry.primitive_is_collision_free(grid, (0., 0., 0.), 0., .250))
+        self.assertAlmostEqual(collision_resolution(grid), .005)
+        self.assertTrue(inspect_geometry(mission.geometry).pose_is_collision_free(grid, (.231, 0., 0.)))
+        self.assertFalse(inspect_geometry(mission.geometry).pose_is_collision_free(grid, (.250, 0., 0.)))
+        self.assertTrue(inspect_geometry(mission.geometry).primitive_is_collision_free(grid, (0., 0., 0.), 0., .231))
+        self.assertFalse(inspect_geometry(mission.geometry).primitive_is_collision_free(grid, (0., 0., 0.), 0., .250))
 
     def test_clearing_refined_surface_does_not_mutate_previous_planning_grid(self):
         mission = self.measured_surface()
@@ -358,8 +359,8 @@ class TunnelInputAndEntryTest(unittest.TestCase):
         updated = mission._grid()
         self.assertIsNot(previous, updated)
         np.testing.assert_array_equal(previous.data, previous_data)
-        self.assertFalse(mission.geometry.pose_is_collision_free(previous, touching_face))
-        self.assertTrue(mission.geometry.pose_is_collision_free(updated, touching_face))
+        self.assertFalse(inspect_geometry(mission.geometry).pose_is_collision_free(previous, touching_face))
+        self.assertTrue(inspect_geometry(mission.geometry).pose_is_collision_free(updated, touching_face))
 
     def test_native_range_beyond_local_crop_does_not_create_a_fake_endpoint(self):
         mission = self.make_mission()
@@ -404,18 +405,23 @@ class TunnelInputAndEntryTest(unittest.TestCase):
                     self.assertEqual(mission.state, 'ENTRY')
                     self.assertFalse(complete)
 
-    def test_wall_alignment_result_keeps_its_independent_lifetime(self):
+    def test_expired_alignment_uses_entrance_prior_without_blocking_entry(self):
         mission = self.make_mission()
         self.feed(mission, 10.)
         mission.update_odometry((0., 0., 0.), 0., 0., 10.335)
         # The fit has already completed; only its independent acceptance
         # lifetime is under test, not the geometric wall-fitting algorithm.
         mission.localizer = SimpleNamespace()
+        mission.entrance_localizer = SimpleNamespace(prior=(.213, -.022, 0.))
         mission.localization_result = (SimpleNamespace(accepted=True),
                                        (0., 0., 0.), 10.)
-        self.assertEqual(mission.step(10.335), (0., 0., False))
-        self.assertIsNone(mission.anchor)
-        self.assertIn('wall alignment input expired', mission.reason)
+        linear, angular, complete = mission.step(10.335)
+        self.assertGreater(abs(linear)+abs(angular), 0.)
+        self.assertFalse(complete)
+        self.assertEqual(mission.state, 'ENTRY')
+        pose = relative_pose(mission.odom[:3], mission.anchor)
+        np.testing.assert_allclose((pose.x, pose.y, pose.yaw), (.213, -.022, 0.))
+        self.assertIn('entrance fit input expired', mission.localization_report)
 
     def test_clock_refresh_after_waiting_for_lock_keeps_received_inputs_usable(self):
         mission = self.make_mission()

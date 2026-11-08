@@ -21,7 +21,6 @@ class WallTrackingMissionTest(unittest.TestCase):
         mission = TunnelMission(load_config(CONFIG))
         mission.update_odometry(compose(pose, frame), .2, 0., 10.)
         mission._initialize(frame)
-        mission.initial_map_updates = mission.costmap.mark_observations
         mission.state = 'FOLLOWING'
         mission.last_linear, mission.last_angular = .2, .1
         self.addCleanup(mission.close)
