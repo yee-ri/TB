@@ -551,7 +551,7 @@ class turtlebot():
         rospy.loginfo(green_area)
         rospy.loginfo("GREED.: %f",green_area)
         #빨간색이 200픽셀 이상이면 정지를 유지합니다. 동시 검출 시 빨간색 우선입니다.
-        if green_area>=200:
+        if green_area>=100:
             rospy.loginfo("@@@@@@ GREEN LIGHT @@@@@@")
             # self.stop()
             rospy.sleep(0.5)
@@ -564,7 +564,7 @@ class turtlebot():
             return True
         if red_area>=10:
             self.stop()
-            rospy.loginfo("HELLO")
+            rospy.loginfo("STOP")
             return False
         #LUT ADD
 
@@ -664,13 +664,13 @@ class turtlebot():
         if self.step != 1:
             return False
 
-        if self.max_val_l >= 0.5 and self.max_val_l > self.max_val_r:
+        if self.max_val_l >= 0.6 and self.max_val_l > self.max_val_r:
             self.left_ready_count += 1
         else:
             # self.left_ready_count = 0
             pass
 
-        left_ready = self.left_ready_count >= 5
+        left_ready = self.left_ready_count >= 8
 
         if self.turn_detect is None and sign in ('left', 'right'):
             self.turn_detect = sign
@@ -1131,7 +1131,7 @@ class turtlebot():
                 else:
                     Kp=0.2#0.23 -> 0.17 ->0.10
                     Kd=2.0#0.008 -> 0.0025 ->0.4
-                    linear=45.0 #22.0 ->30
+                    linear=60.0 #22.0 ->30
                     max_angular=85.0 #0.85 ->95 ->85
 
             if self.step in (1, 8) and self.start_time is not None:
@@ -1608,12 +1608,14 @@ class turtlebot():
             self.turn_direction=None
 
             if self.gate_state == 0:
-                if self.red_area >= 300:
+
+                if self.red_area >= 350:
+
                     self.red_speed_count += 1
                 else:
                     pass
 
-                if self.red_speed_count >= 3:
+                if self.red_speed_count >= 5:
                     self.speed = 1
 
                 if (self.depth <= 0.3 and self.red_area > 1500) or self.red_area >= 4500:
@@ -1633,7 +1635,7 @@ class turtlebot():
             elif self.gate_state == 1:
                 self.stop()
 
-                if  self.red_area<=1500:
+                if  self.red_area<=1800:
                     self.gate_open_count += 1
                     rospy.loginfo("GATE OPEN COUNT: %d / 10",self.gate_open_count)
                 else:
