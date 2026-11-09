@@ -14,6 +14,7 @@ from .costmap import TunnelCostmap
 from .static_geometry import refined_static_cells
 from .localization import AlignmentResult, WallLocalizer
 from .entrance_localization import EntranceLandmarkLocalizer
+from .exit_localization import ExitLandmarkLocalizer
 from .geometry import CollisionGeometry, OccupancyGrid, Pose2D, RectangularFootprint
 from .tracking import LimitedCommand, limit_tracking_command, normalize_angle, turn_command
 from .planner import GlobalLocalPlanner, GlobalRoute, load_navigation_settings
@@ -72,6 +73,7 @@ class RouteUpdate:
 class RouteTurn:
     phase: str
     target_yaw: float
+    angular_velocity: float
     target_angle: float = 0.
     direction: float = 0.
     angle: float = 0.
@@ -173,17 +175,52 @@ class TunnelMission:
             setattr(self, 'entry_' + key, float(value))
         goal = config['goal']['pose']
         self.goal = Pose2D(float(goal[0]), float(goal[1]), math.radians(goal[2]))
+        exit_speed = config['goal'].get(
+            'exit_alignment_angular_velocity', self.entry_alignment_angular_velocity)
+        if (isinstance(exit_speed, bool) or not isinstance(exit_speed, (int, float))
+                or not math.isfinite(exit_speed)
+                or not 0. < exit_speed <= self.control['maximum_angular_velocity']):
+            raise ValueError('goal/exit_alignment_angular_velocity must be finite, positive and within the angular limit')
+        self.exit_alignment_angular_velocity = float(exit_speed)
+        approach_velocity = config['goal'].get('approach_velocity', self.control['cruise_velocity'])
+        if (isinstance(approach_velocity, bool) or not isinstance(approach_velocity, (int, float))
+                or not math.isfinite(approach_velocity) or approach_velocity <= 0.):
+            raise ValueError('goal/approach_velocity must be finite and positive')
+        self.exit_approach_velocity = float(approach_velocity)
+        slowdown_distance = config['goal'].get('approach_slowdown_distance', 0.)
+        if (isinstance(slowdown_distance, bool) or not isinstance(slowdown_distance, (int, float))
+                or not math.isfinite(slowdown_distance) or slowdown_distance < 0.):
+            raise ValueError('goal/approach_slowdown_distance must be finite and nonnegative')
+        self.exit_approach_slowdown_distance = float(slowdown_distance)
+        self.exit_crossing = self._exit_crossing_geometry(config['goal'].get('exit_crossing'))
+        self.exit_approach_goal = None
+        approach_distance = config['goal'].get('approach_distance')
+        if approach_distance is not None:
+            if (isinstance(approach_distance, bool)
+                    or not isinstance(approach_distance, (int, float))
+                    or not math.isfinite(approach_distance) or approach_distance <= 0.
+                    or self.exit_crossing is None):
+                raise ValueError('goal/approach_distance requires a positive distance and exit_crossing')
+            x, y, tx, ty, nx, ny, width = self.exit_crossing
+            self.exit_approach_goal = Pose2D(
+                x+tx*width/2.-nx*approach_distance,
+                y+ty*width/2.-ny*approach_distance, math.atan2(ny, nx))
         self.lock = threading.RLock()
         self.odom = self.scan = None
         self.localization_scan = None
         self.localizer = None
         self.entrance_localizer = None
+        self.exit_localizer = None
         self.wall_tracking_period = 0.
         if 'localization' in config:
             settings = config['localization']
             self.localizer = WallLocalizer(settings['wall_rectangles'])
             self.entrance_localizer = EntranceLandmarkLocalizer.from_geometry(
                 settings, **settings.get('entrance', {}))
+            if 'exit' in settings:
+                self.exit_localizer = ExitLandmarkLocalizer.from_geometry(
+                    dict(settings, exit_clear_segment=config['goal']['exit_crossing']),
+                    **settings['exit'])
             window = settings.get('observation_window', 0.)
             if isinstance(window, bool) or not isinstance(window, (int, float)) or not math.isfinite(window) or not 0 <= window <= 2.:
                 raise ValueError('localization/observation_window must be between 0 and 2 seconds')
@@ -209,7 +246,6 @@ class TunnelMission:
         self.completion = config['goal'].get('completion', 'stop')
         if self.completion not in ('stop', 'lane'):
             raise ValueError('goal/completion must be stop or lane')
-        self.exit_crossing = self._exit_crossing_geometry(config['goal'].get('exit_crossing'))
 
     def reset(self):
         with self.lock:
@@ -242,12 +278,14 @@ class TunnelMission:
             self.entry_drive_yaw = None
 
             self.global_path = None
+            self.route_goal = self.exit_approach_goal or self.goal
             self.route_turn = None
             self.pending_route = None
             self.global_updates = 0
             self.global_report = 'waiting for first global route'
             self.exit_previous_position = None
             self.exit_crossed = False
+            self.exit_crossing_position = None
 
     def close(self):
         self.reset()
@@ -265,6 +303,8 @@ class TunnelMission:
                 return self._wait_for_completion(pose, elapsed, now)
             if self.route_turn is None and (self.state == 'FINISHING' or self._goal_reached(pose)):
                 return self._finish_goal(pose, elapsed, now)
+            if self._advance_exit_goal(pose):
+                return self._zero('exit approach area reached; planning outside route')
             previous_route = self.global_path
             updated = self._accept_global_plan()
             self._request_global_plan(pose, now)
@@ -276,14 +316,20 @@ class TunnelMission:
                     heading-self.local_planner.route_heading(previous_route, pose)))
                     >= self.route_change_alignment_angle)
                 if changed:
-                    return self._start_route_alignment(heading)
+                    exit_alignment = (previous_route is None
+                                      and self.exit_approach_goal is not None
+                                      and self.route_goal is self.goal)
+                    speed = (self.exit_alignment_angular_velocity if exit_alignment
+                             else self.entry_alignment_angular_velocity)
+                    return self._start_route_alignment(heading, speed)
             if self.route_turn is not None:
                 response = self._follow_route_turn(pose, elapsed)
                 if response is not None:
                     return response
             command = self.local_planner.local_command(
                 grid, pose, self.global_path, self.control,
-                self.last_linear, self.last_angular, elapsed)
+                self.last_linear, self.last_angular, elapsed,
+                speed_limit=self._approach_speed_limit(pose))
             if command is None:
                 return self._zero('no local command; ' + self.global_report)
             return self._command(command, command.reason + '; ' + self.global_report)
@@ -298,8 +344,8 @@ class TunnelMission:
             self.odom = values
         return True
 
-    def _start_route_alignment(self, heading):
-        self.route_turn = RouteTurn('PREPARE', heading)
+    def _start_route_alignment(self, heading, angular_velocity):
+        self.route_turn = RouteTurn('PREPARE', heading, angular_velocity)
         return self._zero('route alignment: stopping before heading change')
 
     def _follow_route_turn(self, pose, elapsed):
@@ -314,7 +360,7 @@ class TunnelMission:
             return None
         # Send the requested turn at the configured pivot speed; do not taper
         # into a motor dead zone or wait for a measured final heading.
-        target = turn.direction * self.entry_alignment_angular_velocity
+        target = turn.direction * turn.angular_velocity
         delta = self.control['angular_acceleration'] * min(elapsed, self.control['period'])
         angular = max(self.last_angular-delta, min(self.last_angular+delta, target))
         command = LimitedCommand(0., angular)
@@ -462,10 +508,16 @@ class TunnelMission:
         self.wall_tracking_started = started
 
         def track():
+            source = 'walls'
             try:
-                result = self.localizer.track(
-                    points, prior, self.wall_tracking_max_translation,
-                    math.radians(self.wall_tracking_max_yaw_deg), sensor_origin)
+                arguments = (points, prior, self.wall_tracking_max_translation,
+                             math.radians(self.wall_tracking_max_yaw_deg), sensor_origin)
+                result = (self.exit_localizer.track(*arguments)
+                          if self.exit_localizer is not None else AlignmentResult(False))
+                if result.accepted:
+                    source = 'exit opening'
+                else:
+                    result = self.localizer.track(*arguments)
             except (ValueError, RuntimeError, np.linalg.LinAlgError) as error:
                 result = AlignmentResult(False, reason='wall tracking failed: ' + str(error))
             duration = time.monotonic() - started
@@ -480,13 +532,13 @@ class TunnelMission:
                     result = AlignmentResult(False, reason='late wall correction discarded')
                 self.wall_tracking_scans = None
                 if result.accepted:
-                    self.anchor = map_anchor(scan_odom, result.pose)
+                    self._apply_tracking_pose(scan_odom, result.pose)
                     self.wall_tracking_updates += 1
                     self.wall_tracking_report = (
-                        'accepted dx=%.3fm dy=%.3fm dyaw=%.2fdeg rms=%.4fm inliers=%d/%d fit=%.1fms'
+                        'accepted dx=%.3fm dy=%.3fm dyaw=%.2fdeg rms=%.4fm inliers=%d/%d fit=%.1fms source=%s'
                         % (result.pose.x-prior.x, result.pose.y-prior.y,
                            math.degrees(normalize_angle(result.pose.yaw-prior.yaw)),
-                           result.rms, result.inliers, result.total, duration*1000.))
+                           result.rms, result.inliers, result.total, duration*1000., source))
                 else:
                     self.wall_tracking_report = 'odom retained: %s; fit=%.1fms' % (result.reason, duration*1000.)
                 for deferred in pending:
@@ -496,6 +548,37 @@ class TunnelMission:
         self.wall_tracking_worker = threading.Thread(target=track, daemon=True)
         self.wall_tracking_worker.start()
         return True
+
+    def _apply_tracking_pose(self, scan_odom, fitted):
+        new_anchor = map_anchor(scan_odom, fitted)
+        if self.exit_crossing is not None:
+            x, y, tx, ty, nx, ny, width = self.exit_crossing
+            ax, ay, yaw = self.anchor
+            c, s = math.cos(yaw), math.sin(yaw)
+
+            def corrected_position(px, py):
+                return relative_pose((ax+c*px-s*py, ay+s*px+c*py, 0.), new_anchor)
+
+            if self.exit_previous_position is not None:
+                # Compare both positions in the same corrected map frame so
+                # a localization jump cannot be mistaken for outward motion.
+                forward, lateral = self.exit_previous_position
+                px, py = x+tx*lateral+nx*forward, y+ty*lateral+ny*forward
+                previous = corrected_position(px, py)
+                self.exit_previous_position = (
+                    nx*(previous.x-x)+ny*(previous.y-y),
+                    tx*(previous.x-x)+ty*(previous.y-y))
+            if self.exit_crossing_position is not None:
+                crossing = corrected_position(*self.exit_crossing_position)
+                self.exit_crossing_position = crossing.x, crossing.y
+                if not 0. <= tx*(crossing.x-x)+ty*(crossing.y-y) <= width:
+                    self.exit_crossed = False
+            current = relative_pose(self.odom[:3], new_anchor)
+            if nx*(current.x-x)+ny*(current.y-y) < 0.:
+                self.exit_crossed = False
+            if not self.exit_crossed:
+                self.exit_crossing_position = None
+        self.anchor = new_anchor
 
     def _initialize(self, anchor=None):
         self.anchor = self.odom[:3] if anchor is None else anchor
@@ -561,10 +644,15 @@ class TunnelMission:
             if now-stamp > self.sensors['maximum_age']:
                 return self._start_from_entrance_prior('entrance fit input expired')
             fitted = result.pose
+            diagnostics = self.entrance_localizer.diagnostics
+            corner = diagnostics.get('endpoint_base')
+            details = (' corner_base=(%.3f,%.3f)m heading=%s' % (
+                corner[0], corner[1], diagnostics.get('heading_source', 'right wall'))
+                if corner is not None else '')
             return self._start_localized_entry(
                 fitted, scan_odom,
-                'entrance measured x=%.3fm y=%.3fm yaw=%.2fdeg rms=%.4fm' % (
-                    fitted.x, fitted.y, math.degrees(fitted.yaw), result.rms))
+                'entrance measured x=%.3fm y=%.3fm yaw=%.2fdeg rms=%.4fm%s' % (
+                    fitted.x, fitted.y, math.degrees(fitted.yaw), result.rms, details))
         if self.localization_attempt_time is not None:
             # Stop waiting once this fit could no longer supply a usable result.
             if now-self.localization_attempt_time >= self.sensors['maximum_age']:
@@ -774,10 +862,12 @@ class TunnelMission:
                 fraction = -old_forward/(forward-old_forward)
                 crossing = old_lateral+fraction*(lateral-old_lateral)
                 self.exit_crossed = 0. <= crossing <= width
+                self.exit_crossing_position = (x+tx*crossing, y+ty*crossing) if self.exit_crossed else None
             elif old_forward >= 0. > forward:
                 # Returning inside requires a new outward passage through
                 # this opening; an earlier passage cannot qualify another exit.
                 self.exit_crossed = False
+                self.exit_crossing_position = None
         if not self.exit_crossed:
             return False
         cx, cy, c, s, half_length, half_width = self.geometry.footprint_geometry(pose)
@@ -785,6 +875,40 @@ class TunnelMission:
         forward_extent = half_length*abs(nx*c+ny*s)+half_width*abs(-nx*s+ny*c)
         # Hand off when every padded body corner is outside the exit plane.
         return forward-forward_extent >= 0.
+
+    def _approach_speed_limit(self, pose):
+        """Lower the speed target only within the inside goal's approach zone."""
+        if self.exit_approach_goal is None or self.route_goal is not self.exit_approach_goal:
+            return None
+        distance = math.hypot(pose.x-self.route_goal.x, pose.y-self.route_goal.y)
+        if (distance > self.exit_approach_slowdown_distance
+                or self.exit_approach_velocity >= self.control['cruise_velocity']):
+            return None
+        return self.exit_approach_velocity
+
+    def _advance_exit_goal(self, pose):
+        """Accept the axle inside the exit corridor, then latch the outside goal."""
+        if self.exit_approach_goal is None or self.route_goal is not self.exit_approach_goal:
+            return False
+        x, y, tx, ty, nx, ny, width = self.exit_crossing
+        forward = nx*(pose.x-x)+ny*(pose.y-y)
+        lateral = tx*(pose.x-x)+ty*(pose.y-y)
+        # Keep the former earliest arrival depth, but accept the space from
+        # there up to the opening instead of chasing a 3.5 cm target circle.
+        depth = (self.config['goal']['approach_distance']
+                 + self.config['goal']['position_tolerance'])
+        half_width = self.footprint.half_width+self.footprint.padding
+        epsilon = 1e-9  # Coordinate roundoff only; no added physical clearance.
+        if (not -depth-epsilon <= forward <= epsilon
+                or not half_width-epsilon <= lateral <= width-half_width+epsilon):
+            return False
+        self.route_goal = self.goal
+        self.global_path = self.pending_route = self.route_turn = None
+        self.last_plan_attempt = None
+        self.worker = None
+        self.state = 'PLANNING'
+        self.global_report = 'waiting for outside route'
+        return True
 
     def _request_global_plan(self, pose, now):
         if (self.worker is not None and self.worker.is_alive()) or self.pending_route is not None:
@@ -794,20 +918,20 @@ class TunnelMission:
             return
         # Grid snapshots are replaced by mapping, not modified in place. Search
         # runs outside the mission lock so odometry and scans can keep arriving.
-        grid, generation = self._grid(), self.generation
+        grid, generation, goal = self._grid(), self.generation, self.route_goal
         self.last_plan_attempt = now
         started = time.monotonic()
         self.plans += 1
 
         def search():
             try:
-                route = self.local_planner.global_route(grid, pose, self.goal)
+                route = self.local_planner.global_route(grid, pose, goal)
                 error = '' if route is not None else 'no global route; previous guidance retained'
             except (ValueError, RuntimeError) as exc:
                 route, error = None, str(exc)
             duration = time.monotonic()-started
             with self.lock:
-                if self.generation == generation:
+                if self.generation == generation and self.route_goal == goal:
                     self.pending_route = RouteUpdate(route, error, duration)
 
         self.worker = threading.Thread(target=search, daemon=True)

@@ -301,12 +301,14 @@ class GlobalLocalPlanner:
         return math.atan2(dy, dx) if math.hypot(dx, dy) > 1e-9 else tangent
 
     def local_command(self, grid, pose, route, control, last_linear, last_angular,
-                      elapsed):
+                      elapsed, speed_limit=None):
         """Choose a forward arc by route error and full-body obstacle clearance."""
         pose = self._pose(pose)
         values = (last_linear, last_angular, elapsed)
         if pose is None or not all(math.isfinite(float(v)) for v in values):
             return None
+        if speed_limit is not None and (not math.isfinite(speed_limit) or speed_limit <= 0.):
+            raise ValueError('local speed limit must be finite and positive')
         elapsed = max(0., min(float(elapsed), control['period']))
         tx, ty, remaining, tangent = self.select_target(route, pose, self.local_lookahead)
         dx, dy = tx-pose.x, ty-pose.y
@@ -325,9 +327,13 @@ class GlobalLocalPlanner:
                      + self.local_heading_weight*abs(normalize_angle(tangent-endpoint.yaw))
                      + self.local_steering_weight*abs(curvature-previous)/maximum)
             ranked.append((score, abs(curvature), float(curvature)))
-        # Limit the actual command deceleration.
-        decel = min(control['linear_deceleration'], control['safety_linear_deceleration'])
+        # Use the normal command ramp for an explicit goal-approach speed target.
+        decel = control['linear_deceleration']
+        if speed_limit is None:
+            decel = min(decel, control['safety_linear_deceleration'])
         target_speed = control['cruise_velocity']
+        if speed_limit is not None:
+            target_speed = min(target_speed, speed_limit)
         ranked = [(0, score, magnitude, curvature, False)
                   for score, magnitude, curvature in ranked]
         heapq.heapify(ranked)

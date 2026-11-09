@@ -59,16 +59,18 @@ def _connected_groups(points, distance, resolution):
 
 
 class EntranceLandmarkLocalizer:
-    """Choose connected, forward-facing wall segments without an entrance ROI.
+    """Locate the nearby right-wall end; use the opposite wall for heading.
 
-    The prior ranks alternative wall interpretations and is also used by the
-    mission when no landmark can be measured. It never clips observation points.
+    The prior ranks alternative interpretations, never substitutes for a
+    measurement. The endpoint distance limit does not crop a connected wall.
     """
 
     def __init__(self, prior_pose=(.213, -.022, 0.), side_start_x=.14,
                  side_y=-.15, cluster_distance=.02, sampling_resolution=.002,
                  maximum_direction_error_deg=45., fit_distance=.025,
-                 minimum_points=6, spatial_bin_size=.02, robust_distance=.006):
+                 minimum_points=6, spatial_bin_size=.02, robust_distance=.006,
+                 opposite_side_y=None, maximum_corner_distance=.5,
+                 minimum_heading_span=.25, maximum_heading_error_deg=2.):
         self.prior = np.asarray(prior_pose, dtype=float)
         if self.prior.shape != (3,) or not np.isfinite(self.prior).all():
             raise ValueError('prior_pose must contain three finite coordinates')
@@ -80,7 +82,9 @@ class EntranceLandmarkLocalizer:
                             ('sampling_resolution', sampling_resolution),
                             ('fit_distance', fit_distance),
                             ('spatial_bin_size', spatial_bin_size),
-                            ('robust_distance', robust_distance)]:
+                            ('robust_distance', robust_distance),
+                            ('maximum_corner_distance', maximum_corner_distance),
+                            ('minimum_heading_span', minimum_heading_span)]:
             if not math.isfinite(float(value)) or value <= 0:
                 raise ValueError(name + ' must be positive')
             setattr(self, name, float(value))
@@ -93,12 +97,23 @@ class EntranceLandmarkLocalizer:
                 or int(minimum_points) != minimum_points or minimum_points < 2):
             raise ValueError('minimum_points must be an integer >= 2')
         self.minimum_points = int(minimum_points)
+        if (not math.isfinite(maximum_heading_error_deg)
+                or not 0 < maximum_heading_error_deg < 45):
+            raise ValueError('maximum_heading_error_deg must be between 0 and 45')
+        self.maximum_heading_error = math.radians(maximum_heading_error_deg)
+        if opposite_side_y is not None:
+            if not math.isfinite(opposite_side_y) or opposite_side_y <= side_y:
+                raise ValueError('opposite_side_y must be above side_y')
+        self.opposite_side_y = opposite_side_y
         self.diagnostics = {}
 
     @classmethod
     def from_geometry(cls, geometry, **settings):
         wall = geometry['wall_rectangles']['right_side_wall']
         parameters = dict(side_start_x=wall[0], side_y=wall[3])
+        opposite = geometry['wall_rectangles'].get('exit_wall')
+        if opposite is not None:
+            parameters['opposite_side_y'] = opposite[1]
         parameters.update(settings)
         return cls(**parameters)
 
@@ -127,7 +142,8 @@ class EntranceLandmarkLocalizer:
         if support[index] >= self.minimum_points:
             yield points, direction[index], offsets[index]
 
-    def _fit_wall(self, local, tangent, offset, forward, origin):
+    def _fit_wall(self, local, tangent, offset, forward, origin, robust_distance=None):
+        robust_distance = self.robust_distance if robust_distance is None else robust_distance
         normal = np.array([-tangent[1], tangent[0]])
         for iteration in range(12):
             previous_tangent = tangent.copy()
@@ -135,7 +151,7 @@ class EntranceLandmarkLocalizer:
             bins = np.floor((local @ tangent)/self.spatial_bin_size).astype(int)
             bins -= bins.min()
             counts = np.bincount(bins)
-            weight = np.maximum(0., 1.-(residual/self.robust_distance)**2)**2 / counts[bins]
+            weight = np.maximum(0., 1.-(residual/robust_distance)**2)**2 / counts[bins]
             if np.count_nonzero(weight) < self.minimum_points:
                 return None
             total_weight = weight.sum()
@@ -156,6 +172,10 @@ class EntranceLandmarkLocalizer:
                 break
         if tangent @ forward < self.minimum_direction_cosine or offset-normal @ origin >= 0:
             return None
+        return self._wall_result(local, tangent, offset, origin, iteration+1)
+
+    def _wall_result(self, local, tangent, offset, origin, iterations):
+        normal = np.array([-tangent[1], tangent[0]])
         residual = local @ normal - offset
         inliers = local[np.abs(residual) <= self.fit_distance]
         if len(inliers) < self.minimum_points:
@@ -176,11 +196,56 @@ class EntranceLandmarkLocalizer:
         diagnostics = dict(pose=[pose.x, pose.y, pose.yaw], wall_inliers=len(inliers),
                            wall_span=float(np.ptp(inliers @ tangent)), wall_offset=offset,
                            wall_tangent=tangent.tolist(), endpoint_base=endpoint.tolist(),
-                           endpoint_input_count=len(inliers), iterations=iteration+1, rms=rms,
-                           endpoint_prior_map_x=float(endpoint @ forward+self.prior[0]),
+                           endpoint_input_count=len(inliers), iterations=iterations, rms=rms,
+                           endpoint_prior_map_x=float(endpoint @ np.array([
+                               math.cos(self.prior[2]), -math.sin(self.prior[2])])+self.prior[0]),
                            raw_endpoint_along=float(np.min(inliers @ tangent)),
                            ray_endpoint_along=float(np.min(along)))
         return pose, rms, len(inliers), diagnostics
+
+    def _opposite_heading(self, points, groups, local, fitted, forward, origin):
+        """A long parallel wall must also match the surveyed tunnel width."""
+        if self.opposite_side_y is None:
+            return None
+        diagnostics = fitted[3]
+        tangent = np.asarray(diagnostics['wall_tangent'])
+        normal = np.array([-tangent[1], tangent[0]])
+        uncertainty = math.atan2(2*fitted[1], diagnostics['wall_span'])
+        nearby = local[np.abs(local @ normal-diagnostics['wall_offset']) <= self.fit_distance]
+        width = self.opposite_side_y-self.side_y
+        best = None
+        for indices in groups:
+            if len(indices) < self.minimum_points:
+                continue
+            group = points[indices]
+            if (np.ptp(group @ forward) < self.minimum_heading_span
+                    or np.median(group @ forward) <= origin @ forward):
+                continue
+            for other, direction, offset in self._line_candidates(group, -forward, origin):
+                # Fit across the measured wall thickness, rather than locking
+                # onto a narrow 6 mm band inside noisy range measurements.
+                measured = self._fit_wall(other, direction, offset, -forward, origin,
+                                          robust_distance=self.fit_distance)
+                if measured is None:
+                    continue
+                _, rms, count, wall = measured
+                span = wall['wall_span']
+                if (span < self.minimum_heading_span or count < .7*len(other)
+                        or rms > self.fit_distance/2.
+                        or math.atan2(2*rms, span) > self.maximum_heading_error):
+                    continue
+                direction = -np.asarray(wall['wall_tangent'])
+                disagreement = math.acos(float(np.clip(direction @ tangent, -1., 1.)))
+                if disagreement > uncertainty+self.maximum_heading_error:
+                    continue
+                normal = np.array([-direction[1], direction[0]])
+                offset = float(np.median(nearby @ normal))
+                width_error = -wall['wall_offset']-offset-width
+                if abs(width_error) > 2*self.fit_distance:
+                    continue
+                if best is None or span > best[0]:
+                    best = span, direction, offset, rms, width_error
+        return best
 
     def estimate(self, points, sensor_origin=(0., 0.)):
         points = np.asarray(points, dtype=float)
@@ -206,6 +271,8 @@ class EntranceLandmarkLocalizer:
                     continue
                 candidate_count += 1
                 pose, rms, count, diagnostics = fitted
+                if np.linalg.norm(np.asarray(diagnostics['endpoint_base'])-origin) > self.maximum_corner_distance:
+                    continue
                 yaw_delta = math.atan2(math.sin(pose.yaw-self.prior[2]),
                                        math.cos(pose.yaw-self.prior[2]))
                 position_delta = math.hypot(pose.x-self.prior[0], pose.y-self.prior[1])
@@ -213,11 +280,32 @@ class EntranceLandmarkLocalizer:
                 wall_distance = abs(diagnostics['wall_offset']-normal @ origin)
                 score = position_delta + wall_distance*abs(yaw_delta)
                 if best is None or score < best[0]:
-                    best = score, fitted
+                    best = score, fitted, local
         self.diagnostics.update(clusters=len(groups), candidates=candidate_count)
         if best is None:
             return AlignmentResult(False, reason='connected right wall missing', total=len(points))
-        _, (pose, rms, count, diagnostics) = best
+        _, fitted, local = best
+        heading = self._opposite_heading(points, groups, local, fitted, forward, origin)
+        if heading is not None:
+            span, tangent, offset, heading_rms, width_error = heading
+            fitted = self._wall_result(local, tangent, offset, origin, fitted[3]['iterations'])
+            if fitted is None:
+                return AlignmentResult(False, reason='right wall missing after heading fit', total=len(points))
+            fitted[3].update(heading_source='opposite wall', heading_wall_span=span,
+                             heading_wall_rms=heading_rms, tunnel_width_error=width_error)
+        else:
+            # A short, thick cloud cannot supply a precise heading by itself.
+            # Clean short walls remain usable when the opposite wall is hidden.
+            _, rms, _, diagnostics = fitted
+            uncertainty = math.atan2(2*rms, diagnostics['wall_span'])
+            if uncertainty > self.maximum_heading_error:
+                self.diagnostics.update(diagnostics, heading_uncertainty=uncertainty)
+                return AlignmentResult(False, reason='right wall heading uncertain; opposite wall not confirmed',
+                                       total=len(points))
+            fitted[3]['heading_source'] = 'right wall'
+        pose, rms, count, diagnostics = fitted
+        if np.linalg.norm(np.asarray(diagnostics['endpoint_base'])-origin) > self.maximum_corner_distance:
+            return AlignmentResult(False, reason='entrance corner is not nearby', total=len(points))
         self.diagnostics.update(diagnostics)
         return AlignmentResult(True, pose, 'connected right wall and entrance corner matched',
                                rms, count, len(points))

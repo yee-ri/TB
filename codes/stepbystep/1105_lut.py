@@ -339,6 +339,7 @@ class turtlebot():
             if not self.tunnel_active:
                 self.tunnel.reset()
                 self.tunnel_active=True
+                self.tunnel_logged_localization=''
             generation=self.tunnel_generation
         linear,angular,finished=self.tunnel.step(rospy.Time.now().to_sec())
         with self.command_lock:
@@ -363,6 +364,10 @@ class turtlebot():
             tracking=getattr(self.tunnel,'wall_tracking_report','')
             if tracking:
                 rospy.loginfo_throttle(1.0,"TUNNEL WALL TRACKING: %s",tracking)
+            localization=self.tunnel.localization_report
+            if localization and localization!=getattr(self,'tunnel_logged_localization',''):
+                rospy.loginfo("TUNNEL LOCALIZATION: %s",localization)
+                self.tunnel_logged_localization=localization
 
     def lane_detect(self,image):
         crop=image[300:,:]

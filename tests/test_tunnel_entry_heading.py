@@ -197,7 +197,9 @@ class TunnelEntryHeadingTest(unittest.TestCase):
             if linear > 0.:
                 self.assertEqual(mission.entry_phase, 'DRIVE')
                 self.assertAlmostEqual(mission.entry_drive_yaw, math.radians(4.1))
-                self.assertAlmostEqual(previous_angular, mission.entry_alignment_angular_velocity)
+                # A short turn can finish while still accelerating to the target speed.
+                self.assertGreater(previous_angular, 0.)
+                self.assertLessEqual(previous_angular, mission.entry_alignment_angular_velocity + 1e-9)
                 break
             self.assertGreaterEqual(angular, previous_angular - 1e-9)
             previous_angular = angular

@@ -67,6 +67,7 @@ class Mission:
         self.config = config
         self.clock = clock
         self.state, self.reason = "ENTRY", "test"
+        self.localization_report = ''
         self.anchor = None
         self.reset = Mock()
         self.close = Mock()
@@ -263,6 +264,17 @@ class TunnelWiringTests(unittest.TestCase):
         node.tunnel_tick(None)
         node.tunnel.step.assert_called_once()
         node.cmd_pub.publish.assert_called_once()
+
+    def test_initial_localization_report_is_logged_once_even_after_entry_changes_reason(self):
+        node = self.target.turtlebot()
+        node.step = 9
+        report = 'entrance measured x=0.232m corner_base=(-0.092,-0.119)m heading=opposite wall'
+        node.tunnel.localization_report = report
+        for _ in range(3):
+            node.tunnel_tick(None)
+        logs = [call.args for call in self.target.rospy.loginfo.call_args_list
+                if call.args[0] == 'TUNNEL LOCALIZATION: %s']
+        self.assertEqual(logs, [('TUNNEL LOCALIZATION: %s', report)])
 
     def test_missing_rosout_option_is_set_before_drive_callbacks(self):
         self.target.rospy.set_param.assert_called_once_with(

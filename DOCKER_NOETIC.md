@@ -69,11 +69,11 @@ python3 codes/stepbystep/1105_lut.py _start_step:=8
 python3 codes/stepbystep/1105_lut.py _start_step:=9
 ```
 
-실차 영상·LiDAR·주행 상태를 무손실 압축으로 기록한다. 시험 종료 시 기록 터미널에서 `Ctrl+C`로 마친다.
+영상 없이 실차 LiDAR·위치·속도 명령·주행 상태를 무손실 압축으로 기록한다. 시험 종료 시 기록 터미널에서 `Ctrl+C`로 마친다.
 
 ```bash
 mkdir -p ~/tb_logs
 rosbag record --lz4 -o ~/tb_logs/run \
-  /camera/color/image_raw /livox/lidar /odom /tf /tf_static \
+  /livox/lidar /odom /tf /tf_static \
   /cmd_vel /step /rosout /motor_power /sensor_state
 ```

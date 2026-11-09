@@ -31,7 +31,9 @@ python3 codes/stepbystep/1105_lut.py _start_step:=8 _show_lut_debug:=false _show
 ```
 
 전체 주행은 마지막 명령에서 `_start_step:=8`을 빼면 STEP 0부터 시작한다.
-터널 단독 시험은 [시작 위치](README_TUNNEL_TEST.md)에 놓고 `_start_step:=9`로 바꾼다.
+
+STEP 9부터 터널만 시험할 때는 **바퀴 축 중앙을 입구선에서 안쪽 9.5cm, 입구 중앙에서 오른쪽 2.2cm**에 놓고 터널 안쪽을 똑바로 향하게 한다.
+마지막 명령을 `_start_step:=9`로 바꿔 실행한다. 시작 후 코드가 왼쪽으로 5° 회전하므로 미리 꺾어 놓지 않는다.
 
 ## 3. 종료
 
@@ -43,17 +45,17 @@ rostopic pub -1 /motor_power std_msgs/Bool 'data: false'
 
 정지 후 센서 터미널에서도 `Ctrl+C`를 누른다. 다시 시험할 때는 토크를 `data: true`로 켠다.
 
-## 기록 — 선택, 별도 터미널
+## 터널 센서 기록 — 영상 제외, 별도 터미널
 
 센서를 켠 뒤 주행 시작 전에 실행한다.
 
 ```bash
 mkdir -p ~/tb_logs
 rosbag record --lz4 -o ~/tb_logs/run \
-  /camera/color/image_raw /livox/lidar /odom /tf /tf_static \
+  /livox/lidar /odom /tf /tf_static \
   /cmd_vel /step /rosout /motor_power /sensor_state
 ```
 
 시험이 끝나면 센서 종료 전에 기록 터미널에서 `Ctrl+C`를 누르고 `.bag.active`가 `.bag`으로 저장될 때까지 기다린다.
 
-[터널 단독 시험·설정](README_TUNNEL_TEST.md) · [Gazebo 실행](DOCKER_NOETIC.md)
+[Gazebo 실행](DOCKER_NOETIC.md)
