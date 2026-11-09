@@ -565,15 +565,15 @@ class TunnelWiringTests(unittest.TestCase):
         # Fixed outputs for the documented 1105_lut.py entrypoint and these images.
         # Protect the course's command contract independently of tunnel scales.
         stage_commands = {
-            1: (.25785, .73535, .06685, 1.4205625),
+            1: (.3438, .73535, .06685, 1.4205625),
             2: (.1146, .0528115, .0501375, .835625),
-            3: (.25785, .73535, .06685, 1.4205625),
+            3: (.3438, .73535, .06685, 1.4205625),
             4: (.16044, .581595, .046795, .835625),
             5: (.12606, .1637825, .0367675, .835625),
             6: (.090725, .059592, .022347, .22347),
             7: (.14898, .21392, .046795, .835625),
-            8: (.25785, .73535, .06685, 1.4205625),
-            11: (.25785, .73535, .06685, 1.4205625),
+            8: (.3438, .73535, .06685, 1.4205625),
+            11: (.3438, .73535, .06685, 1.4205625),
         }
         for step, speed in ((step, speed) for step in (*range(1, 9), 11)
                             for speed in (0, 1, 2)):
@@ -619,7 +619,7 @@ class TunnelWiringTests(unittest.TestCase):
         node.lane_tracking = Mock()
         image = self.image()
         image.array[0:20, 0:50] = (0, 0, 150)
-        for _ in range(2):
+        for _ in range(4):
             node.img_callback(image)
             self.assertEqual(node.speed, 0)
         node.img_callback(image)

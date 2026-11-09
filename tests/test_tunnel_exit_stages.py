@@ -24,12 +24,14 @@ OUTSIDE = (1.808, 1.868)
 
 class ExitStagesTest(unittest.TestCase):
     def mission(self, pose=(1.2, 1.48, 0.), staged=True, crossing=True,
-                exit_alignment_speed=None):
+                exit_alignment_speed=None, entry_alignment_speed=None):
         config = load_config(CONFIG)
         config.pop('localization', None)
         config['goal'].pop('approach_distance', None)
         if exit_alignment_speed is not None:
             config['goal']['exit_alignment_angular_velocity'] = exit_alignment_speed
+        if entry_alignment_speed is not None:
+            config['entry']['alignment_angular_velocity'] = entry_alignment_speed
         if staged:
             config['goal']['approach_distance'] = .188
         if not crossing:
@@ -62,7 +64,8 @@ class ExitStagesTest(unittest.TestCase):
         np.testing.assert_allclose(route.points[-1], expected, atol=1e-12)
 
     def start_outside_alignment(self):
-        mission = self.mission(pose=(*INSIDE, 0.), exit_alignment_speed=.9)
+        mission = self.mission(pose=(*INSIDE, 0.), exit_alignment_speed=.9,
+                               entry_alignment_speed=.3)
         mission.global_path = GlobalRoute(np.array(((1.2, 1.48), INSIDE)))
         mission.state = 'FOLLOWING'
         with patch.object(mission.local_planner, 'global_route', side_effect=self.route):
@@ -94,8 +97,9 @@ class ExitStagesTest(unittest.TestCase):
         self.assertAlmostEqual(turns[1], .8)
         np.testing.assert_allclose(turns[2:], .9, atol=1e-10)
 
-    def test_first_inside_route_alignment_keeps_the_original_pivot_speed(self):
-        mission = self.mission(pose=(1.2, 1.48, -math.pi/2), exit_alignment_speed=.9)
+    def test_first_inside_route_alignment_uses_the_configured_entry_pivot_speed(self):
+        mission = self.mission(pose=(1.2, 1.48, -math.pi/2), exit_alignment_speed=.9,
+                               entry_alignment_speed=.3)
         mission.worker = SimpleNamespace(is_alive=lambda: True)
         mission.pending_route = RouteUpdate(
             GlobalRoute(np.array(((1.2, 1.48), INSIDE))), '', .01)
@@ -108,7 +112,7 @@ class ExitStagesTest(unittest.TestCase):
             self.assertAlmostEqual(angular, .3)
             self.assertFalse(finished)
 
-    def test_later_outside_route_change_returns_to_the_original_pivot_speed(self):
+    def test_later_outside_route_change_uses_the_configured_entry_pivot_speed(self):
         mission, stamp = self.start_outside_alignment()
         with patch.object(mission.local_planner, 'local_command',
                           return_value=LimitedCommand(.2, 0.)):
