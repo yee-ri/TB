@@ -11,6 +11,15 @@ localization:
     minimum_points: 6
     spatial_bin_size: 0.02
     robust_distance: 0.006
+  exit:
+    cluster_distance: 0.04 # Connected returns may spread at a grazing wall angle.
+    sampling_resolution: 0.002
+    minimum_points: 6
+    minimum_wall_span: 0.04
+    robust_distance: 0.006
+    fit_distance: 0.012
+    spatial_bin_size: 0.02
+    maximum_width_error: 0.02 # Measured endpoint-pair agreement, not added body clearance.
   observation_window: 1.0
   height_band: [0.04, 0.23]
   tracking_period: 0.20 # Moving wall alignment in a separate worker; 0 disables it.
@@ -21,6 +30,8 @@ odometry:
   angular_command_scale: 3.3 # Divide tunnel angular commands; measured IMU yaw/rate are unchanged.
 goal:
   pose: [1.808, 1.868, 90.0] # [x, y, yaw_deg] in the tunnel map frame.
+  approach_distance: 0.188 # First goal: opening centre, this far inside; then plan to pose.
+  exit_alignment_angular_velocity: 0.9 # Pivot speed for the first outside route, rad/s before command scaling.
   position_tolerance: 0.035
   heading_tolerance_deg: 10.0
   exit_crossing: # Hand off after the entire body crosses this opening outward.

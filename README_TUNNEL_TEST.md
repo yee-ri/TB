@@ -51,13 +51,13 @@ ROS 로그의 기본 저장 위치는 `~/.ros/log/`다. 직접 실행한 제어�
 ls -lt ~/.ros/log
 ```
 
-센서 데이터를 남기려면 센서를 시작한 뒤, 주행 시작 전에 별도 터미널에서 기록한다.
+영상 없이 터널 센서 데이터를 남기려면 센서를 시작한 뒤, 주행 시작 전에 별도 터미널에서 기록한다.
 주행 시작·종료는 위 직접 실행 절차와 같다.
 
 ```bash
 mkdir -p "$HOME/tb_logs"
 rosbag record --lz4 -o "$HOME/tb_logs/tunnel" \
-  /camera/color/image_raw /livox/lidar /odom /tf /tf_static \
+  /livox/lidar /odom /tf /tf_static \
   /cmd_vel /step /rosout /motor_power /sensor_state
 ```
 

@@ -43,14 +43,14 @@ rostopic pub -1 /motor_power std_msgs/Bool 'data: false'
 
 정지 후 센서 터미널에서도 `Ctrl+C`를 누른다. 다시 시험할 때는 토크를 `data: true`로 켠다.
 
-## 기록 — 선택, 별도 터미널
+## 터널 센서 기록 — 영상 제외, 별도 터미널
 
 센서를 켠 뒤 주행 시작 전에 실행한다.
 
 ```bash
 mkdir -p ~/tb_logs
 rosbag record --lz4 -o ~/tb_logs/run \
-  /camera/color/image_raw /livox/lidar /odom /tf /tf_static \
+  /livox/lidar /odom /tf /tf_static \
   /cmd_vel /step /rosout /motor_power /sensor_state
 ```
 

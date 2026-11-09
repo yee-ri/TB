@@ -18,7 +18,9 @@ from test_tunnel_alignment_mission import CONFIG, SENSOR, compose, fixed_wall_cl
 
 class WallTrackingMissionTest(unittest.TestCase):
     def mission(self, pose=(.6, .5, 0.), frame=(0., 0., 0.)):
-        mission = TunnelMission(load_config(CONFIG))
+        config = load_config(CONFIG)
+        config['localization'].pop('exit', None)
+        mission = TunnelMission(config)
         mission.update_odometry(compose(pose, frame), .2, 0., 10.)
         mission._initialize(frame)
         mission.state = 'FOLLOWING'
