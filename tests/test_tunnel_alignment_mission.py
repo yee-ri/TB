@@ -183,16 +183,18 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
         mission.entrance_localizer.estimate.assert_called_once()
         self.assert_entry_motion(mission, 11.01)
 
-    def test_one_unchanged_scan_cannot_restart_the_observation_window(self):
+    def test_one_unchanged_scan_is_estimated_after_the_observation_window(self):
         mission = self.mission(observation_window=1.)
         self.feed(mission, 10.)
         for now in (10., 10.2, 10.8):
             self.assertEqual(mission.step(now), (0., 0., False))
-        self.assert_entry_motion(mission, 11.)
-        mission.entrance_localizer.estimate.assert_not_called()
+        self.assertEqual(mission.step(11.), (0., 0., False))
+        self.join(mission)
+        mission.entrance_localizer.estimate.assert_called_once()
+        self.assert_entry_motion(mission, 11.01)
         self.assertEqual(mission.state, 'ENTRY')
-        self.assertIn('observations expired', mission.localization_report)
-        self.assertIsNotNone(mission.anchor)
+        self.assertIn('entrance measured', mission.localization_report)
+        np.testing.assert_allclose(mission.anchor, (0., 0., 0.), atol=1e-12)
 
     def test_window_fit_rejection_reason_remains_visible(self):
         mission = self.mission(observation_window=1.)
@@ -314,29 +316,33 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
         self.assertIn('future', mission.reason)
         mission.entrance_localizer.estimate.assert_not_called()
 
-    def test_worker_result_expiring_before_acceptance_uses_prior(self):
-        mission = self.mission()
-        self.feed(mission, 10.)
+    def test_old_accepted_result_preserves_acquisition_frame_and_current_motion(self):
+        measured, latest = (.04, .02, .03), (.07, .025, .09)
+        frame = (120., -87., 2.7)
+        mission = self.mission(measured)
+        self.feed(mission, 10., measured, frame)
         mission.step(10.)
         self.join(mission)
-        self.feed(mission, 10.4)
+        self.feed(mission, 10.4, latest, frame)
         self.assert_entry_motion(mission, 10.4)
-        self.assertIsNotNone(mission.anchor)
+        np.testing.assert_allclose(mission.anchor, frame, atol=1e-12)
         self.assertEqual(mission.state, 'ENTRY')
-        self.assertIn('expired', mission.localization_report)
+        self.assertIn('entrance measured', mission.localization_report)
         pose = relative_pose(mission.odom[:3], mission.anchor)
-        np.testing.assert_allclose((pose.x, pose.y, pose.yaw), mission.entrance_localizer.prior)
+        np.testing.assert_allclose((pose.x, pose.y, pose.yaw), latest, atol=1e-12)
         mission.entrance_localizer.estimate.assert_called_once()
 
     def test_prior_preserves_motion_since_activation_in_rotated_odom_frame(self):
         first = (.04, .02, .03)
         frame = (120., -87., 2.7)
-        for failure in ('rejected', 'expired'):
+        for failure in ('rejected', 'worker_error'):
             with self.subTest(failure=failure):
                 mission = self.mission(observation_window=1.)
                 if failure == 'rejected':
                     mission.entrance_localizer.estimate.return_value = AlignmentResult(
                         False, reason='right wall returns missing')
+                else:
+                    mission.entrance_localizer.estimate.side_effect = RuntimeError('fixture error')
                 # The configured prior belongs to activation, not an older scan.
                 activation = (.045, .021, .04)
                 self.feed(mission, 10., first, frame, latest=activation)
@@ -345,7 +351,7 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
                 self.feed(mission, 11., (.06, .024, .06), frame, latest=latest)
                 mission.step(11.)
                 self.join(mission)
-                now = 11. if failure == 'rejected' else 11.4
+                now = 11.4
                 mission.update_odometry(compose(latest, frame), 0., 0., now)
                 mission.step(now)
                 self.assertEqual(mission.state, 'ENTRY')
@@ -359,46 +365,49 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
                 self.assertAlmostEqual(mission.entry_start_yaw, expected[2])
                 mission.entrance_localizer.estimate.assert_called_once()
 
-    def test_slow_fit_cannot_block_entry_or_global_planning_or_overwrite_the_map(self):
+    def test_fit_running_longer_than_point_three_seconds_keeps_waiting_then_uses_result(self):
         mission = self.mission()
         started, release = threading.Event(), threading.Event()
         def delayed(_points, _sensor_origin):
             started.set()
             if not release.wait(timeout=3.):
                 raise RuntimeError('test wall fit was never released')
-            return AlignmentResult(True, Pose2D(.9, .4, .8), 'late fit', .001, 120, 140)
+            return AlignmentResult(True, Pose2D(.04, 0., 0.), 'late fit', .001, 120, 140)
         mission.entrance_localizer.estimate.side_effect = delayed
         self.feed(mission, 10.)
         mission.step(10.)
         self.assertTrue(started.wait(timeout=1.))
         worker = mission.localization_worker
         try:
-            deadline = 10.+mission.sensors['maximum_age']+.001
-            self.feed(mission, deadline, pose=(.06, 0., .02))
-            self.assert_entry_motion(mission, deadline)
-            self.assertIn('exceeded', mission.localization_report)
-            self.assertTrue(worker.is_alive())
-            anchor, costmap, mapped_stamp = mission.anchor, mission.costmap, mission.mapped_stamp
-            occupancy = list(costmap.to_occupancy_data())
-            mission.local_planner.global_route = Mock(return_value=None)
-            pose = relative_pose(mission.odom[:3], mission.anchor)
-            mission._request_global_plan(pose, deadline)
-            self.assertIsNotNone(mission.worker)
-            self.assertIsNot(mission.worker, worker)
-            mission.worker.join(timeout=3.)
-            self.assertFalse(mission.worker.is_alive())
-            mission.local_planner.global_route.assert_called_once()
-            self.assertIsNotNone(mission.pending_route)
+            for now in (10.301, 10.9):
+                self.feed(mission, now, pose=(.06, .01, .02))
+                self.assertEqual(mission.step(now), (0., 0., False))
+                self.assertEqual(mission.state, 'LOCALIZING')
+                self.assertIsNone(mission.anchor)
+                self.assertEqual(mission.localization_report, '')
+                self.assertTrue(worker.is_alive())
         finally:
             release.set()
             worker.join(timeout=3.)
             self.assertFalse(worker.is_alive())
-        self.assertIsNone(mission.localization_result)
-        self.assertEqual(mission.anchor, anchor)
-        self.assertIs(mission.costmap, costmap)
-        self.assertEqual(mission.mapped_stamp, mapped_stamp)
-        self.assertEqual(list(mission.costmap.to_occupancy_data()), occupancy)
-        self.assert_entry_motion(mission, deadline)
+        self.assertIsNotNone(mission.localization_result)
+        self.assert_entry_motion(mission, 10.91)
+        self.assertIn('entrance measured', mission.localization_report)
+        np.testing.assert_allclose(mission.anchor, (0., 0., 0.), atol=1e-12)
+        pose = relative_pose(mission.odom[:3], mission.anchor)
+        np.testing.assert_allclose((pose.x, pose.y, pose.yaw), (.06, .01, .02), atol=1e-12)
+        mission.entrance_localizer.estimate.assert_called_once()
+
+    def test_finished_worker_without_a_result_uses_prior_without_retry(self):
+        mission = self.mission()
+        self.feed(mission, 10.)
+        mission.step(10.)
+        self.join(mission)
+        mission.localization_result = None
+        self.assert_entry_motion(mission, 10.01)
+        self.assertIn('entrance fit ended without a result', mission.localization_report)
+        pose = relative_pose(mission.odom[:3], mission.anchor)
+        np.testing.assert_allclose((pose.x, pose.y, pose.yaw), mission.entrance_localizer.prior)
         mission.entrance_localizer.estimate.assert_called_once()
 
     def test_missing_initial_observations_use_prior_after_the_existing_window(self):
@@ -451,6 +460,41 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
         self.assertEqual(mission.state, 'LOCALIZING')
         self.assertIsNone(mission.anchor)
         self.assertIsNone(mission.localization_result)
+
+    def test_reset_can_start_new_fit_while_old_worker_finishes(self):
+        mission = self.mission()
+        started, release = threading.Event(), threading.Event()
+
+        def delayed(_points, _sensor_origin):
+            started.set()
+            if not release.wait(timeout=3.):
+                raise RuntimeError('test wall fit was never released')
+            return AlignmentResult(True, Pose2D(.9, .4, .8), 'old activation', .001, 120, 140)
+
+        mission.entrance_localizer.estimate.side_effect = delayed
+        self.feed(mission, 10.)
+        mission.step(10.)
+        self.assertTrue(started.wait(timeout=1.))
+        old_worker = mission.localization_worker
+        try:
+            mission.reset()
+            fitted = (.05, .01, .02)
+            mission.entrance_localizer.estimate.side_effect = None
+            mission.entrance_localizer.estimate.return_value = AlignmentResult(
+                True, Pose2D(*fitted), 'new activation', .001, 120, 140)
+            self.feed(mission, 11., fitted)
+            self.assertEqual(mission.step(11.), (0., 0., False))
+            self.join(mission)
+            self.assertIsNotNone(mission.localization_result)
+        finally:
+            release.set()
+            old_worker.join(timeout=3.)
+            self.assertFalse(old_worker.is_alive())
+        self.assert_entry_motion(mission, 11.01)
+        localized = relative_pose(mission.odom[:3], mission.anchor)
+        np.testing.assert_allclose((localized.x, localized.y, localized.yaw), fitted, atol=1e-12)
+        np.testing.assert_allclose(mission.anchor, (0., 0., 0.), atol=1e-12)
+        self.assertEqual(mission.entrance_localizer.estimate.call_count, 2)
 
     def test_reported_velocity_during_a_fit_does_not_discard_fixed_pose_result(self):
         mission = self.mission()
@@ -594,7 +638,7 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
                             for x in (-mission.footprint.rear, mission.footprint.front)
                             for y in (-mission.footprint.half_width, mission.footprint.half_width)]
                 self.assertGreaterEqual(min(corner_y), exit_y)
-                self.assertTrue(mission.exit_crossed)
+                self.assertIs(mission.route_goal, mission.goal)
                 self.assertGreaterEqual(mission.global_updates, 1)
                 self.assertGreater(previous[0], 0.)
                 # Portal completion returns ownership while measured motion

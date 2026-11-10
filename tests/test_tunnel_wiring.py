@@ -276,6 +276,64 @@ class TunnelWiringTests(unittest.TestCase):
                 if call.args[0] == 'TUNNEL LOCALIZATION: %s']
         self.assertEqual(logs, [('TUNNEL LOCALIZATION: %s', report)])
 
+    def test_main_entrypoint_logs_measured_and_prior_localization_once(self):
+        target = self.load_controller(SOURCE.with_name('test.py'))
+        for report in (
+                'entrance measured x=0.225m y=-0.010m yaw=4.70deg rms=0.0118m',
+                'entrance prior assumed x=0.235m y=-0.022m yaw=0.00deg: connected right wall missing'):
+            with self.subTest(report=report):
+                node = target.turtlebot()
+                node.step = 9
+                node.tunnel.localization_report = report
+                target.rospy.loginfo.reset_mock()
+                for reason in ('aligning entry heading before straight drive',
+                               'straight entry', 'following current-pose local arc'):
+                    node.tunnel.reason = reason
+                    node.tunnel_tick(None)
+                logs = [call.args for call in target.rospy.loginfo.call_args_list
+                        if call.args[0] == 'TUNNEL LOCALIZATION: %s']
+                self.assertEqual(logs, [('TUNNEL LOCALIZATION: %s', report)])
+
+    def test_main_entrypoint_logs_the_same_localization_again_on_new_entry(self):
+        target = self.load_controller(SOURCE.with_name('test.py'))
+        node = target.turtlebot()
+        node.step = 9
+        report = 'entrance measured x=0.225m y=-0.010m yaw=4.70deg rms=0.0118m'
+        node.tunnel.reset.side_effect = lambda: setattr(node.tunnel, 'localization_report', '')
+
+        def localize(_now):
+            node.tunnel.localization_report = report
+            return .06, .02, False
+
+        node.tunnel.step.side_effect = localize
+        target.rospy.loginfo.reset_mock()
+        node.tunnel_tick(None)
+        node.tunnel_tick(None)
+        node.step_callback(types.SimpleNamespace(data=9))
+        node.tunnel_tick(None)
+        node.tunnel_tick(None)
+        logs = [call.args for call in target.rospy.loginfo.call_args_list
+                if call.args[0] == 'TUNNEL LOCALIZATION: %s']
+        self.assertEqual(logs, [('TUNNEL LOCALIZATION: %s', report)] * 2)
+        self.assertEqual(node.tunnel.reset.call_count, 2)
+
+    def test_main_entrypoint_waits_for_a_nonempty_localization_report(self):
+        target = self.load_controller(SOURCE.with_name('test.py'))
+        node = target.turtlebot()
+        node.step = 9
+        target.rospy.loginfo.reset_mock()
+        for _ in range(3):
+            node.tunnel_tick(None)
+        logs = [call.args for call in target.rospy.loginfo.call_args_list
+                if call.args[0] == 'TUNNEL LOCALIZATION: %s']
+        self.assertEqual(logs, [])
+        report = 'entrance prior assumed x=0.235m y=-0.022m yaw=0.00deg: entrance observations missing'
+        node.tunnel.localization_report = report
+        node.tunnel_tick(None)
+        logs = [call.args for call in target.rospy.loginfo.call_args_list
+                if call.args[0] == 'TUNNEL LOCALIZATION: %s']
+        self.assertEqual(logs, [('TUNNEL LOCALIZATION: %s', report)])
+
     def test_missing_rosout_option_is_set_before_drive_callbacks(self):
         self.target.rospy.set_param.assert_called_once_with(
             '/rosout_disable_topics_generation', False)

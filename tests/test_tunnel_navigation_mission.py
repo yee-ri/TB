@@ -13,7 +13,7 @@ from unittest.mock import patch
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'codes'))
-from tunnel.mission import TunnelMission, RouteUpdate
+from tunnel.mission import TunnelMission, RouteTurn, RouteUpdate
 from collision_inspection import inspect_geometry
 from tunnel.geometry import OccupancyGrid, Pose2D
 from tunnel.planner import GlobalRoute
@@ -366,7 +366,6 @@ class GlobalLocalMissionTest(unittest.TestCase):
         self.feed(mission, 10.05, (pose.x, pose.y, pose.yaw), .08)
         with patch.object(mission.local_planner, 'local_command') as local:
             self.assertEqual(mission.step(10.05), (0., 0., True))
-        self.assertTrue(mission.exit_crossed)
         self.assertEqual(mission.state, 'COMPLETE')
         local.assert_not_called()
 
@@ -392,7 +391,6 @@ class GlobalLocalMissionTest(unittest.TestCase):
         self.assertFalse(complete)
         self.assertGreater(linear, 0., mission.reason)
         self.assertEqual(mission.state, 'FOLLOWING')
-        self.assertFalse(mission.exit_crossed)
         self.feed(mission, 10.10, (.606, -.035, 0.), 0.)
         linear, angular, complete = mission.step(10.10)
         self.assertGreater(linear, 0., mission.reason)
@@ -415,39 +413,43 @@ class GlobalLocalMissionTest(unittest.TestCase):
         self.assertEqual(mission.state, 'FINISHING')
         local.assert_not_called()
 
-    def test_exit_crossing_requires_observed_outward_passage_and_entire_body_clear(self):
+    def test_generic_goal_keeps_turn_ownership_until_route_alignment_finishes(self):
+        mission = self.make_mission(goal=(.6, 0., 0.), velocity=0.)
+        self.feed(mission, 10.05, (.6, 0., 0.), 0.)
+        mission.route_turn = RouteTurn('PREPARE', math.pi/2., .3)
+        with patch.object(mission, '_finish_goal') as finish:
+            linear, angular, complete = mission.step(10.05)
+        finish.assert_not_called()
+        self.assertFalse(complete)
+        self.assertEqual(linear, 0.)
+        self.assertGreater(angular, 0.)
+        self.assertEqual(mission.state, 'FOLLOWING')
+        self.assertIn('turning toward route heading', mission.reason)
+
+    def test_outside_goal_completion_needs_current_body_clear_not_crossing_samples(self):
         mission = self.make_mission(goal=(.6, 0., 0.), velocity=0.,
                                     exit_crossing=((.4, -.15), (.4, .15)))
-        # Starting already outside, even at the old goal, is not a passage.
+        self.assertIs(mission.route_goal, mission.goal)
+        # Outside-goal execution does not need a sample at the crossing instant.
         for pose in ((.6, 0., 0.), (.90, 0., 0.)):
             with self.subTest(pose=pose):
-                self.assertFalse(mission._goal_reached(Pose2D(*pose)))
-        # Reverse passage cannot finish. Forward axle crossing is remembered,
-        # but the rotated rear corner still has to clear the wall.
+                self.assertTrue(mission._goal_reached(Pose2D(*pose)))
+        # The centre being outside is insufficient while a rear corner is inside.
         self.assertFalse(mission._goal_reached(Pose2D(.39, 0., 0.)))
-        self.assertFalse(mission.exit_crossed)
         self.assertFalse(mission._goal_reached(Pose2D(.45, 0., math.radians(25.))))
-        self.assertTrue(mission.exit_crossed)
         self.assertFalse(mission._goal_reached(Pose2D(.52, 0., math.radians(25.))))
         self.assertTrue(mission._goal_reached(Pose2D(.55, .07, math.radians(25.))))
 
-    def test_exit_passage_interpolates_finite_opening_and_clears_on_return(self):
+    def test_outside_goal_completion_does_not_depend_on_prior_pose_sequence(self):
         mission = self.make_mission(goal=(.6, 0., 0.), velocity=0.,
                                     exit_crossing=((.4, -.15), (.4, .15)))
-        # Both endpoints' x coordinates straddle the exit plane, but their
-        # interpolated intersection lies outside this particular opening.
-        mission._goal_reached(Pose2D(.39, .25, 0.))
+        self.assertFalse(mission._goal_reached(Pose2D(.39, .25, 0.)))
         self.assertFalse(mission._goal_reached(Pose2D(.41, .15, 0.)))
-        self.assertFalse(mission.exit_crossed)
-        self.assertFalse(mission._goal_reached(Pose2D(.60, 0., 0.)))
-        mission._goal_reached(Pose2D(.39, .14, 0.))
-        # Current axle is outside the lateral range, but its crossing was in it.
-        self.assertFalse(mission._goal_reached(Pose2D(.45, .16, 0.)))
-        self.assertTrue(mission.exit_crossed)
+        self.assertTrue(mission._goal_reached(Pose2D(.60, 0., 0.)))
+        # Moving laterally after leaving does not impose imaginary extended walls.
         self.assertTrue(mission._goal_reached(Pose2D(.60, .17, 0.)))
-        mission._goal_reached(Pose2D(.39, .17, 0.))
-        self.assertFalse(mission.exit_crossed)
-        self.assertFalse(mission._goal_reached(Pose2D(.60, .17, 0.)))
+        self.assertFalse(mission._goal_reached(Pose2D(.39, .17, 0.)))
+        self.assertTrue(mission._goal_reached(Pose2D(.60, .17, 0.)))
 
     def test_exit_geometry_uses_portal_normal_not_goal_heading_or_goal_distance(self):
         for goal in ((.6, 0., 0.), (1.2, 0., 120.)):
@@ -457,9 +459,8 @@ class GlobalLocalMissionTest(unittest.TestCase):
                     self.assertFalse(mission._goal_reached(Pose2D(.39, 0., 0.)))
                     self.assertTrue(mission._goal_reached(Pose2D(.54, 0., 0.)))
                     mission.reset()
-                    self.assertIsNone(mission.exit_previous_position)
-                    self.assertFalse(mission.exit_crossed)
-                    self.assertFalse(mission._goal_reached(Pose2D(.54, 0., 0.)))
+                    self.assertIs(mission.route_goal, mission.goal)
+                    self.assertTrue(mission._goal_reached(Pose2D(.54, 0., 0.)))
 
     def test_finishing_deceleration_continues_despite_map_overlap(self):
         mission = self.make_mission(goal=(.6, 0., 0.), velocity=.12)

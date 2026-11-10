@@ -110,65 +110,65 @@ class ExitTrackingMissionTest(unittest.TestCase):
         self.assertEqual((mission.last_linear, mission.last_angular), (.2, .1))
         self.assertEqual(mission.state, 'FOLLOWING')
 
-    def test_stationary_anchor_change_cannot_create_an_exit_passage(self):
+    def test_stationary_correction_with_rear_inside_does_not_complete(self):
         for frame in ((0., 0., 0.), (4., -2., .6)):
             with self.subTest(frame=frame):
                 pose = (1.808, 1.65, math.pi/2)
                 mission = self.mission(pose, frame)
+                self.assertTrue(mission._advance_exit_goal(Pose2D(*pose)))
                 self.assertFalse(mission._goal_reached(Pose2D(*pose)))
                 odom = compose(pose, frame)
                 mission._apply_tracking_pose(odom, Pose2D(1.808, 1.70, math.pi/2+.03))
                 corrected = relative_pose(odom, mission.anchor)
                 self.assertFalse(mission._goal_reached(corrected))
-                self.assertFalse(mission.exit_crossed)
+                self.assertIs(mission.route_goal, mission.goal)
 
     def test_small_correction_after_real_axle_crossing_preserves_later_body_completion(self):
         mission = self.mission((1.808, 1.65, math.pi/2))
+        self.assertTrue(mission._advance_exit_goal(Pose2D(1.808, 1.65, math.pi/2)))
         self.assertFalse(mission._goal_reached(Pose2D(1.808, 1.65, math.pi/2)))
         odom = (1.808, 1.70, math.pi/2)
         mission.update_odometry(odom, .2, 0., 10.1)
         self.assertFalse(mission._goal_reached(Pose2D(*odom)))
-        self.assertTrue(mission.exit_crossed)
         mission._apply_tracking_pose(odom, Pose2D(1.808, 1.69, math.pi/2))
-        self.assertTrue(mission.exit_crossed)
+        self.assertIs(mission.route_goal, mission.goal)
         self.assertFalse(mission._goal_reached(relative_pose(odom, mission.anchor)))
         latest = (1.808, 1.82, math.pi/2)
         mission.update_odometry(latest, .2, 0., 10.2)
         self.assertTrue(mission._goal_reached(relative_pose(latest, mission.anchor)))
 
-    def test_correction_back_inside_clears_passage_and_real_recrossing_can_finish(self):
+    def test_correction_back_inside_defers_completion_until_current_body_is_outside(self):
         mission = self.mission((1.808, 1.65, math.pi/2))
+        self.assertTrue(mission._advance_exit_goal(Pose2D(1.808, 1.65, math.pi/2)))
         mission._goal_reached(Pose2D(1.808, 1.65, math.pi/2))
         odom = (1.808, 1.70, math.pi/2)
         mission.update_odometry(odom, .2, 0., 10.1)
         mission._goal_reached(Pose2D(*odom))
-        self.assertTrue(mission.exit_crossed)
         mission._apply_tracking_pose(odom, Pose2D(1.808, 1.64, math.pi/2))
-        self.assertFalse(mission.exit_crossed)
+        self.assertIs(mission.route_goal, mission.goal)
         self.assertFalse(mission._goal_reached(relative_pose(odom, mission.anchor)))
         later = (1.808, 1.76, math.pi/2)
         mission.update_odometry(later, .2, 0., 10.2)
         self.assertFalse(mission._goal_reached(relative_pose(later, mission.anchor)))
-        self.assertTrue(mission.exit_crossed)
         outside = (1.808, 1.90, math.pi/2)
         mission.update_odometry(outside, .2, 0., 10.3)
         self.assertTrue(mission._goal_reached(relative_pose(outside, mission.anchor)))
 
-    def test_lateral_correction_outside_opening_invalidates_the_recorded_crossing(self):
+    def test_lateral_correction_preserves_outside_stage_and_current_body_completion(self):
         frame = (4., -2., .6)
         mission = self.mission((1.70, 1.65, math.pi/2), frame)
+        self.assertTrue(mission._advance_exit_goal(mission.exit_approach_goal))
         mission._goal_reached(Pose2D(1.70, 1.65, math.pi/2))
         odom = compose((1.70, 1.70, math.pi/2), frame)
         mission.update_odometry(odom, .2, 0., 10.1)
         mission._goal_reached(Pose2D(1.70, 1.70, math.pi/2))
-        self.assertTrue(mission.exit_crossed)
-        # The measured doorway places the earlier crossing 18 mm left of it.
+        # A lateral correction does not restore a crossing-history condition.
         mission._apply_tracking_pose(odom, Pose2D(1.64, 1.70, math.pi/2))
-        self.assertFalse(mission.exit_crossed)
+        self.assertIs(mission.route_goal, mission.goal)
         self.assertFalse(mission._goal_reached(relative_pose(odom, mission.anchor)))
         outside = compose((1.70, 1.83, math.pi/2), frame)
         mission.update_odometry(outside, .2, 0., 10.2)
-        self.assertFalse(mission._goal_reached(relative_pose(outside, mission.anchor)))
+        self.assertTrue(mission._goal_reached(relative_pose(outside, mission.anchor)))
 
 
 if __name__ == '__main__':

@@ -190,6 +190,31 @@ class WallTrackingTest(unittest.TestCase):
         self.assertFalse(self.matcher.track(cloud, (1.72, 1.4, 1.35),
                                             max_yaw=.02).accepted)
 
+    def test_short_perpendicular_wall_patches_recover_pose_across_sampling_bins(self):
+        matcher = WallLocalizer(WALLS, minimum_wall_span=.10, maximum_rms=.020)
+        actual = np.array((1.7, .14, 0.))
+        prior = actual + (.02, -.015, .02)
+        # Symmetric normal errors keep 64+ distinct spatial samples while
+        # each wall has only 11.2--17.6 cm of continuous tangent support.
+        normal = np.array((-.0225, -.0075, .0075, .0225))
+        for samples in (8, 10, 12):
+            for phase in (0., .013, .037):
+                with self.subTest(samples=samples, phase=phase):
+                    tangent = .103 + phase + np.arange(samples)*.016
+                    mapped = np.vstack((
+                        np.column_stack((1.958 + np.tile(normal, samples),
+                                         np.repeat(tangent, 4))),
+                        np.column_stack((np.repeat(1.3 + tangent, 4),
+                                         -.15 + np.tile(normal, samples)))))
+                    # Moving the visible patch across a fixed grid boundary
+                    # must not change whether its measured span is usable.
+                    for along_wall in (tangent, 1.3 + tangent):
+                        bins = len(np.unique(np.floor(along_wall/.05)))
+                        self.assertIn(bins, (3, 4, 5))
+                    result = matcher.track(mapped-actual[:2], prior)
+                    self.assert_pose(result, actual, position=.0001, yaw=.0003)
+                    self.assertGreaterEqual(result.inliers, 60)
+
     def test_single_wall_and_bottle_clusters_do_not_supply_two_wall_support(self):
         prior = np.array((1.7, .12, 0.))
         far = np.column_stack((np.full(130, 1.958), np.linspace(-.05, 1.5, 130)))
@@ -197,11 +222,13 @@ class WallTrackingTest(unittest.TestCase):
         bottles = np.vstack([np.column_stack((x+.025*np.cos(angle),
                                                -.125+.025*np.sin(angle)))
                              for x in (.6, .9, 1.2, 1.5)])
-        for mapped in (far, bottles, np.vstack((far, bottles))):
-            with self.subTest(points=len(mapped)):
-                result = self.matcher.track(mapped-prior[:2], prior)
-                self.assertFalse(result.accepted, result)
-                self.assertIsNone(result.pose)
+        for span, rms in ((.25, .012), (.10, .020)):
+            matcher = WallLocalizer(WALLS, minimum_wall_span=span, maximum_rms=rms)
+            for mapped in (far, bottles, np.vstack((far, bottles))):
+                with self.subTest(points=len(mapped), minimum_span=span):
+                    result = matcher.track(mapped-prior[:2], prior)
+                    self.assertFalse(result.accepted, result)
+                    self.assertIsNone(result.pose)
 
     def test_noisy_scan_with_unmapped_obstacles_still_corrects(self):
         actual = (1.72, 1.4, 1.3)

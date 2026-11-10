@@ -175,8 +175,7 @@ class WallLocalizer:
                     if len(run) < self.minimum_axis:
                         continue
                     lo, hi = np.quantile(run, [.05, .95])
-                    covered = len(np.unique(np.floor(run/.05)))
-                    if hi-lo >= self.minimum_span and covered >= 6:
+                    if hi-lo >= self.minimum_span:
                         best = True
                         break
                 if best:

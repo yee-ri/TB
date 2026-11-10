@@ -55,18 +55,30 @@ cd /home/sj/Desktop/TB
 bash start_robot.sh
 ```
 
-실차에서 STEP 8 차선 주행부터 터널 진입을 시험한다.
+TB1에서 STEP 0 신호등부터 전체 주행을 시험한다.
 
 ```bash
 cd /home/sj/Desktop/TB
 rostopic pub -1 /motor_power std_msgs/Bool 'data: true'
-python3 codes/stepbystep/1105_lut.py _start_step:=8
+python3 codes/stepbystep/test.py
+```
+
+화면 없는 SSH 터미널에서는 전체 주행 명령을 다음으로 바꾼다.
+
+```bash
+python3 codes/stepbystep/test.py _show_lut_debug:=false
+```
+
+실차에서 STEP 8 차선 주행부터 터널 진입을 시험한다.
+
+```bash
+python3 codes/stepbystep/test.py _start_step:=8
 ```
 
 실차에서 위치 정합·터널 주행부터 시험한다.
 
 ```bash
-python3 codes/stepbystep/1105_lut.py _start_step:=9
+python3 codes/stepbystep/test.py _start_step:=9
 ```
 
 영상 없이 실차 LiDAR·위치·속도 명령·주행 상태를 무손실 압축으로 기록한다. 시험 종료 시 기록 터미널에서 `Ctrl+C`로 마친다.

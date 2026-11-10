@@ -214,7 +214,7 @@ class TunnelMission:
         self.wall_tracking_period = 0.
         if 'localization' in config:
             settings = config['localization']
-            self.localizer = WallLocalizer(settings['wall_rectangles'])
+            self.localizer = WallLocalizer(settings['wall_rectangles'], **settings.get('wall_fit', {}))
             self.entrance_localizer = EntranceLandmarkLocalizer.from_geometry(
                 settings, **settings.get('entrance', {}))
             if 'exit' in settings:
@@ -224,22 +224,27 @@ class TunnelMission:
             window = settings.get('observation_window', 0.)
             if isinstance(window, bool) or not isinstance(window, (int, float)) or not math.isfinite(window) or not 0 <= window <= 2.:
                 raise ValueError('localization/observation_window must be between 0 and 2 seconds')
-            for key, default in (('tracking_period', 0.), ('tracking_max_translation', .08),
-                                 ('tracking_max_yaw_deg', 6.)):
+            for key, default, attribute in (
+                    ('tracking_period', 0., 'wall_tracking_period'),
+                    ('tracking_max_translation', .08, 'wall_tracking_max_translation'),
+                    ('tracking_max_yaw_deg', 6., 'wall_tracking_max_yaw_deg'),
+                    ('exit_tracking_max_translation', settings.get('tracking_max_translation', .08),
+                     'exit_tracking_max_translation'),
+                    ('exit_tracking_max_yaw_deg', settings.get('tracking_max_yaw_deg', 6.),
+                     'exit_tracking_max_yaw_deg')):
                 value = settings.get(key, default)
                 if (isinstance(value, bool) or not isinstance(value, (int, float))
                         or not math.isfinite(value) or value < 0.
                         or (key != 'tracking_period' and value == 0.)):
                     raise ValueError('localization/%s must be finite and positive (period may be zero)' % key)
-                setattr(self, 'wall_' + key, float(value))
-            if self.wall_tracking_max_yaw_deg >= 90.:
-                raise ValueError('localization/tracking_max_yaw_deg must be less than 90')
+                setattr(self, attribute, float(value))
+            if max(self.wall_tracking_max_yaw_deg, self.exit_tracking_max_yaw_deg) >= 90.:
+                raise ValueError('localization tracking yaw limits must be less than 90')
         self.front_clearance = math.inf
         self.lane_stamp = None
         self.lane_count = 0
         self.generation = 0
         self.worker = None
-        self.localization_worker = None
         self.wall_tracking_worker = None
         self.reset()
         self.local_planner = GlobalLocalPlanner(self.geometry, self.navigation)
@@ -264,7 +269,7 @@ class TunnelMission:
             self.localization_epoch = getattr(self, 'localization_epoch', 0) + 1
             self.localization_history = []
             self.localization_start = None
-            self.localization_attempt_time = None
+            self.localization_worker = None
             self.localization_report = ''
             self.wall_tracking_attempt_stamp = None
             self.wall_tracking_started = None
@@ -283,9 +288,6 @@ class TunnelMission:
             self.pending_route = None
             self.global_updates = 0
             self.global_report = 'waiting for first global route'
-            self.exit_previous_position = None
-            self.exit_crossed = False
-            self.exit_crossing_position = None
 
     def close(self):
         self.reset()
@@ -301,7 +303,8 @@ class TunnelMission:
             grid = self._grid()
             if self.state in ('WAIT_STOP', 'WAIT_LANE'):
                 return self._wait_for_completion(pose, elapsed, now)
-            if self.route_turn is None and (self.state == 'FINISHING' or self._goal_reached(pose)):
+            if ((self.exit_crossing is not None or self.route_turn is None)
+                    and (self.state == 'FINISHING' or self._goal_reached(pose))):
                 return self._finish_goal(pose, elapsed, now)
             if self._advance_exit_goal(pose):
                 return self._zero('exit approach area reached; planning outside route')
@@ -510,14 +513,16 @@ class TunnelMission:
         def track():
             source = 'walls'
             try:
-                arguments = (points, prior, self.wall_tracking_max_translation,
-                             math.radians(self.wall_tracking_max_yaw_deg), sensor_origin)
-                result = (self.exit_localizer.track(*arguments)
+                result = (self.exit_localizer.track(
+                              points, prior, self.exit_tracking_max_translation,
+                              math.radians(self.exit_tracking_max_yaw_deg), sensor_origin)
                           if self.exit_localizer is not None else AlignmentResult(False))
                 if result.accepted:
                     source = 'exit opening'
                 else:
-                    result = self.localizer.track(*arguments)
+                    result = self.localizer.track(
+                        points, prior, self.wall_tracking_max_translation,
+                        math.radians(self.wall_tracking_max_yaw_deg), sensor_origin)
             except (ValueError, RuntimeError, np.linalg.LinAlgError) as error:
                 result = AlignmentResult(False, reason='wall tracking failed: ' + str(error))
             duration = time.monotonic() - started
@@ -550,35 +555,7 @@ class TunnelMission:
         return True
 
     def _apply_tracking_pose(self, scan_odom, fitted):
-        new_anchor = map_anchor(scan_odom, fitted)
-        if self.exit_crossing is not None:
-            x, y, tx, ty, nx, ny, width = self.exit_crossing
-            ax, ay, yaw = self.anchor
-            c, s = math.cos(yaw), math.sin(yaw)
-
-            def corrected_position(px, py):
-                return relative_pose((ax+c*px-s*py, ay+s*px+c*py, 0.), new_anchor)
-
-            if self.exit_previous_position is not None:
-                # Compare both positions in the same corrected map frame so
-                # a localization jump cannot be mistaken for outward motion.
-                forward, lateral = self.exit_previous_position
-                px, py = x+tx*lateral+nx*forward, y+ty*lateral+ny*forward
-                previous = corrected_position(px, py)
-                self.exit_previous_position = (
-                    nx*(previous.x-x)+ny*(previous.y-y),
-                    tx*(previous.x-x)+ty*(previous.y-y))
-            if self.exit_crossing_position is not None:
-                crossing = corrected_position(*self.exit_crossing_position)
-                self.exit_crossing_position = crossing.x, crossing.y
-                if not 0. <= tx*(crossing.x-x)+ty*(crossing.y-y) <= width:
-                    self.exit_crossed = False
-            current = relative_pose(self.odom[:3], new_anchor)
-            if nx*(current.x-x)+ny*(current.y-y) < 0.:
-                self.exit_crossed = False
-            if not self.exit_crossed:
-                self.exit_crossing_position = None
-        self.anchor = new_anchor
+        self.anchor = map_anchor(scan_odom, fitted)
 
     def _initialize(self, anchor=None):
         self.anchor = self.odom[:3] if anchor is None else anchor
@@ -637,12 +614,10 @@ class TunnelMission:
         if self.localization_start is None:
             self.localization_start = (now, self.odom[:3])
         if self.localization_result is not None:
-            result, scan_odom, stamp = self.localization_result
+            result, scan_odom, _stamp = self.localization_result
             self.localization_result = None
             if not result.accepted:
                 return self._start_from_entrance_prior(result.reason)
-            if now-stamp > self.sensors['maximum_age']:
-                return self._start_from_entrance_prior('entrance fit input expired')
             fitted = result.pose
             diagnostics = self.entrance_localizer.diagnostics
             corner = diagnostics.get('endpoint_base')
@@ -653,10 +628,7 @@ class TunnelMission:
                 fitted, scan_odom,
                 'entrance measured x=%.3fm y=%.3fm yaw=%.2fdeg rms=%.4fm%s' % (
                     fitted.x, fitted.y, math.degrees(fitted.yaw), result.rms, details))
-        if self.localization_attempt_time is not None:
-            # Stop waiting once this fit could no longer supply a usable result.
-            if now-self.localization_attempt_time >= self.sensors['maximum_age']:
-                return self._start_from_entrance_prior('entrance fit exceeded input lifetime')
+        if self.localization_worker is not None:
             if not self.localization_worker.is_alive():
                 return self._start_from_entrance_prior('entrance fit ended without a result')
             return False
@@ -667,8 +639,6 @@ class TunnelMission:
         if self.localization_scan is None:
             return self._start_from_entrance_prior('entrance observations missing')
         points, scan_odom, stamp = self.localization_scan
-        if now-stamp > self.sensors['maximum_age']:
-            return self._start_from_entrance_prior('entrance observations expired')
         if window and self.localization_history:
             combined = []
             for hits, acquired_pose, _ in self.localization_history:
@@ -676,7 +646,6 @@ class TunnelMission:
                 c, s = math.cos(relative.yaw), math.sin(relative.yaw)
                 combined.append(hits @ np.array(((c, s), (-s, c))) + (relative.x, relative.y))
             points = np.concatenate(combined)
-        self.localization_attempt_time = now
         generation = self.generation
         epoch = self.localization_epoch
         sensor_origin = self.scan[5][:2]
@@ -851,29 +820,13 @@ class TunnelMission:
         if self.exit_crossing is None:
             return (math.hypot(self.goal.x-pose.x, self.goal.y-pose.y)
                     <= self.config['goal']['position_tolerance'])
-        x, y, tx, ty, nx, ny, width = self.exit_crossing
-        forward = nx*(pose.x-x)+ny*(pose.y-y)
-        lateral = tx*(pose.x-x)+ty*(pose.y-y)
-        previous = self.exit_previous_position
-        self.exit_previous_position = forward, lateral
-        if previous is not None:
-            old_forward, old_lateral = previous
-            if old_forward <= 0. <= forward and forward-old_forward > 1e-9:
-                fraction = -old_forward/(forward-old_forward)
-                crossing = old_lateral+fraction*(lateral-old_lateral)
-                self.exit_crossed = 0. <= crossing <= width
-                self.exit_crossing_position = (x+tx*crossing, y+ty*crossing) if self.exit_crossed else None
-            elif old_forward >= 0. > forward:
-                # Returning inside requires a new outward passage through
-                # this opening; an earlier passage cannot qualify another exit.
-                self.exit_crossed = False
-                self.exit_crossing_position = None
-        if not self.exit_crossed:
+        if self.route_goal is not self.goal:
             return False
+        x, y, _, _, nx, ny, _ = self.exit_crossing
         cx, cy, c, s, half_length, half_width = self.geometry.footprint_geometry(pose)
         forward = nx*(cx-x)+ny*(cy-y)
         forward_extent = half_length*abs(nx*c+ny*s)+half_width*abs(-nx*s+ny*c)
-        # Hand off when every padded body corner is outside the exit plane.
+        # After the inside approach, hand off when the current body is outside.
         return forward-forward_extent >= 0.
 
     def _approach_speed_limit(self, pose):
@@ -955,7 +908,7 @@ class TunnelMission:
         return True
 
     def _finish_goal(self, pose, elapsed, now):
-        """Hand off after physical passage; retain endpoint alignment otherwise."""
+        """Hand off outside the exit; retain endpoint alignment otherwise."""
         # Once reached, finish even if momentum changes the accepted pose.
         self.state = 'FINISHING'
         cfg = self.control

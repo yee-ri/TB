@@ -18,13 +18,15 @@ from test_tunnel_alignment_mission import CONFIG, SENSOR, compose, fixed_wall_cl
 
 class WallTrackingMissionTest(unittest.TestCase):
     def mission(self, pose=(.6, .5, 0.), frame=(0., 0., 0.)):
-        config = load_config(CONFIG)
-        config['localization'].pop('exit', None)
-        mission = TunnelMission(config)
+        mission = TunnelMission(load_config(CONFIG))
         mission.update_odometry(compose(pose, frame), .2, 0., 10.)
         mission._initialize(frame)
         mission.state = 'FOLLOWING'
         mission.last_linear, mission.last_angular = .2, .1
+        # Exercise the wall fallback and its worker lifecycle, independently
+        # of whether the synthetic full-wall cloud also exposes the exit.
+        mission.exit_localizer.track = Mock(return_value=AlignmentResult(
+            False, reason='observed exit opening not matched'))
         self.addCleanup(mission.close)
         return mission
 
@@ -201,9 +203,56 @@ class WallTrackingMissionTest(unittest.TestCase):
         self.assertEqual(mission.wall_tracking_updates, 1, mission.wall_tracking_report)
         np.testing.assert_allclose((pose.x, pose.y, pose.yaw), actual, atol=.003)
 
+    def test_large_wall_correction_keeps_exit_bounds_and_propagates_motion_during_fit(self):
+        actual = (1.6, 1.25, math.radians(60.))
+        frame = (120., -87., 1.4)
+        motion = (.05, .01, .03)
+        for distance in (.15, .23):
+            with self.subTest(initial_position_error=distance):
+                offset = distance/math.sqrt(2.)
+                drifted = (actual[0]+offset, actual[1]-offset, actual[2]-math.radians(8.))
+                mission = self.mission(drifted, frame)
+                walls = fixed_wall_cloud(actual, mission.config['localization']['wall_rectangles'])
+                mission.exit_localizer.track = Mock(return_value=AlignmentResult(
+                    False, reason='observed exit opening not matched'))
+                real_track = mission.localizer.track
+                entered, release = threading.Event(), threading.Event()
+
+                def fit(*args):
+                    entered.set()
+                    if not release.wait(2.):
+                        raise RuntimeError('test did not release the wall fit')
+                    return real_track(*args)
+
+                mission.localizer.track = Mock(side_effect=fit)
+                self.addCleanup(release.set)
+                try:
+                    self.feed(mission, pose=drifted, frame=frame, walls=walls)
+                    self.assertTrue(entered.wait(1.))
+                    # Recorded odometry advances after scan acquisition. The
+                    # correction must preserve that motion in the map frame.
+                    latest_odom = compose(compose(motion, drifted), frame)
+                    mission.update_odometry(latest_odom, .2, .1, 10.15)
+                finally:
+                    release.set()
+                    self.join(mission)
+                self.assertEqual(mission.wall_tracking_updates, 1, mission.wall_tracking_report)
+                corrected = relative_pose(mission.odom[:3], mission.anchor)
+                expected = compose(motion, actual)
+                np.testing.assert_allclose((corrected.x, corrected.y, corrected.yaw),
+                                           expected, atol=.003)
+                np.testing.assert_allclose(mission.exit_localizer.track.call_args.args[2:4],
+                                           (.08, math.radians(6.)))
+                np.testing.assert_allclose(mission.localizer.track.call_args.args[2:4],
+                                           (.30, math.radians(15.)))
+                self.assertIn('source=walls', mission.wall_tracking_report)
+                self.assertEqual((mission.last_linear, mission.last_angular), (.2, .1))
+                self.assertEqual(mission.state, 'FOLLOWING')
+
     def test_corrected_body_still_inside_cannot_finish_on_uncorrected_exit_position(self):
         mission = self.mission((1.81, 1.81, math.pi/2))
-        mission.exit_crossed = True
+        self.assertTrue(mission._advance_exit_goal(mission.exit_approach_goal))
+        mission.exit_localizer.track = Mock(return_value=AlignmentResult(False))
         mission.localizer.track = Mock(return_value=AlignmentResult(True, Pose2D(1.81, 1.75, math.pi/2)))
         self.feed(mission, pose=(1.81, 1.81, math.pi/2))
         self.join(mission)
@@ -230,7 +279,9 @@ class WallTrackingMissionTest(unittest.TestCase):
     def test_invalid_tracking_configuration_fails_at_startup(self):
         for key, value in (('tracking_period', -1.), ('tracking_period', True),
                            ('tracking_max_translation', 0.), ('tracking_max_yaw_deg', 90.),
-                           ('tracking_max_yaw_deg', float('nan'))):
+                           ('tracking_max_yaw_deg', float('nan')),
+                           ('exit_tracking_max_translation', 0.),
+                           ('exit_tracking_max_yaw_deg', 90.)):
             with self.subTest(key=key, value=value):
                 config = load_config(CONFIG)
                 config['localization'][key] = value

@@ -12,7 +12,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'codes'))
 
 from tunnel.geometry import Pose2D
-from tunnel.mission import RouteTurn, RouteUpdate, TunnelMission, load_config
+from tunnel.mission import RouteTurn, RouteUpdate, TunnelMission, load_config, relative_pose
 from tunnel.planner import GlobalRoute
 
 
@@ -131,6 +131,82 @@ class ExitApproachAreaTest(unittest.TestCase):
         mission.reset()
         self.assertIs(mission.route_goal, inside)
         self.assertTrue(mission._advance_exit_goal(inside))
+
+    def test_outside_body_cannot_complete_before_inside_approach_is_accepted(self):
+        mission = self.make_mission()
+        outside = Pose2D(1.808, 1.90, math.pi/2.)
+        self.assertFalse(mission._goal_reached(outside))
+        self.assertIs(mission.route_goal, mission.exit_approach_goal)
+        self.assertTrue(mission._advance_exit_goal(mission.exit_approach_goal))
+        self.assertTrue(mission._goal_reached(outside))
+        mission.reset()
+        self.assertFalse(mission._goal_reached(outside))
+
+    def test_outside_stage_can_complete_without_an_intermediate_crossing_sample(self):
+        mission = self.make_mission()
+        self.assertTrue(mission._advance_exit_goal(mission.exit_approach_goal))
+        self.assertTrue(mission._goal_reached(Pose2D(1.808, 1.90, math.pi/2.)))
+
+    def test_completion_uses_the_rotated_body_not_only_the_axle(self):
+        for heading in (0., math.radians(25), math.pi/2., math.radians(120), math.pi):
+            with self.subTest(heading=heading):
+                mission = self.make_mission()
+                self.assertTrue(mission._advance_exit_goal(mission.exit_approach_goal))
+                footprint = mission.footprint
+                rear_offset = min(x*math.sin(heading)+y*math.cos(heading)
+                                  for x in (-footprint.rear, footprint.front)
+                                  for y in (-footprint.half_width, footprint.half_width))
+                threshold = 1.668-rear_offset
+                self.assertFalse(mission._goal_reached(Pose2D(1.808, threshold-1e-6, heading)))
+                self.assertTrue(mission._goal_reached(Pose2D(1.808, threshold+1e-6, heading)))
+
+    def test_six_mm_wall_correction_cannot_lose_exit_completion(self):
+        mission = self.make_mission()
+        # Recorded reconstruction: a correction moved the prior control sample
+        # from 5.659 mm inside the plane to 0.410 mm outside it.
+        before = Pose2D(1.7971118873041465, 1.6623408390994634, 1.5788110302486782)
+        corrected = Pose2D(1.7942410272889147, 1.6684102969515793, 1.5862713176078627)
+        self.prepare_following(mission, before)
+        self.assertTrue(mission._advance_exit_goal(before))
+        self.assertFalse(mission._goal_reached(before))
+        mission._apply_tracking_pose((before.x, before.y, before.yaw), corrected)
+        measured = relative_pose(mission.odom[:3], mission.anchor)
+        self.assertAlmostEqual(measured.y, corrected.y)
+        self.assertGreater(measured.y, 1.668)
+        self.assertIs(mission.route_goal, mission.goal)
+        self.assertFalse(mission._goal_reached(measured))  # Rear remains inside.
+
+        outside = Pose2D(1.7941131343821992, 1.80, math.pi/2.)
+        ax, ay, angle = mission.anchor
+        c, s = math.cos(angle), math.sin(angle)
+        odom = (ax+c*outside.x-s*outside.y, ay+s*outside.x+c*outside.y, angle+outside.yaw)
+        mission.update_odometry(odom, .2, 0., 10.05)
+        with patch.object(mission.local_planner, 'local_command') as local:
+            self.assertEqual(mission.step(10.05), (0., 0., True))
+        local.assert_not_called()
+        self.assertEqual(mission.state, 'COMPLETE')
+
+    def test_wall_correction_preserves_inside_stage_until_area_arrival(self):
+        mission = self.make_mission()
+        before = Pose2D(1.808, 1.30, math.pi/2.)
+        self.prepare_following(mission, before)
+        mission._apply_tracking_pose((before.x, before.y, before.yaw),
+                                     Pose2D(1.808, 1.306, math.pi/2.))
+        self.assertIs(mission.route_goal, mission.exit_approach_goal)
+        self.assertFalse(mission._goal_reached(Pose2D(1.808, 1.90, math.pi/2.)))
+
+    def test_body_outside_finishes_before_a_pending_route_turn(self):
+        mission = self.make_mission()
+        self.prepare_following(mission, mission.exit_approach_goal)
+        self.assertTrue(mission._advance_exit_goal(mission.exit_approach_goal))
+        mission.update_odometry((1.808, 1.90, math.pi/2.), .2, .1, 10.05)
+        mission.route_turn = RouteTurn('PREPARE', 0., 1.2)
+        with patch.object(mission, '_follow_route_turn') as turn, patch.object(
+                mission.local_planner, 'local_command') as local:
+            self.assertEqual(mission.step(10.05), (0., 0., True))
+        turn.assert_not_called()
+        local.assert_not_called()
+        self.assertEqual(mission.state, 'COMPLETE')
 
     def test_old_running_search_cannot_restore_inside_guidance(self):
         mission = self.make_mission()

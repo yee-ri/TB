@@ -405,23 +405,22 @@ class TunnelInputAndEntryTest(unittest.TestCase):
                     self.assertEqual(mission.state, 'ENTRY')
                     self.assertFalse(complete)
 
-    def test_expired_alignment_uses_entrance_prior_without_blocking_entry(self):
+    def test_old_accepted_alignment_is_used_instead_of_entrance_prior(self):
         mission = self.make_mission()
         self.feed(mission, 10.)
         mission.update_odometry((0., 0., 0.), 0., 0., 10.335)
-        # The fit has already completed; only its independent acceptance
-        # lifetime is under test, not the geometric wall-fitting algorithm.
+        # The fitted pose belongs to scan acquisition, even if read later.
         mission.localizer = SimpleNamespace()
-        mission.entrance_localizer = SimpleNamespace(prior=(.213, -.022, 0.))
-        mission.localization_result = (SimpleNamespace(accepted=True),
+        mission.entrance_localizer = SimpleNamespace(prior=(.213, -.022, 0.), diagnostics={})
+        mission.localization_result = (SimpleNamespace(accepted=True, pose=Pose2D(.05, .01, 0.), rms=.001),
                                        (0., 0., 0.), 10.)
         linear, angular, complete = mission.step(10.335)
         self.assertGreater(abs(linear)+abs(angular), 0.)
         self.assertFalse(complete)
         self.assertEqual(mission.state, 'ENTRY')
         pose = relative_pose(mission.odom[:3], mission.anchor)
-        np.testing.assert_allclose((pose.x, pose.y, pose.yaw), (.213, -.022, 0.))
-        self.assertIn('entrance fit input expired', mission.localization_report)
+        np.testing.assert_allclose((pose.x, pose.y, pose.yaw), (.05, .01, 0.))
+        self.assertIn('entrance measured', mission.localization_report)
 
     def test_clock_refresh_after_waiting_for_lock_keeps_received_inputs_usable(self):
         mission = self.make_mission()

@@ -261,12 +261,14 @@ class ExitStagesTest(unittest.TestCase):
             else:
                 self.fail('exit alignment waited for measured heading instead of sent angle')
 
-    def test_body_must_still_cross_the_actual_exit_opening(self):
+    def test_inside_stage_and_current_body_outside_are_required_for_completion(self):
         mission = self.mission(pose=(*INSIDE, math.pi/2))
         self.assertFalse(mission._goal_reached(Pose2D(*INSIDE, math.pi/2)))
+        self.assertFalse(mission._goal_reached(Pose2D(1.808, 1.81, math.pi/2)))
+        self.assertTrue(mission._advance_exit_goal(Pose2D(*INSIDE, math.pi/2)))
         self.assertFalse(mission._goal_reached(Pose2D(1.808, 1.65, math.pi/2)))
         self.assertFalse(mission._goal_reached(Pose2D(1.808, 1.70, math.pi/2)))
-        self.assertTrue(mission.exit_crossed)
+        self.assertIs(mission.route_goal, mission.goal)
         self.assertTrue(mission._goal_reached(Pose2D(1.808, 1.81, math.pi/2)))
         self.assertEqual(mission._finish_goal(Pose2D(1.808, 1.81, math.pi/2), .05, 10.2),
                          (0., 0., True))

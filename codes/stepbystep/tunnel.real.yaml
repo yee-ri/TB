@@ -23,8 +23,13 @@ localization:
   observation_window: 1.0
   height_band: [0.04, 0.23]
   tracking_period: 0.20 # Moving wall alignment in a separate worker; 0 disables it.
-  tracking_max_translation: 0.08 # Maximum correction per accepted fit, metres.
-  tracking_max_yaw_deg: 6.0
+  tracking_max_translation: 0.30 # Wall-fit search and maximum correction, metres.
+  tracking_max_yaw_deg: 15.0
+  wall_fit:
+    maximum_rms: 0.020
+    minimum_wall_span: 0.10
+  exit_tracking_max_translation: 0.08
+  exit_tracking_max_yaw_deg: 6.0
 odometry:
   linear_scale: 2.893939393939394 # Multiply input odom XY and linear speed; divide tunnel linear commands.
   angular_command_scale: 3.3 # Divide tunnel angular commands; measured IMU yaw/rate are unchanged.
@@ -59,7 +64,7 @@ sensors:
   range_min: 0.05
   range_max: 3.0
   angular_bins: 720
-  maximum_age: 0.3 # Initial wall alignment and background wall-fit result age, seconds.
+  maximum_age: 0.3 # Background wall-fit result age, seconds.
   maximum_future_stamp: 0.06
   lane_maximum_age: 0.3
   minimum_lane_pixels: 30
