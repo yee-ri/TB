@@ -1,7 +1,7 @@
-# Practice tunnel: 1.820 m outer square, 0.002 m walls, 0.300 m openings.
+# Tunnel: 1.800 m outer width x 1.820 m depth, 0.010 m walls, 0.300 m openings.
 # Map origin: nominal axle centre 0.140 m outside the entrance, facing inward.
 localization:
-  geometry: maps/tunnel_practice_1820.geometry.json
+  geometry: maps/tunnel_1800x1820.geometry.json
   entrance:
     prior_pose: [0.235, -0.022, 0.0] # Entry pose [x, y, yaw_rad]: feature search and fallback if the fit is unusable.
     cluster_distance: 0.02
@@ -34,7 +34,7 @@ odometry:
   linear_scale: 2.893939393939394 # Multiply input odom XY and linear speed; divide tunnel linear commands.
   angular_command_scale: 3.3 # Divide tunnel angular commands; measured IMU yaw/rate are unchanged.
 goal:
-  pose: [1.808, 1.868, 90.0] # [x, y, yaw_deg] in the tunnel map frame.
+  pose: [1.800, 1.840, 90.0] # [x, y, yaw_deg] in the tunnel map frame.
   approach_distance: 0.188 # First goal: opening centre, this far inside; then plan to pose.
   approach_velocity: 0.2 # Forward speed target near the inside goal, before command scaling.
   approach_slowdown_distance: 0.2 # Begin lowering the speed target this far from the inside goal, metres.
@@ -42,8 +42,8 @@ goal:
   position_tolerance: 0.035
   heading_tolerance_deg: 10.0
   exit_crossing: # Hand off after the entire body crosses this opening outward.
-    - [1.658, 1.668]
-    - [1.958, 1.668]
+    - [1.650, 1.640]
+    - [1.950, 1.640]
 footprint:
   front: 0.0678
   rear: 0.118073
@@ -72,8 +72,8 @@ grid:
   bounds: [-0.5, -0.4, 2.4, 2.2]
   resolution: 0.02
   static_map:
-    image: maps/tunnel_practice_1820.pgm
-    geometry: maps/tunnel_practice_1820.geometry.json
+    image: maps/tunnel_1800x1820.pgm
+    geometry: maps/tunnel_1800x1820.geometry.json
     origin: [-0.5, -0.4]
     quarter_turns: 0
   static_hit_exclusion_radius: 0.1
@@ -100,8 +100,8 @@ entry:
 planner:
   keep_in_rectangles: # Permitted base-centre regions; body collision is checked separately.
     - [-0.42, -0.15, 0.34, 0.15]
-    - [0.142, -0.15, 1.958, 1.666]
-    - [1.658, 1.488, 1.958, 2.068]
+    - [0.150, -0.150, 1.950, 1.630]
+    - [1.650, 1.460, 1.950, 2.040]
   minimum_turning_radius: 0.18
 control:
   period: 0.05

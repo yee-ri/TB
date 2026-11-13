@@ -5,6 +5,7 @@ The closed loops use independently raycast fixed walls and ideal odometry;
 they are not evidence of physical sensor precision or braking performance.
 """
 
+import json
 import math
 from pathlib import Path
 import sys
@@ -25,6 +26,26 @@ from tunnel.geometry import Pose2D
 
 CONFIG = Path(__file__).resolve().parents[1] / 'codes/stepbystep/tunnel.real.yaml'
 SENSOR = (-.033073, 0., 0.)
+
+
+def recorded_practice_config():
+    """Run recorded poses against their original 1820 mm square survey."""
+    config = load_config(CONFIG)
+    geometry_path = Path(__file__).with_name('fixtures') / 'tunnel_practice_1820.geometry.json'
+    survey = json.loads(geometry_path.read_text())
+    raster = survey['raster']
+    config['grid']['static_map'] = {
+        'image': str(geometry_path.with_name(raster['image'])),
+        'geometry': str(geometry_path),
+        'origin': raster['origin'],
+        'quarter_turns': raster['quarter_turns'],
+    }
+    config['localization']['geometry'] = str(geometry_path)
+    config['localization']['wall_rectangles'] = survey['wall_rectangles']
+    config['goal']['pose'] = survey['goal']['pose']
+    config['goal']['exit_crossing'] = survey['exit_clear_segment']
+    config['planner']['keep_in_rectangles'] = survey['keep_in_rectangles']
+    return config
 
 
 def compose(pose, frame):
@@ -63,8 +84,8 @@ def fixed_wall_cloud(pose, rectangles):
 
 
 class TunnelAlignmentMissionTest(unittest.TestCase):
-    def mission(self, fitted=(.04, 0., 0.), observation_window=0.):
-        config = load_config(CONFIG)
+    def mission(self, fitted=(.04, 0., 0.), observation_window=0., historical_map=False):
+        config = recorded_practice_config() if historical_map else load_config(CONFIG)
         # These lifecycle tests supply fits directly. Separate cases below
         # enable accumulation and test its independent timing/frame behavior.
         config['localization']['observation_window'] = observation_window
@@ -121,7 +142,7 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
                 self.assertAlmostEqual(mission.entry_start_x, start_x)
                 self.assertEqual(mission.state, 'ENTRY')
                 np.testing.assert_allclose(compose((mission.goal.x, mission.goal.y, mission.goal.yaw),
-                                                   mission.anchor), (1.808, 1.868, math.pi/2))
+                                                   mission.anchor), (1.800, 1.840, math.pi/2))
 
     def test_anchor_uses_acquisition_odometry_not_latest_odometry(self):
         pose, frame = (.04, .02, .03), (2., -1., .7)
@@ -566,7 +587,7 @@ class TunnelAlignmentMissionTest(unittest.TestCase):
 
     def test_recorded_stop_pose_uses_actual_body_without_added_padding(self):
         pose = (.511643, -.003789, math.radians(26.334))
-        mission = self.mission(pose)
+        mission = self.mission(pose, historical_map=True)
         now = self.initialize_from_first_fit(mission, pose)
         self.feed(mission, now + .1, pose)
         grid = mission._grid()

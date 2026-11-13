@@ -48,6 +48,8 @@ docker compose -f compose.gazebo.yaml down
 docker compose -f compose.gazebo.yaml run --rm --no-deps gazebo bash -lc 'source /opt/ros/noetic/setup.bash && source /workspace/devel/setup.bash && python3 -m unittest discover -s tests && python3 tests/ros_smoke.py'
 ```
 
+Windows에서 실차 화면을 보려면 [README의 TB3 화면 접속 명령](README.md)을 사용한다.
+
 TB1에서 카메라·LiDAR·OpenCR·장착 TF를 시작한다. 카메라 수동 노출은 `16000µs`다.
 
 ```bash

@@ -14,14 +14,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'codes'))
 from tunnel.geometry import Pose2D
 from tunnel.mission import RouteTurn, RouteUpdate, TunnelMission, load_config, relative_pose
 from tunnel.planner import GlobalRoute
+from test_tunnel_alignment_mission import recorded_practice_config
 
 
 CONFIG = Path(__file__).resolve().parents[1] / 'codes/stepbystep/tunnel.real.yaml'
 
 
 class ExitApproachAreaTest(unittest.TestCase):
-    def make_mission(self, angle=0., reverse=False, approach=True):
-        config = load_config(CONFIG)
+    def make_mission(self, angle=0., reverse=False, approach=True, historical_map=False):
+        config = recorded_practice_config() if historical_map else load_config(CONFIG)
         # These tests supply map-frame poses directly; no sensor fit is involved.
         config.pop('localization', None)
         if not approach:
@@ -75,14 +76,14 @@ class ExitApproachAreaTest(unittest.TestCase):
         self.assertTrue(mission._advance_exit_goal(pose))
 
     def test_real_opening_limits_include_edges_and_reject_outside_points(self):
-        for x, y in ((1.7483, 1.445), (1.8677, 1.445),
-                     (1.7483, 1.668), (1.8677, 1.668)):
+        for x, y in ((1.7403, 1.417), (1.8597, 1.417),
+                     (1.7403, 1.640), (1.8597, 1.640)):
             with self.subTest(inside=(x, y)):
                 mission = self.make_mission()
                 self.assertTrue(mission._advance_exit_goal(Pose2D(x, y, 0.)))
-        for x, y in ((1.74829, 1.55), (1.86771, 1.55),
-                     (1.808, 1.44499), (1.808, 1.66801),
-                     (1.908, 1.48)):
+        for x, y in ((1.74029, 1.522), (1.85971, 1.522),
+                     (1.800, 1.41699), (1.800, 1.64001),
+                     (1.900, 1.452)):
             with self.subTest(outside=(x, y)):
                 mission = self.make_mission()
                 self.assertFalse(mission._advance_exit_goal(Pose2D(x, y, 0.)))
@@ -92,10 +93,10 @@ class ExitApproachAreaTest(unittest.TestCase):
         for angle in (0., math.pi/2., -.63):
             c, s = math.cos(angle), math.sin(angle)
             for reverse in (False, True):
-                for (x, y), expected in (((1.858, 1.48), True),
-                                         ((1.808, 1.58), True),
-                                         ((1.908, 1.48), False),
-                                         ((1.808, 1.44), False)):
+                for (x, y), expected in (((1.850, 1.452), True),
+                                         ((1.800, 1.552), True),
+                                         ((1.900, 1.452), False),
+                                         ((1.800, 1.412), False)):
                     with self.subTest(angle=angle, reverse=reverse, point=(x, y)):
                         mission = self.make_mission(angle, reverse)
                         pose = Pose2D(c*x-s*y, s*x+c*y, angle)
@@ -134,7 +135,7 @@ class ExitApproachAreaTest(unittest.TestCase):
 
     def test_outside_body_cannot_complete_before_inside_approach_is_accepted(self):
         mission = self.make_mission()
-        outside = Pose2D(1.808, 1.90, math.pi/2.)
+        outside = Pose2D(1.800, 1.872, math.pi/2.)
         self.assertFalse(mission._goal_reached(outside))
         self.assertIs(mission.route_goal, mission.exit_approach_goal)
         self.assertTrue(mission._advance_exit_goal(mission.exit_approach_goal))
@@ -145,7 +146,7 @@ class ExitApproachAreaTest(unittest.TestCase):
     def test_outside_stage_can_complete_without_an_intermediate_crossing_sample(self):
         mission = self.make_mission()
         self.assertTrue(mission._advance_exit_goal(mission.exit_approach_goal))
-        self.assertTrue(mission._goal_reached(Pose2D(1.808, 1.90, math.pi/2.)))
+        self.assertTrue(mission._goal_reached(Pose2D(1.800, 1.872, math.pi/2.)))
 
     def test_completion_uses_the_rotated_body_not_only_the_axle(self):
         for heading in (0., math.radians(25), math.pi/2., math.radians(120), math.pi):
@@ -156,12 +157,12 @@ class ExitApproachAreaTest(unittest.TestCase):
                 rear_offset = min(x*math.sin(heading)+y*math.cos(heading)
                                   for x in (-footprint.rear, footprint.front)
                                   for y in (-footprint.half_width, footprint.half_width))
-                threshold = 1.668-rear_offset
-                self.assertFalse(mission._goal_reached(Pose2D(1.808, threshold-1e-6, heading)))
-                self.assertTrue(mission._goal_reached(Pose2D(1.808, threshold+1e-6, heading)))
+                threshold = 1.640-rear_offset
+                self.assertFalse(mission._goal_reached(Pose2D(1.800, threshold-1e-6, heading)))
+                self.assertTrue(mission._goal_reached(Pose2D(1.800, threshold+1e-6, heading)))
 
     def test_six_mm_wall_correction_cannot_lose_exit_completion(self):
-        mission = self.make_mission()
+        mission = self.make_mission(historical_map=True)
         # Recorded reconstruction: a correction moved the prior control sample
         # from 5.659 mm inside the plane to 0.410 mm outside it.
         before = Pose2D(1.7971118873041465, 1.6623408390994634, 1.5788110302486782)
@@ -188,18 +189,18 @@ class ExitApproachAreaTest(unittest.TestCase):
 
     def test_wall_correction_preserves_inside_stage_until_area_arrival(self):
         mission = self.make_mission()
-        before = Pose2D(1.808, 1.30, math.pi/2.)
+        before = Pose2D(1.800, 1.272, math.pi/2.)
         self.prepare_following(mission, before)
         mission._apply_tracking_pose((before.x, before.y, before.yaw),
-                                     Pose2D(1.808, 1.306, math.pi/2.))
+                                     Pose2D(1.800, 1.278, math.pi/2.))
         self.assertIs(mission.route_goal, mission.exit_approach_goal)
-        self.assertFalse(mission._goal_reached(Pose2D(1.808, 1.90, math.pi/2.)))
+        self.assertFalse(mission._goal_reached(Pose2D(1.800, 1.872, math.pi/2.)))
 
     def test_body_outside_finishes_before_a_pending_route_turn(self):
         mission = self.make_mission()
         self.prepare_following(mission, mission.exit_approach_goal)
         self.assertTrue(mission._advance_exit_goal(mission.exit_approach_goal))
-        mission.update_odometry((1.808, 1.90, math.pi/2.), .2, .1, 10.05)
+        mission.update_odometry((1.800, 1.872, math.pi/2.), .2, .1, 10.05)
         mission.route_turn = RouteTurn('PREPARE', 0., 1.2)
         with patch.object(mission, '_follow_route_turn') as turn, patch.object(
                 mission.local_planner, 'local_command') as local:
@@ -240,7 +241,7 @@ class ExitApproachAreaTest(unittest.TestCase):
     def test_no_approach_goal_keeps_existing_exit_behavior(self):
         mission = self.make_mission(approach=False)
         self.assertIsNone(mission.exit_approach_goal)
-        self.assertFalse(mission._advance_exit_goal(Pose2D(1.808, 1.55, 0.)))
+        self.assertFalse(mission._advance_exit_goal(Pose2D(1.800, 1.522, 0.)))
         self.assertIs(mission.route_goal, mission.goal)
 
 

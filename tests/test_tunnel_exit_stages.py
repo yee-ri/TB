@@ -18,12 +18,12 @@ from tunnel.tracking import LimitedCommand
 
 
 CONFIG = Path(__file__).resolve().parents[1] / 'codes/stepbystep/tunnel.real.yaml'
-INSIDE = (1.808, 1.480)
-OUTSIDE = (1.808, 1.868)
+INSIDE = (1.800, 1.452)
+OUTSIDE = (1.800, 1.840)
 
 
 class ExitStagesTest(unittest.TestCase):
-    def mission(self, pose=(1.2, 1.48, 0.), staged=True, crossing=True,
+    def mission(self, pose=(1.2, 1.452, 0.), staged=True, crossing=True,
                 exit_alignment_speed=None, entry_alignment_speed=None):
         config = load_config(CONFIG)
         config.pop('localization', None)
@@ -66,7 +66,7 @@ class ExitStagesTest(unittest.TestCase):
     def start_outside_alignment(self):
         mission = self.mission(pose=(*INSIDE, 0.), exit_alignment_speed=.9,
                                entry_alignment_speed=.3)
-        mission.global_path = GlobalRoute(np.array(((1.2, 1.48), INSIDE)))
+        mission.global_path = GlobalRoute(np.array(((1.2, 1.452), INSIDE)))
         mission.state = 'FOLLOWING'
         with patch.object(mission.local_planner, 'global_route', side_effect=self.route):
             mission.step(10.05)
@@ -98,15 +98,15 @@ class ExitStagesTest(unittest.TestCase):
         np.testing.assert_allclose(turns[2:], .9, atol=1e-10)
 
     def test_first_inside_route_alignment_uses_the_configured_entry_pivot_speed(self):
-        mission = self.mission(pose=(1.2, 1.48, -math.pi/2), exit_alignment_speed=.9,
+        mission = self.mission(pose=(1.2, 1.452, -math.pi/2), exit_alignment_speed=.9,
                                entry_alignment_speed=.3)
         mission.worker = SimpleNamespace(is_alive=lambda: True)
         mission.pending_route = RouteUpdate(
-            GlobalRoute(np.array(((1.2, 1.48), INSIDE))), '', .01)
+            GlobalRoute(np.array(((1.2, 1.452), INSIDE))), '', .01)
         mission.step(10.05)
         self.assertIsNotNone(mission.route_turn)
         for stamp in (10.10, 10.15, 10.20):
-            self.feed(mission, (1.2, 1.48, -math.pi/2), stamp)
+            self.feed(mission, (1.2, 1.452, -math.pi/2), stamp)
             linear, angular, finished = mission.step(stamp)
             self.assertEqual(linear, 0.)
             self.assertAlmostEqual(angular, .3)
@@ -125,7 +125,7 @@ class ExitStagesTest(unittest.TestCase):
             else:
                 self.fail('first outside turn did not finish from its sent angle')
             mission.pending_route = RouteUpdate(
-                GlobalRoute(np.array((INSIDE, (1.808, .90)))), '', .01)
+                GlobalRoute(np.array((INSIDE, (1.800, .90)))), '', .01)
             stamp += .05
             self.feed(mission, (*INSIDE, 0.), stamp)
             mission.step(stamp)
@@ -141,7 +141,7 @@ class ExitStagesTest(unittest.TestCase):
     def test_initial_global_search_ends_at_inside_point_only(self):
         mission = self.mission()
         with patch.object(mission.local_planner, 'global_route', side_effect=self.route) as search:
-            mission._request_global_plan(Pose2D(1.2, 1.48, 0.), 10.)
+            mission._request_global_plan(Pose2D(1.2, 1.452, 0.), 10.)
             self.join_plan(mission)
         target = search.call_args.args[2]
         np.testing.assert_allclose((target.x, target.y), INSIDE, atol=1e-12)
@@ -152,13 +152,13 @@ class ExitStagesTest(unittest.TestCase):
     def test_inside_stage_never_gives_local_tracking_the_outside_point(self):
         mission = self.mission()
         with patch.object(mission.local_planner, 'global_route', side_effect=self.route):
-            mission._request_global_plan(Pose2D(1.2, 1.48, 0.), 10.)
+            mission._request_global_plan(Pose2D(1.2, 1.452, 0.), 10.)
             self.join_plan(mission)
         mission._accept_global_plan()
         mission.worker = SimpleNamespace(is_alive=lambda: True)
         with patch.object(mission.local_planner, 'local_command',
                           return_value=LimitedCommand(.2, 0.)) as local:
-            for i, xy in enumerate(((1.3, 1.48), (1.6, 1.40), (1.808, 1.43))):
+            for i, xy in enumerate(((1.3, 1.452), (1.6, 1.372), (1.800, 1.402))):
                 now = 10.05 + .05*i
                 self.feed(mission, (*xy, 0.), now)
                 self.assertGreater(mission.step(now)[0], 0.)
@@ -167,7 +167,7 @@ class ExitStagesTest(unittest.TestCase):
 
     def test_reaching_inside_clears_old_pending_route_then_aligns_new_outside_route(self):
         mission = self.mission()
-        old = GlobalRoute(np.array(((1.2, 1.48), INSIDE)))
+        old = GlobalRoute(np.array(((1.2, 1.452), INSIDE)))
         mission.global_path = old
         mission.pending_route = RouteUpdate(old, '', .01)
         mission.state = 'FOLLOWING'
@@ -208,11 +208,11 @@ class ExitStagesTest(unittest.TestCase):
             return self.route(grid, start, goal)
 
         with patch.object(mission.local_planner, 'global_route', side_effect=search):
-            mission._request_global_plan(Pose2D(1.2, 1.48, 0.), 10.)
+            mission._request_global_plan(Pose2D(1.2, 1.452, 0.), 10.)
             old_worker = mission.worker
             self.assertTrue(entered.wait(1.))
             try:
-                mission.global_path = GlobalRoute(np.array(((1.2, 1.48), INSIDE)))
+                mission.global_path = GlobalRoute(np.array(((1.2, 1.452), INSIDE)))
                 mission.state = 'FOLLOWING'
                 self.feed(mission, (*INSIDE, 0.), 10.05)
                 mission.step(10.05)
@@ -235,7 +235,7 @@ class ExitStagesTest(unittest.TestCase):
 
     def test_exit_pivot_finishes_from_sent_angle_even_with_stationary_odometry(self):
         mission = self.mission()
-        mission.global_path = GlobalRoute(np.array(((1.2, 1.48), INSIDE)))
+        mission.global_path = GlobalRoute(np.array(((1.2, 1.452), INSIDE)))
         mission.state = 'FOLLOWING'
         self.feed(mission, (*INSIDE, 0.), 10.05, linear=.4)
         with patch.object(mission.local_planner, 'global_route', side_effect=self.route):
@@ -264,29 +264,29 @@ class ExitStagesTest(unittest.TestCase):
     def test_inside_stage_and_current_body_outside_are_required_for_completion(self):
         mission = self.mission(pose=(*INSIDE, math.pi/2))
         self.assertFalse(mission._goal_reached(Pose2D(*INSIDE, math.pi/2)))
-        self.assertFalse(mission._goal_reached(Pose2D(1.808, 1.81, math.pi/2)))
+        self.assertFalse(mission._goal_reached(Pose2D(1.800, 1.782, math.pi/2)))
         self.assertTrue(mission._advance_exit_goal(Pose2D(*INSIDE, math.pi/2)))
-        self.assertFalse(mission._goal_reached(Pose2D(1.808, 1.65, math.pi/2)))
-        self.assertFalse(mission._goal_reached(Pose2D(1.808, 1.70, math.pi/2)))
+        self.assertFalse(mission._goal_reached(Pose2D(1.800, 1.622, math.pi/2)))
+        self.assertFalse(mission._goal_reached(Pose2D(1.800, 1.672, math.pi/2)))
         self.assertIs(mission.route_goal, mission.goal)
-        self.assertTrue(mission._goal_reached(Pose2D(1.808, 1.81, math.pi/2)))
-        self.assertEqual(mission._finish_goal(Pose2D(1.808, 1.81, math.pi/2), .05, 10.2),
+        self.assertTrue(mission._goal_reached(Pose2D(1.800, 1.782, math.pi/2)))
+        self.assertEqual(mission._finish_goal(Pose2D(1.800, 1.782, math.pi/2), .05, 10.2),
                          (0., 0., True))
         self.assertEqual(mission.state, 'COMPLETE')
 
     def test_reset_restores_the_inside_stage(self):
         mission = self.mission(pose=(*INSIDE, 0.))
-        mission.global_path = GlobalRoute(np.array(((1.2, 1.48), INSIDE)))
+        mission.global_path = GlobalRoute(np.array(((1.2, 1.452), INSIDE)))
         mission.state = 'FOLLOWING'
         with patch.object(mission.local_planner, 'global_route', side_effect=self.route):
             mission.step(10.05)
             mission.step(10.10)
             self.join_plan(mission)
         mission.reset()
-        self.feed(mission, (1.2, 1.48, 0.), 10.2)
+        self.feed(mission, (1.2, 1.452, 0.), 10.2)
         mission._initialize((0., 0., 0.))
         with patch.object(mission.local_planner, 'global_route', side_effect=self.route) as search:
-            mission._request_global_plan(Pose2D(1.2, 1.48, 0.), 10.2)
+            mission._request_global_plan(Pose2D(1.2, 1.452, 0.), 10.2)
             self.join_plan(mission)
         target = search.call_args.args[2]
         np.testing.assert_allclose((target.x, target.y), INSIDE, atol=1e-12)
@@ -294,8 +294,8 @@ class ExitStagesTest(unittest.TestCase):
     def test_approach_uses_door_outward_normal_not_a_fixed_world_axis(self):
         config = load_config(CONFIG)
         config.pop('localization', None)
-        config['goal'].update(pose=[1.868, 1.808, 0.],
-                              exit_crossing=[[1.668, 1.658], [1.668, 1.958]],
+        config['goal'].update(pose=[1.840, 1.800, 0.],
+                              exit_crossing=[[1.640, 1.650], [1.640, 1.950]],
                               approach_distance=.188)
         mission = TunnelMission(config)
         self.addCleanup(mission.close)
@@ -305,12 +305,12 @@ class ExitStagesTest(unittest.TestCase):
             mission._request_global_plan(Pose2D(1.1, 1.4, 0.), 10.)
             self.join_plan(mission)
         target = search.call_args.args[2]
-        np.testing.assert_allclose((target.x, target.y), (1.48, 1.808), atol=1e-12)
+        np.testing.assert_allclose((target.x, target.y), (1.452, 1.800), atol=1e-12)
 
     def test_ordinary_goal_without_exit_keeps_direct_routing_and_tolerance(self):
         mission = self.mission(staged=False, crossing=False)
         with patch.object(mission.local_planner, 'global_route', side_effect=self.route) as search:
-            mission._request_global_plan(Pose2D(1.2, 1.48, 0.), 10.)
+            mission._request_global_plan(Pose2D(1.2, 1.452, 0.), 10.)
             self.join_plan(mission)
         self.assertEqual(search.call_args.args[2], mission.goal)
         self.assertFalse(mission._goal_reached(Pose2D(*INSIDE, 0.)))
@@ -319,7 +319,7 @@ class ExitStagesTest(unittest.TestCase):
     def test_opening_without_staging_keeps_direct_outside_routing(self):
         mission = self.mission(staged=False)
         with patch.object(mission.local_planner, 'global_route', side_effect=self.route) as search:
-            mission._request_global_plan(Pose2D(1.2, 1.48, 0.), 10.)
+            mission._request_global_plan(Pose2D(1.2, 1.452, 0.), 10.)
             self.join_plan(mission)
         self.assertEqual(search.call_args.args[2], mission.goal)
         self.assertTrue(mission._accept_global_plan())

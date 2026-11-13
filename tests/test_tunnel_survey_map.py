@@ -38,10 +38,10 @@ class SurveyMapTests(unittest.TestCase):
     def test_verified_survey_refines_every_wall_without_boundary_slivers(self):
         refined = self.refine()
         self.assertEqual(len(refined), np.count_nonzero(self.data))
-        self.assertEqual(len(refined), 334)
+        self.assertEqual(len(refined), 330)
         for rectangles in refined.values():
             boxes = np.asarray(rectangles)
-            self.assertGreaterEqual(np.min(boxes[:, 2:] - boxes[:, :2]), .002 - 1e-10)
+            self.assertGreaterEqual(np.min(boxes[:, 2:] - boxes[:, :2]), .010 - 1e-10)
 
     def test_raster_metadata_and_image_hash_must_match(self):
         for field, bad in [('resolution', .01), ('origin', [-.49, -.4]),
@@ -99,7 +99,7 @@ class SurveyMapTests(unittest.TestCase):
         self.assertFalse(inspect_geometry(mission.geometry).pose_is_collision_free(grid, Pose2D(.5, -.061, 0.)))
         for rectangles in mission.static_cell_rectangles.values():
             for xmin, ymin, xmax, ymax in rectangles:
-                self.assertAlmostEqual(ymin, -.152)
+                self.assertAlmostEqual(ymin, -.160)
                 self.assertAlmostEqual(ymax, -.15)
 
 

@@ -14,7 +14,7 @@ from tunnel.geometry import Pose2D, normalize_angle
 from tunnel.localization import WallLocalizer
 
 
-WALLS = json.loads((ROOT / 'codes/stepbystep/maps/tunnel_practice_1820.geometry.json')
+WALLS = json.loads((ROOT / 'tests/fixtures/tunnel_practice_1820.geometry.json')
                    .read_text())['wall_rectangles']
 
 

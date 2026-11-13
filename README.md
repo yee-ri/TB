@@ -2,6 +2,7 @@
 
 TB1 저장소는 `/home/sj/Desktop/TB`다. 다른 컴퓨터에서는 `cd` 경로를 실제 저장소 위치에 맞춘다.
 주행 파일은 `codes/stepbystep/test.py`이며, `current.lut`와 `images/left.png`, `images/right.png`는 기존 위치에 둔다.
+터널 설정은 `codes/stepbystep/tunnel.real.yaml`을 사용한다. 외곽 가로 1800mm × 깊이 1820mm, 벽 두께 10mm, 입출구 폭 300mm 기준이다.
 
 ## 1. 센서 시작 — 터미널 A
 
@@ -15,7 +16,14 @@ bash start_robot.sh
 
 ## 2. 전체 주행 — 터미널 B
 
-경기 출발 위치에 로봇을 놓고 센서가 준비된 뒤 실행한다.
+**Windows에서 카메라·LUT 화면을 보려면**, X 서버를 켜고 터미널 B로 사용할 새 PowerShell 창에서 접속한다.
+
+```powershell
+$env:DISPLAY = "127.0.0.1:0.0"
+ssh -Y -C TB3
+```
+
+경기 출발 위치에 로봇을 놓고 센서가 준비되면, 접속한 터미널에서 실행한다.
 
 ```bash
 cd /home/sj/Desktop/TB

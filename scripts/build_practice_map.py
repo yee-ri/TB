@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Rebuild the user's 1820 mm OUTER-square, 2 mm wall practice tunnel.
-
-Pure geometry only: does not import ROS, run a controller, or publish anything.
-Keep the 20 mm runtime raster and mark every cell intersecting a wall. The
-physical walls remain 2 mm; occupied cells conservatively overstate thickness.
-"""
+"""Build the surveyed tunnel raster and exact wall geometry without ROS."""
 import hashlib
 import json
 from pathlib import Path
@@ -14,17 +9,60 @@ ROOT = Path(__file__).resolve().parents[1]
 MAPS = ROOT / 'codes' / 'stepbystep' / 'maps'
 RESOLUTION = 0.02
 BOUNDS = [-0.5, -0.4, 2.4, 2.2]
-# Local x is the initial robot forward direction; local y is its left side.
-# Wheel-axis midpoint is 140 mm before the entry wall and on the portal axis.
-WALLS = {
-    'entry_wall': [0.140, 0.150, 0.142, 1.668],
-    'far_wall': [1.958, -0.152, 1.960, 1.668],
-    'right_side_wall': [0.140, -0.152, 1.960, -0.150],
-    'exit_wall': [0.140, 1.666, 1.658, 1.668],
-}
+MAP_NAME = 'tunnel_1800x1820'
+OUTER_WIDTH_MM = 1800  # Left/right when looking into the entrance: map y.
+OUTER_DEPTH_MM = 1820  # Forward from the entrance: map x.
+WALL_MM = 10
+ENTRY_WIDTH_MM = 300
+EXIT_WIDTH_MM = 300
 
 
-def build():
+def surveyed_geometry():
+    # The origin stays on the entrance centreline, 140 mm outside its wall.
+    x0, y0 = 140, -ENTRY_WIDTH_MM / 2 - WALL_MM
+    x1, y1 = x0 + OUTER_DEPTH_MM, y0 + OUTER_WIDTH_MM
+    ix0, iy0, ix1, iy1 = x0 + WALL_MM, y0 + WALL_MM, x1 - WALL_MM, y1 - WALL_MM
+    exit_left = ix1 - EXIT_WIDTH_MM
+
+    def metres(values):
+        return [value / 1000 for value in values]
+
+    return {
+        'source': 'User-confirmed outer dimensions, 2026-11-13 Asia/Seoul',
+        'user_dimensions_m': {
+            'outer_width': OUTER_WIDTH_MM / 1000,
+            'outer_depth': OUTER_DEPTH_MM / 1000,
+            'wall_thickness': WALL_MM / 1000,
+            'entry_clear_width': ENTRY_WIDTH_MM / 1000,
+            'exit_clear_width': EXIT_WIDTH_MM / 1000,
+        },
+        'coordinate_frame': 'Origin 140mm outside entrance centre; +x inward, +y left.',
+        'outer_bounds': metres([x0, y0, x1, y1]),
+        'inner_clear_bounds': metres([ix0, iy0, ix1, iy1]),
+        'inner_clear_size_m': {
+            'width': (iy1 - iy0) / 1000,
+            'depth': (ix1 - ix0) / 1000,
+        },
+        'wall_rectangles': {
+            'entry_wall': metres([x0, ENTRY_WIDTH_MM / 2, ix0, y1]),
+            'far_wall': metres([ix1, y0, x1, y1]),
+            'right_side_wall': metres([x0, y0, x1, iy0]),
+            'exit_wall': metres([x0, iy1, exit_left, y1]),
+        },
+        'entry_clear_segment': [metres([x0, iy0]), metres([x0, ENTRY_WIDTH_MM / 2])],
+        'exit_clear_segment': [metres([exit_left, y1]), metres([ix1, y1])],
+        'goal': {'pose': metres([(exit_left + ix1) / 2, y1 + 200]) + [90.0]},
+        'keep_in_rectangles': [
+            metres([x0 - 560, iy0, x0 + 200, ENTRY_WIDTH_MM / 2]),
+            metres([ix0, iy0, ix1, iy1]),
+            metres([exit_left, y1 - 180, ix1, y1 + 400]),
+        ],
+    }
+
+
+def build(output_dir=MAPS):
+    geometry = surveyed_geometry()
+    walls = geometry['wall_rectangles']
     width = round((BOUNDS[2] - BOUNDS[0]) / RESOLUTION)
     height = round((BOUNDS[3] - BOUNDS[1]) / RESOLUTION)
     pixels = bytearray([254] * (width * height))
@@ -38,48 +76,22 @@ def build():
             xmax = xmin + RESOLUTION
             if any(min(xmax, wall[2]) - max(xmin, wall[0]) > 1e-10
                    and min(ymax, wall[3]) - max(ymin, wall[1]) > 1e-10
-                   for wall in WALLS.values()):
+                   for wall in walls.values()):
                 pixels[row * width + column] = 0
                 occupied += 1
-    image = ('P5\n# 1820mm OUTER square; 2mm walls; 300mm openings\n'
+    image = ('P5\n# 1800mm width x 1820mm depth OUTER; 10mm walls; 300mm openings\n'
              '{} {}\n255\n'.format(width, height)).encode('ascii') + pixels
-    image_path = MAPS / 'tunnel_practice_1820.pgm'
+    image_path = Path(output_dir) / (MAP_NAME + '.pgm')
     image_path.write_bytes(image)
-    geometry = {
-        'source': 'User confirmation in this chat, 2026-10-09 Asia/Seoul',
-        'status': 'Dimensions user-confirmed; nominal start defines the surveyed map frame. Actual activation pose is measured from LiDAR, not assumed equal to this reference.',
-        'user_dimensions_m': {'outer_square': 1.820, 'wall_thickness': 0.002,
-                              'entry_clear_width': 0.300, 'exit_clear_width': 0.300},
-        'topology': 'Entry near the right corner; exit on the perpendicular left side near the far corner, matching the existing tunnel topology.',
-        'coordinate_frame': 'Fixed survey frame: origin at nominal axle 140mm outside entry; +x perpendicular inward, +y left, yaw degrees counterclockwise. Independent of actual activation pose.',
-        'outer_square_bounds': [0.140, -0.152, 1.960, 1.668],
-        'inner_clear_bounds': [0.142, -0.150, 1.958, 1.666],
-        'inner_clear_square_m': 1.816,
-        'wall_rectangles': WALLS,
-        'entry_clear_segment': [[0.140, -0.150], [0.140, 0.150]],
-        'exit_clear_segment': [[1.658, 1.668], [1.958, 1.668]],
-        'start_pose_local': [0.0, 0.0, 0.0],
-        'placement': {'wheel_axis_before_outer_entry_wall_m': 0.140,
-                      'wheel_axis_left_of_right_inner_side_wall_m': 0.150,
-                      'heading': 'Perpendicular inward through the entry, aligned with its centre.'},
-        'goal': {'pose': [1.808, 1.868, 90.0]},
-        'entry': {'distance': 0.920, 'obstacle_clearance': 0.300,
-                  'source': 'Preserved original normal straight-entry distance and body-front obstacle gap.'},
-        'keep_in_rectangles': [[-0.420, -0.150, 0.340, 0.150],
-                               [0.142, -0.150, 1.958, 1.666],
-                               [1.658, 1.488, 1.958, 2.068]],
-        'raster': {'image': image_path.name, 'resolution': RESOLUTION,
+    geometry['raster'] = {'image': image_path.name, 'resolution': RESOLUTION,
                    'origin': BOUNDS[:2], 'quarter_turns': 0,
                    'grid_bounds': BOUNDS, 'width': width, 'height': height,
                    'occupied_cells': occupied,
                    'sha256': hashlib.sha256(image).hexdigest(),
                    'method': 'Conservative positive-area cell/wall overlap; black=occupied, 254=free. No cylinders or full-course obstacles are baked in.',
-                   'limit': '20 mm cells enlarge 2 mm walls and may narrow each opening; exact dimensions are the continuous rectangles above.'},
-        'not_verified': ['Actual robot placement', 'On-site competition dimensions',
-                         'Dynamic obstacles', 'Physical odometry scale and braking',
-                         'Hardware stop switch operation'],
+                   'limit': 'Raster cells index walls; exact wall rectangles provide physical boundaries.',
     }
-    output = MAPS / 'tunnel_practice_1820.geometry.json'
+    output = Path(output_dir) / (MAP_NAME + '.geometry.json')
     output.write_text(json.dumps(geometry, indent=2, ensure_ascii=False) + '\n',
                       encoding='utf-8')
     print(str(image_path))

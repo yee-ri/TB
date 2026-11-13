@@ -14,7 +14,7 @@ from tunnel.localization import WallLocalizer
 from test_tunnel_alignment_mission import fixed_wall_cloud, SENSOR
 
 
-GEOMETRY = json.loads((ROOT / 'codes/stepbystep/maps/tunnel_practice_1820.geometry.json').read_text())
+GEOMETRY = json.loads((ROOT / 'tests/fixtures/tunnel_practice_1820.geometry.json').read_text())
 
 
 def base_points(mapped, pose):
