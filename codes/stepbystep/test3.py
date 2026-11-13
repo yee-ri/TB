@@ -217,6 +217,8 @@ class turtlebot():
         self.sequence = 0
         self.parking_side=None      
         self.yellow_zero_count=0
+        self.right_c = 0
+        self.left_c = 0
 
 
         self.obstacle_start_ready = False # step 3 진입 후 100프레임 대기 완료 여부
@@ -1443,11 +1445,11 @@ class turtlebot():
         cx = width // 2
         cy = max(0, height // 2 - 170)
 
-        cx_r = width // 2 + 250
-        cy_r= height // 2 
+        cx_r = width // 2 + 300
+        cy_r= height // 2 + 30
 
-        cx_l = width // 2 - 250
-        cy_l= height // 2 
+        cx_l = width // 2 - 300
+        cy_l= height // 2 + 30
 
         self.depth_point = (cx, cy, width, height)
         self.depth_point_r = (cx_r, cy_r, width, height)
@@ -1476,8 +1478,8 @@ class turtlebot():
         self.depth_r = depth_r / 1000.0 if data.encoding == '16UC1' else depth_r
 
         rospy.loginfo_throttle(1.0, "DEPTH (%d, %d): %.3f m", cx, cy, self.depth)
-        rospy.loginfo_throttle(1.0, "DEPTH LLL (%d, %d): %.3f m", cx_l, cy_l, self.depth_l)
-        rospy.loginfo_throttle(1.0, "DEPTH RRR (%d, %d): %.3f m", cx_r, cy_r, self.depth_r)
+        # rospy.loginfo_throttle(1.0, "DEPTH LLL (%d, %d): %.3f m", cx_l, cy_l, self.depth_l)
+        # rospy.loginfo_throttle(1.0, "DEPTH RRR (%d, %d): %.3f m", cx_r, cy_r, self.depth_r)
         
     def just_count(self,image,total_count):
         self.just_count_frames+=1
@@ -1620,18 +1622,30 @@ class turtlebot():
                 self.turn_time('straight',1.5,0.06,0)
                 self.turn_time('left',1.2,0.02,0.35) #duration,linear_speed,angular_speed)
                 self.set = 1
+                self.right_c = 0
 
             if self.parking_end:
                 self.stop()
                 return
 
-            if self.set ==1 and (0.25<=round(self.depth_r,1)<=0.5):
+            if self.right_distance<=0.7:
+                self.right_c +=1
+            else: self.right_c = 0
+            if self.left_distance<=0.7:
+                self.left_c +=1
+            else: self.left_c = 0
+            rospy.loginfo("RRRR: %f, LEFT:%f",self.right_c,self.left_c)
+            # if self.set ==1 and (0.25<=round(self.depth_r,1)<=0.5):
+            if (self.set ==1 and self.left_c >=2) or (self.set ==1 and self.left_distance <0.6):
                 rospy.loginfo("@@@@@@@@@@@")
-                self.set = 2
-            # if self.set ==1 and 0.15<=self.left_distance<=0.21: #왼쪽에뭐있음
-            if self.set ==1 and 0.25<=round(self.depth_r,1)<=0.5:
-                rospy.loginfo("@@@@@@@@@@@")
+                # self.move(0.8)
                 self.set = 3
+            # if self.set ==1 and 0.15<=self.left_distance<=0.21: #왼쪽에뭐있음
+            # if self.set ==1 and 0.25<=round(self.depth_r,1)<=0.5:
+            if (self.set ==1 and self.right_c>=2) or (self.set ==1 and self.right_distance < 0.6):
+                rospy.loginfo("@@@@@@@@@@@")
+                # self.move(0.8)
+                self.set = 2
 
             if self.set==2 or self.set==3:
                 self.parking(image)

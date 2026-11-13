@@ -29,8 +29,8 @@ class TemplateMatch:
         rospy.loginfo("%f , %df",height,width)
         # cx = width // 2 
         # cy = height // 2 -170
-        cx_r = width // 2 + 250
-        cy_r= height // 2 
+        cx_r = width // 2 + 290
+        cy_r= height // 2 + 30
         self.depth_point = (cx_r, cy_r, width, height)
 
         # self.depth_point = (cx, cy, width, height)
