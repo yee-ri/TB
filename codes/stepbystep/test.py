@@ -579,14 +579,18 @@ class turtlebot():
 
     def sign_blue_mask(self, image):
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, np.array([97, 180, 15]), np.array([117, 255, 90]))
+        # mask = cv2.inRange(hsv, np.array([97, 180, 15]), np.array([117, 255, 90]))
+        mask = cv2.inRange(hsv, np.array([101, 255, 18]), np.array([108, 255, 26]))
         return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
 
     def sign_arrow_mask(self, image):
         image = cv2.resize(image, (100, 100))
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, np.array([0, 0, 30]), np.array([179, 100, 255]))
+        # mask = cv2.inRange(hsv, np.array([0, 0, 30]), np.array([179, 100, 255]))
+        mask = cv2.inRange(hsv, np.array([68, 48, 30]), np.array([90, 66, 43]))
         inner = np.zeros((100, 100), dtype=np.uint8)
+
+
         cv2.circle(inner, (50, 50), 40, 255, -1)
         return cv2.bitwise_and(mask, inner)
 
