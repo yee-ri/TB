@@ -35,7 +35,7 @@ class TemplateMatch:
         if np.isfinite(depth) and depth > 0:
 
             depth_m = depth / 1000.0 if data.encoding == '16UC1' else depth
-            rospy.loginfo("CENTER DEPTH: %.3f m", depth_m)
+            # rospy.loginfo("CENTER DEPTH: %.3f m", depth_m)
 
     def image_callback(self,msg):
         image=self.bridge.imgmsg_to_cv2(msg,'bgr8')
@@ -49,6 +49,7 @@ class TemplateMatch:
         red_mask=cv2.inRange( hsv, np.array([0, 180, 107]), np.array([5, 255, 194]))
 
         green_mask = cv2.inRange(hsv, np.array([45, 100, 80]), np.array([85, 255, 255]))
+        blue_mask = cv2.inRange(hsv, np.array([101, 255, 18]), np.array([108, 255, 26]))
 
 
         mask=cv2.bitwise_or(yellow_mask,white_mask)
@@ -59,12 +60,13 @@ class TemplateMatch:
         red_area=cv2.countNonZero(red_mask)  
         green_area = cv2.countNonZero(green_mask)
         yellow_area = cv2.countNonZero(yellow_mask)
+        blue_area = cv2.countNonZero(blue_mask)
 
         filtered=cv2.bitwise_and(image,image,mask=mask)
 
         display = image.copy()
         filtered_display = filtered.copy()
-
+        rospy.loginfo("BLUE: %f",blue_area)
         point = self.depth_point
         if point is not None:
             cx, cy, depth_width, depth_height = point

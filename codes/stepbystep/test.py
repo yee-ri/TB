@@ -143,7 +143,8 @@ class turtlebot():
         self._color_lut = _ColorLUTAddition(lut_path)
         #LUT ADD
         #신호등과 차단봉에 필요한 빨간색(8), 초록색(16) 등록 여부도 확인합니다.
-        for label, name in ((1, 'White'), (2, 'Yellow'), (4, 'Blue'), (8, 'Red'), (16, 'Green')):
+        # for label, name in ((1, 'White'), (2, 'Yellow'), (4, 'Blue'), (8, 'Red'), (16, 'Green')):
+        for label, name in ((1, 'White'), (2, 'Yellow'), (8, 'Red'), (16, 'Green')):
             if not self._color_lut.counts.get(label, 0):
                 raise ValueError('LUT requires registered ' + name + ' colors')
         #LUT ADD
@@ -156,7 +157,7 @@ class turtlebot():
         
 
 ############## 구간별 테스트 설정 ##############
-        self.step=int(rospy.get_param('~start_step',0))
+        self.step=int(rospy.get_param('~start_step',1))
         self.standalone_gate_start=self.step==8
         # Full-course odometry uses its original heading. A fresh step8 run
         # instead captures the approach heading when the lane ends.
@@ -546,17 +547,19 @@ class turtlebot():
         #BGR 영상을 LUT로 분류하여 빨간색(8), 초록색(16)을 추출합니다.
         labels = self._color_lut.rgb_to_label(data, bgr=True)
         red_mask = (labels == 8).astype(np.uint8) * 255
-        green_mask = (labels == 16).astype(np.uint8) * 255
+        # green_mask = (labels == 16).astype(np.uint8) * 255
         red_area = cv2.countNonZero(red_mask)
         rospy.loginfo("RED is : %f",red_area)
         #초록색의 작은 잡음을 제거하고 검출 영역을 보강합니다.
-        green_mask=cv2.erode(green_mask,None,iterations=1)
-        green_mask=cv2.dilate(green_mask,None,iterations=2)
+        hsv_frame = cv2.cvtColor(data, cv2.COLOR_BGR2HSV)
+        green_mask = cv2.inRange(hsv_frame, np.array([45, 100, 80]), np.array([85, 255, 255]))
+        # green_mask=cv2.erode(green_mask,None,iterations=1)
+        # green_mask=cv2.dilate(green_mask,None,iterations=2)
         green_area = cv2.countNonZero(green_mask)
         rospy.loginfo(green_area)
         rospy.loginfo("GREED.: %f",green_area)
         #빨간색이 200픽셀 이상이면 정지를 유지합니다. 동시 검출 시 빨간색 우선입니다.
-        if green_area>=100:
+        if green_area>=30:
             rospy.loginfo("@@@@@@ GREEN LIGHT @@@@@@")
             # self.stop()
             rospy.sleep(0.5)
@@ -993,6 +996,7 @@ class turtlebot():
 
         else:
             white_mask[:,:width//2]=0
+            yellow_mask[:,width//2:] = 0
 
         if self.step != 3:
             is_curve = self.detect_curve(white_mask, yellow_mask)
@@ -1123,7 +1127,7 @@ class turtlebot():
                 if is_curve and self.step not in (2,4,5,7):
                     Kp=0.15
                     Kd=0.4
-                    linear=21.0
+                    linear=18.0
                     max_angular=32.0
                 elif self.step ==4:
                     Kp=0.14
@@ -1145,7 +1149,7 @@ class turtlebot():
                 else:
                     Kp=0.2#0.23 -> 0.17 ->0.10
                     Kd=2.0#0.008 -> 0.0025 ->0.4
-                    linear=60.0 #22.0 ->30
+                    linear=40.0 #22.0 ->30
                     max_angular=85.0 #0.85 ->95 ->85
 
             if self.step in (1, 8) and self.start_time is not None:
