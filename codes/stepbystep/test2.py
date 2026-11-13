@@ -957,10 +957,17 @@ class turtlebot():
         height,width=crop_img.shape[:2]
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
-
-
         white_mask = self._color_lut.mask(crop_img, 1)
-        white_area = cv2.countNonZero(white_mask)
+        white_area_1 = cv2.countNonZero(white_mask)
+        if white_area_1 <=20:
+           self.w_count +=1
+        else: self.w_count = 0  
+
+        if self.step == 2 and self.direction == 'right' and self.w_count>=3:
+            self.turn_time('straight', 0.8, 0.07, 0)
+            self.turn_time('right', 1, 0.03, 0.35)
+            self.step = 3
+            return
 
         yellow_mask = self._color_lut.mask(crop_img, 2)
         if self.step==3:
@@ -1196,11 +1203,6 @@ class turtlebot():
             rospy.loginfo("LANE LOST -> SLOW STRAIGHT")
 
             self.move(0.06,0.0)
-            rospy.loginfo("cx_w: %f",cx_w)
-        if self.step ==2 and self.direction =='right' and cx_w <=20:
-            self.turn_time('straight', 0.8, 0.07, 0)
-            # self.move_time_yaw_hold(0.07,-3.14,1.7)
-            self.turn_time('right', 1, 0.03, 0.35)
 
     def parking(self, image):
         if self.parking_end is not None:
