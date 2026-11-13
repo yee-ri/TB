@@ -620,7 +620,6 @@ class turtlebot():
         self.stop()
         return False
 
-
     def sign_blue_mask(self, image):
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         # mask = cv2.inRange(hsv, np.array([97, 180, 15]), np.array([117, 255, 90]))
@@ -718,6 +717,7 @@ class turtlebot():
         if self.step == 1:
             return self.check_stopped_blue_turn()
 
+        # 아래는 단독 테스트용 step 1.1 / 1.2에서만 실행됩니다.
         # 카메라 화면 중앙을 기준으로 파란색 마스크의 좌/우 픽셀 수 비교
         width = self.blue_mask.shape[1]
         left_blue_area = cv2.countNonZero(self.blue_mask[:, :width // 2])
@@ -739,14 +739,6 @@ class turtlebot():
                 return False
             self.direction = 'right'
 
-        else:
-            if (left_blue_area > right_blue_area and self.mask_count >= 5) or (left_blue_area > right_blue_area and self.blue_area > 400):
-                self.direction = 'left'
-            if self.front_distance < 0.75 and self.blue_area >= 3:
-                self.direction = 'left'
-            else:
-                return False
-
         self.turn_direction = self.direction
         self.turn_detect = None
         self.prev_error = 0.0
@@ -766,6 +758,7 @@ class turtlebot():
         self.step = 2
         rospy.loginfo("@@@@@@ TURN END @@@@@@")
         return True
+
 
     def check_stopped_blue_turn(self):
         if not self.blue_stop_latched:
