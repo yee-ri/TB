@@ -183,6 +183,7 @@ class turtlebot():
         self.sign_right_count = 0
         self.left_ready_count = 0
         self.ready = 0
+        self.blue_area = 0
 
 ############## 라인 트랙킹 관련 변수 ##############
         self.prev_error=0.0
@@ -581,10 +582,11 @@ class turtlebot():
         self.stop()
         return False
 
+
     def sign_blue_mask(self, image):
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         # mask = cv2.inRange(hsv, np.array([97, 180, 15]), np.array([117, 255, 90]))
-        mask = cv2.inRange(hsv, np.array([101, 255, 18]), np.array([108, 255, 26]))
+        mask = cv2.inRange(hsv, np.array([96, 255, 9]), np.array([108, 255, 21]))
         return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
 
     def sign_arrow_mask(self, image):
@@ -641,7 +643,7 @@ class turtlebot():
         detected = max(self.max_val_l, self.max_val_r) >= self.sign_threshold
 
 
-        near = 0.2 <= self.front_distance <= 0.75
+        near = 0.2 <= self.front_distance <= 2.75
 
         if detected and self.max_val_l > self.max_val_r:
             self.sign_left_count += 1
@@ -677,7 +679,8 @@ class turtlebot():
         if self.step != 1:
             return False
 
-        if self.max_val_l >= 0.6 and self.max_val_l > self.max_val_r:
+        # if self.max_val_l >= 0.6 and self.max_val_l > self.max_val_r:
+        if  self.max_val_l > self.max_val_r and self.blue_area>=200:
             self.left_ready_count += 1
         else:
             # self.left_ready_count = 0
@@ -689,8 +692,8 @@ class turtlebot():
             self.turn_detect = sign
             rospy.loginfo("@@@@@@ %s SIGN SAVED @@@@@@", sign.upper())
 
-        right_ready = self.turn_detect == 'right' and math.isfinite(self.front_distance) and 0 < self.front_distance <= 0.5
-
+        # right_ready = self.turn_detect == 'right' and math.isfinite(self.front_distance) and 0 < self.front_distance <= 0.5
+        right_ready = self.turn_detect == 'right'  and self.blue_area>200
         if left_ready or right_ready:
             self.turn_direction = 'left' if left_ready else 'right'
             self.turn_detect = None
@@ -958,16 +961,20 @@ class turtlebot():
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
         white_mask = self._color_lut.mask(crop_img, 1)
-        white_area_1 = cv2.countNonZero(white_mask)
-        if white_area_1 <=20:
-           self.w_count +=1
-        else: self.w_count = 0  
+        # white_area_1 = cv2.countNonZero(white_mask)
+        # rospy.loginfo("WHITEL: %f",white_area_1)
+        # if white_area_1 <=50:
+        #    self.w_count +=1
+        # else: self.w_count = 0  
+        # rospy.loginfo("Wcount: %f",self.w_count)
+        # # rospy.loginfo(self.direction)
+        
 
-        if self.step == 2 and self.direction == 'right' and self.w_count>=3:
-            self.turn_time('straight', 0.8, 0.07, 0)
-            self.turn_time('right', 1, 0.03, 0.35)
-            self.step = 3
-            return
+        # if self.step == 2 and self.w_count>=3:
+        #     self.turn_time('straight', 0.8, 0.07, 0)
+        #     self.turn_time('right', 1, 0.03, 0.35)
+        #     self.step = 3
+        #     return
 
         yellow_mask = self._color_lut.mask(crop_img, 2)
         if self.step==3:
@@ -1015,6 +1022,22 @@ class turtlebot():
         if self.step != 3:
             is_curve = self.detect_curve(white_mask, yellow_mask)
 
+
+        # white_mask = self._color_lut.mask(crop_img, 1)
+        white_area_1 = cv2.countNonZero(white_mask)
+        rospy.loginfo("WHITEL: %f",white_area_1)
+        if white_area_1 <=50:
+           self.w_count +=1
+        else: self.w_count = 0  
+        rospy.loginfo("Wcount: %f",self.w_count)
+        # rospy.loginfo(self.direction)
+        
+
+        if self.step == 2 and self.w_count>=3:
+            self.turn_time('straight', 0.8, 0.07, 0)
+            self.turn_time('right', 1, 0.03, 0.35)
+            self.step = 3
+            return
 
         M_w = cv2.moments(white_mask)
         M_y = cv2.moments(yellow_mask)
@@ -1480,27 +1503,37 @@ class turtlebot():
             return
 
         if self.step==1: # detect sign ~ end turn
+            # hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+            # # mask = cv2.inRange(hsv, np.array([97, 180, 15]), np.array([117, 255, 90]))
+            # blue_mask = cv2.inRange(hsv, np.array([96, 255, 9]), np.array([108, 255, 21]))
+            # blue_area = cv2.countNonZero(blue_mask)
+            # rospy.loginfo(blue_area)
+            # if self.ready != 1:
+            #     self.ready = self.just_count(image,130)
+
+            # rospy.loginfo("READY ;%f",self.ready)
+            # rospy.loginfo("BLUE: %f",blue_area)
+            # if self.ready ==1:
+            #     if  blue_area >= 250:
+            #         self.turn_time('straight', 1.8, 0.07, 0)
+            #         # self.move_time_yaw_hold(0.07,-3.14,2.4)
+            #         self.turn_time('right', 1, 0.03, 0.35)
+            #         self.direction = 'right'
+            #         rospy.loginfo("@@@@@@ TURN END @@@@@@")
+            #         self.step =2
+            #     return
+
             hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
             # mask = cv2.inRange(hsv, np.array([97, 180, 15]), np.array([117, 255, 90]))
-            blue_mask = cv2.inRange(hsv, np.array([96, 255, 9]), np.array([108, 255, 21]))
-            blue_area = cv2.countNonZero(blue_mask)
-            rospy.loginfo(blue_area)
-            if self.ready != 1:
-                self.ready = self.just_count(image,110)
+            self.blue_mask = cv2.inRange(hsv, np.array([96, 255, 9]), np.array([108, 255, 21]))
+            self.blue_area = cv2.countNonZero(self.blue_mask)
+            rospy.loginfo(self.blue_area)
+            # if self.ready != 1:
+            #     self.ready = self.just_count(image,130)
 
-            rospy.loginfo("READY ;%f",self.ready)
-            rospy.loginfo("BLUE: %f",blue_area)
-            if self.ready ==1:
-                if  blue_area >= 270:
-                    # self.turn_time('straight', 1.0, 0.07, 0)
-                    self.move_time_yaw_hold(0.07,-3.14,1.7)
-                    self.turn_time('right', 1, 0.03, 0.35)
-                    self.direction = 'right'
-                    rospy.loginfo("@@@@@@ TURN END @@@@@@")
-                    self.step =2
+
+            if self.check_turn(image):
                 return
-            # if self.check_turn(image):
-            #     return
         
         elif self.step == 2: # straight find --> turn detect reset for obstacle !!~!~!~
             # self.turn_detect='left'
@@ -1586,10 +1619,10 @@ class turtlebot():
                 self.stop()
                 return
 
-            if self.set ==1 and (0.15<=round(self.right_distance,1)<=0.4):
+            if self.set ==1 and (0.15<=round(self.right_distance,1)<=0.93):
                 self.set = 2
             # if self.set ==1 and 0.15<=self.left_distance<=0.21: #왼쪽에뭐있음
-            if self.set ==1 and 0.15<=round(self.left_distance,1)<=0.4:
+            if self.set ==1 and 0.15<=round(self.left_distance,1)<=0.93:
                 self.set = 3
 
             if self.set==2 or self.set==3:

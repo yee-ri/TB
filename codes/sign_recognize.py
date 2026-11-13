@@ -26,12 +26,16 @@ class TemplateMatch:
     def depth_callback(self, data):
         depth_image = self.bridge.imgmsg_to_cv2( data, desired_encoding='passthrough')
         height, width = depth_image.shape[:2] 
-        cx = width // 2 
-        cy = height // 2 -170
+        rospy.loginfo("%f , %df",height,width)
+        # cx = width // 2 
+        # cy = height // 2 -170
+        cx_r = width // 2 + 250
+        cy_r= height // 2 
+        self.depth_point = (cx_r, cy_r, width, height)
 
-        self.depth_point = (cx, cy, width, height)
+        # self.depth_point = (cx, cy, width, height)
 
-        depth = float(depth_image[cy, cx])
+        depth = float(depth_image[cy_r, cx_r])
         if np.isfinite(depth) and depth > 0:
 
             depth_m = depth / 1000.0 if data.encoding == '16UC1' else depth
@@ -49,8 +53,14 @@ class TemplateMatch:
         red_mask=cv2.inRange( hsv, np.array([0, 180, 107]), np.array([5, 255, 194]))
 
         green_mask = cv2.inRange(hsv, np.array([45, 100, 80]), np.array([85, 255, 255]))
-        blue_mask = cv2.inRange(hsv, np.array([101, 255, 18]), np.array([108, 255, 26]))
+        blue_mask = cv2.inRange(hsv, np.array([96, 255, 9]), np.array([108, 255, 21]))
 
+        width = blue_mask.shape[1]
+        left_blue_area = cv2.countNonZero(blue_mask[:, :width // 2])
+        right_blue_area = cv2.countNonZero(blue_mask[:, width // 2:])
+        blue_area = cv2.countNonZero(blue_mask)
+        # rospy.loginfo("BLUE: TOTAL=%d LEFT=%d RIGHT=%d",
+        #               blue_area, left_blue_area, right_blue_area)
 
         mask=cv2.bitwise_or(yellow_mask,white_mask)
 
