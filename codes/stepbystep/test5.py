@@ -1810,7 +1810,8 @@ class turtlebot():
 
             self.yellow_zero_count = 0
 
-            half = width // 2. 
+            # half = width // 2. 
+            half = int(width//2) ## 에러 걱정되는 부분
             left_m = cv2.moments(yellow_mask[:, :half], binaryImage=True)
             right_m = cv2.moments(yellow_mask[:, half:], binaryImage=True)
             left_x = left_m['m10'] / left_m['m00'] if left_m['m00'] >= 10 else None
