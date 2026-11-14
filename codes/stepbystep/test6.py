@@ -157,7 +157,7 @@ class turtlebot():
         
 
 ############## 구간별 테스트 설정 ##############
-        self.step = float(rospy.get_param('~start_step', 5))
+        self.step = float(rospy.get_param('~start_step', 8))
         self.standalone_gate_start=self.step==8
         # Full-course odometry uses its original heading. A fresh step8 run
         # instead captures the approach heading when the lane ends.
